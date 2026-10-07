@@ -54,6 +54,7 @@ export type DesignNodeData = {
   componentKind: ComponentKind;
   purpose: string;
   config: NodeConfig;
+  [key: string]: unknown;
 };
 
 export type FeatureBlock = {

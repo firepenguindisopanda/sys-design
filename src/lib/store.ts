@@ -58,7 +58,7 @@ function createNode(kind: ComponentKind, position: { x: number; y: number }): Si
   const item = COMPONENT_CATALOG.find((c) => c.kind === kind)!;
   return {
     id: uid(kind),
-    type: "design",
+    type: "designNode",
     position,
     data: {
       label: item.label,

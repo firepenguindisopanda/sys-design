@@ -1,7 +1,7 @@
 "use client";
 
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { cn } from "@/lib/utils";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { memo } from "react";
 import type { DesignNodeData } from "@/lib/types";
 import {
   Cloud,
@@ -12,88 +12,125 @@ import {
   Zap,
 } from "lucide-react";
 
-type DesignFlowNode = Node<DesignNodeData, "design">;
-
 const KIND_STYLES: Record<
   string,
   { icon: typeof Server; accent: string; chip: string }
 > = {
   vm: {
     icon: Server,
-    accent: "border-l-teal-600",
-    chip: "bg-teal-50 text-teal-800",
+    accent: "#0f766e",
+    chip: "#f0fdfa",
   },
   paas: {
     icon: Cloud,
-    accent: "border-l-sky-600",
-    chip: "bg-sky-50 text-sky-800",
+    accent: "#0284c7",
+    chip: "#f0f9ff",
   },
   functions: {
     icon: Zap,
-    accent: "border-l-amber-500",
-    chip: "bg-amber-50 text-amber-900",
+    accent: "#d97706",
+    chip: "#fffbeb",
   },
   database: {
     icon: Database,
-    accent: "border-l-emerald-600",
-    chip: "bg-emerald-50 text-emerald-800",
+    accent: "#059669",
+    chip: "#ecfdf5",
   },
   load_balancer: {
     icon: Network,
-    accent: "border-l-slate-600",
-    chip: "bg-slate-100 text-slate-800",
+    accent: "#475569",
+    chip: "#f8fafc",
   },
   static_hosting: {
     icon: Globe,
-    accent: "border-l-cyan-600",
-    chip: "bg-cyan-50 text-cyan-800",
+    accent: "#0891b2",
+    chip: "#ecfeff",
   },
   cdn: {
     icon: Globe,
-    accent: "border-l-indigo-500",
-    chip: "bg-indigo-50 text-indigo-800",
+    accent: "#4f46e5",
+    chip: "#eef2ff",
   },
 };
 
-export function DesignNode({ data, selected }: NodeProps<DesignFlowNode>) {
-  const style = KIND_STYLES[data.componentKind] ?? KIND_STYLES.vm!;
+function DesignNodeComponent({ data, selected }: NodeProps) {
+  const nodeData = data as unknown as DesignNodeData;
+  const style = KIND_STYLES[nodeData.componentKind] ?? KIND_STYLES.vm!;
   const Icon = style.icon;
-  const cfg = data.config;
+  const cfg = nodeData.config;
 
-  let meta = data.purpose;
-  if (cfg.kind === "vm" || cfg.kind === "paas" || cfg.kind === "functions") {
+  let meta = nodeData.purpose;
+  if (cfg && (cfg.kind === "vm" || cfg.kind === "paas" || cfg.kind === "functions")) {
     meta = `${cfg.capacity.vcpus} vCPU · ${cfg.capacity.memoryGb} GB · ${cfg.appType}`;
-  } else if (cfg.kind === "database") {
+  } else if (cfg && cfg.kind === "database") {
     meta = `${cfg.engine} · ${cfg.replicas}× replica · ${cfg.shards} shard`;
   }
 
   return (
     <div
-      className={cn(
-        "min-w-[180px] max-w-[220px] rounded-md border border-slate-200 border-l-4 bg-white shadow-sm",
-        style.accent,
-        selected && "ring-2 ring-teal-500/60 shadow-md",
-      )}
+      style={{
+        minWidth: 180,
+        maxWidth: 220,
+        borderRadius: 6,
+        border: selected ? "2px solid #0f766e" : "1px solid #e2e8f0",
+        borderLeft: `4px solid ${style.accent}`,
+        background: "#fff",
+        boxShadow: selected
+          ? "0 4px 12px rgb(15 118 110 / 0.18)"
+          : "0 1px 2px rgb(0 0 0 / 0.06)",
+        fontSize: 12,
+      }}
     >
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2.5 !w-2.5 !border-slate-300 !bg-white"
+        style={{ width: 8, height: 8, background: "#fff", border: "1px solid #cbd5e1" }}
       />
-      <div className="flex items-start gap-2 px-3 py-2.5">
-        <div className={cn("mt-0.5 rounded p-1", style.chip)}>
-          <Icon className="h-3.5 w-3.5" />
+      <div style={{ display: "flex", gap: 8, padding: "10px 12px", alignItems: "flex-start" }}>
+        <div
+          style={{
+            marginTop: 2,
+            borderRadius: 4,
+            padding: 4,
+            background: style.chip,
+            color: style.accent,
+          }}
+        >
+          <Icon size={14} />
         </div>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-900">{data.label}</div>
-          <div className="mt-0.5 truncate text-[11px] text-slate-500">{meta}</div>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 600,
+              color: "#0f172a",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {nodeData.label}
+          </div>
+          <div
+            style={{
+              marginTop: 2,
+              color: "#64748b",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {meta}
+          </div>
         </div>
       </div>
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2.5 !w-2.5 !border-slate-300 !bg-white"
+        style={{ width: 8, height: 8, background: "#fff", border: "1px solid #cbd5e1" }}
       />
     </div>
   );
 }
+
+export const DesignNode = memo(DesignNodeComponent);

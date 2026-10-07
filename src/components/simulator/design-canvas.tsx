@@ -9,11 +9,15 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { DesignNode } from "./design-node";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Eraser, Sparkles } from "lucide-react";
+
+const nodeTypes = {
+  designNode: DesignNode,
+} as NodeTypes;
 
 export function DesignCanvas() {
   const nodes = useSimulatorStore((s) => s.nodes);
@@ -25,11 +29,6 @@ export function DesignCanvas() {
   const loadDemo = useSimulatorStore((s) => s.loadDemo);
   const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
 
-  const nodeTypes: NodeTypes = useMemo(
-    () => ({ design: DesignNode as unknown as NodeTypes[string] }),
-    [],
-  );
-
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: SimNode) => selectNode(node.id),
     [selectNode],
@@ -40,7 +39,7 @@ export function DesignCanvas() {
   return (
     <div className="relative h-full w-full">
       <div className="pointer-events-none absolute left-3 top-3 z-10 flex gap-2">
-        <div className="pointer-events-auto flex gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
           <Button
             type="button"
             size="sm"
@@ -73,7 +72,10 @@ export function DesignCanvas() {
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
+        minZoom={0.2}
+        maxZoom={1.5}
         className="bg-transparent"
       >
         <Background
