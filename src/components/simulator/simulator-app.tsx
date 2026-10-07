@@ -1,6 +1,5 @@
 "use client";
 
-import { ReactFlowProvider } from "@xyflow/react";
 import { ComponentLibrary } from "./component-library";
 import { DesignCanvas } from "./design-canvas";
 import { RequirementsPanel } from "./requirements-panel";
@@ -12,7 +11,6 @@ import { Boxes, ListChecks } from "lucide-react";
 export function SimulatorApp() {
   return (
     <TooltipProvider>
-      <ReactFlowProvider>
         <div className="flex h-dvh flex-col overflow-hidden bg-[var(--app-bg)] text-slate-900">
           <header className="relative z-20 flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-3 py-2.5 backdrop-blur-md sm:px-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -76,7 +74,6 @@ export function SimulatorApp() {
 
           <VerificationPanel />
         </div>
-      </ReactFlowProvider>
     </TooltipProvider>
   );
 }

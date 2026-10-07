@@ -6,10 +6,12 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DesignNode } from "./design-node";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -19,15 +21,27 @@ const nodeTypes = {
   designNode: DesignNode,
 } as NodeTypes;
 
-export function DesignCanvas() {
+function FitViewOnReady({ nodeCount }: { nodeCount: number }) {
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    if (nodeCount === 0) return;
+    const id = requestAnimationFrame(() => {
+      fitView({ padding: 0.2, duration: 200 });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [fitView, nodeCount]);
+
+  return null;
+}
+
+function FlowCanvas() {
   const nodes = useSimulatorStore((s) => s.nodes);
   const edges = useSimulatorStore((s) => s.edges);
   const onNodesChange = useSimulatorStore((s) => s.onNodesChange);
   const onEdgesChange = useSimulatorStore((s) => s.onEdgesChange);
   const onConnect = useSimulatorStore((s) => s.onConnect);
   const selectNode = useSimulatorStore((s) => s.selectNode);
-  const loadDemo = useSimulatorStore((s) => s.loadDemo);
-  const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: SimNode) => selectNode(node.id),
@@ -37,7 +51,65 @@ export function DesignCanvas() {
   const onPaneClick = useCallback(() => selectNode(null), [selectNode]);
 
   return (
-    <div className="relative h-full w-full">
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      onNodeClick={onNodeClick}
+      onPaneClick={onPaneClick}
+      nodeTypes={nodeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.2 }}
+      proOptions={{ hideAttribution: true }}
+      minZoom={0.2}
+      maxZoom={1.5}
+      className="bg-transparent"
+    >
+      <FitViewOnReady nodeCount={nodes.length} />
+      <Background
+        variant={BackgroundVariant.Dots}
+        gap={18}
+        size={1}
+        color="#94a3b8"
+        className="opacity-40"
+      />
+      <Controls className="!shadow-sm !border-slate-200" />
+      <MiniMap
+        className="!border-slate-200 !shadow-sm"
+        maskColor="rgb(15 23 42 / 0.08)"
+        nodeColor="#0f766e"
+      />
+    </ReactFlow>
+  );
+}
+
+export function DesignCanvas() {
+  const loadDemo = useSimulatorStore((s) => s.loadDemo);
+  const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+
+  // Avoid mounting React Flow before the flex/absolute container has a real size
+  // (blank first paint was reported in desktop browser testing).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const check = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) setReady(true);
+    };
+
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative h-full w-full">
       <div className="pointer-events-none absolute left-3 top-3 z-10 flex gap-2">
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
           <Button
@@ -62,36 +134,15 @@ export function DesignCanvas() {
           </Button>
         </div>
       </div>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onPaneClick={onPaneClick}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        proOptions={{ hideAttribution: true }}
-        minZoom={0.2}
-        maxZoom={1.5}
-        className="bg-transparent"
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={18}
-          size={1}
-          color="#94a3b8"
-          className="opacity-40"
-        />
-        <Controls className="!shadow-sm !border-slate-200" />
-        <MiniMap
-          className="!border-slate-200 !shadow-sm"
-          maskColor="rgb(15 23 42 / 0.08)"
-          nodeColor="#0f766e"
-        />
-      </ReactFlow>
+      {ready ? (
+        <ReactFlowProvider>
+          <FlowCanvas />
+        </ReactFlowProvider>
+      ) : (
+        <div className="flex h-full items-center justify-center text-xs text-slate-400">
+          Preparing canvas…
+        </div>
+      )}
     </div>
   );
 }
