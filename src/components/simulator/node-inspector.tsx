@@ -257,6 +257,17 @@ export function NodeInspector() {
           />
         </div>
       )}
+
+      {(cfg.kind === "mobile" || cfg.kind === "desktop" || cfg.kind === "iot") && (
+        <div className="space-y-1">
+          <Label className="text-[10px]">Platform / device</Label>
+          <Input
+            value={cfg.platform}
+            onChange={(e) => updateNodeConfig(node.id, { platform: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+      )}
     </div>
   );
 }

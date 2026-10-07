@@ -3,11 +3,13 @@
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type Connection,
   type Edge,
   type NodeTypes,
 } from "@xyflow/react";
@@ -71,6 +73,12 @@ function FlowCanvas() {
     selectEdge(null);
   }, [selectNode, selectEdge]);
 
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    if (!connection.source || !connection.target) return false;
+    // Allow many edges per node / handle; only block self-loops.
+    return connection.source !== connection.target;
+  }, []);
+
   return (
     <ReactFlow
       nodes={nodes}
@@ -81,7 +89,10 @@ function FlowCanvas() {
       onNodeClick={onNodeClick}
       onEdgeClick={onEdgeClick}
       onPaneClick={onPaneClick}
+      isValidConnection={isValidConnection}
+      connectionMode={ConnectionMode.Loose}
       nodeTypes={nodeTypes}
+      defaultEdgeOptions={{ type: "smoothstep" }}
       fitView
       fitViewOptions={{ padding: 0.2 }}
       proOptions={{ hideAttribution: true }}
@@ -90,6 +101,7 @@ function FlowCanvas() {
       className="bg-transparent"
       edgesFocusable
       elementsSelectable
+      edgesReconnectable
     >
       <FitViewOnReady nodeCount={nodes.length} />
       <Background
@@ -111,6 +123,7 @@ function FlowCanvas() {
 
 export function DesignCanvas() {
   const loadDemo = useSimulatorStore((s) => s.loadDemo);
+  const loadFanInDemo = useSimulatorStore((s) => s.loadFanInDemo);
   const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -143,6 +156,15 @@ export function DesignCanvas() {
           >
             <Sparkles className="h-3.5 w-3.5" />
             Load BeUWI demo
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 text-xs"
+            onClick={loadFanInDemo}
+          >
+            Fan-in DB demo
           </Button>
           <Button
             type="button"

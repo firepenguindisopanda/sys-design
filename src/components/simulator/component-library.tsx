@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 import {
   Boxes,
   Cloud,
+  Cpu,
   Database,
   Globe,
   HardDrive,
   Layers,
   ListTodo,
+  Monitor,
   Network,
   Plug,
   Server,
+  Smartphone,
   Zap,
 } from "lucide-react";
 
@@ -32,9 +35,13 @@ const ICONS: Record<ComponentKind, typeof Server> = {
   static_hosting: Globe,
   cdn: Globe,
   external_api: Plug,
+  mobile: Smartphone,
+  desktop: Monitor,
+  iot: Cpu,
 };
 
 const CATEGORY_ORDER: CatalogCategory[] = [
+  "clients",
   "compute",
   "data",
   "messaging",
@@ -44,6 +51,7 @@ const CATEGORY_ORDER: CatalogCategory[] = [
 ];
 
 const CATEGORY_LABEL: Record<CatalogCategory, string> = {
+  clients: "Clients",
   compute: "Compute",
   data: "Data",
   messaging: "Messaging & workers",

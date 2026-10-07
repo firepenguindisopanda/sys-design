@@ -90,6 +90,7 @@ export function styleEdgeForProtocol(
 
   return {
     ...edge,
+    type: edge.type ?? "smoothstep",
     label,
     animated: protocol === "websocket" || protocol === "sse" || protocol === "web_push",
     markerEnd: marker,

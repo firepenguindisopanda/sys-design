@@ -32,9 +32,36 @@ export const BASE_MONTHLY_COST: Record<string, number> = {
   static_hosting: 0,
   cdn: 12,
   external_api: 0,
+  mobile: 0,
+  desktop: 0,
+  iot: 0,
 };
 
 export const COMPONENT_CATALOG: CatalogItem[] = [
+  {
+    kind: "mobile",
+    label: "Mobile Client",
+    shortLabel: "Mobile",
+    description: "Native or hybrid mobile app client (PDF: web and mobile clients).",
+    category: "clients",
+    defaultConfig: { kind: "mobile", platform: "iOS / Android" },
+  },
+  {
+    kind: "desktop",
+    label: "Desktop Client",
+    shortLabel: "Desktop",
+    description: "Desktop or browser workstation client talking to your system over the network.",
+    category: "clients",
+    defaultConfig: { kind: "desktop", platform: "browser / desktop" },
+  },
+  {
+    kind: "iot",
+    label: "IoT Device",
+    shortLabel: "IoT",
+    description: "Sensors/actuators at the edge (PDF edge/IoT use cases); often MQTT/HTTP/WebSocket.",
+    category: "clients",
+    defaultConfig: { kind: "iot", platform: "sensor / gateway" },
+  },
   {
     kind: "vm",
     label: "Virtual Machine",
@@ -189,4 +216,19 @@ export const COMPONENT_CATALOG: CatalogItem[] = [
 
 export function isComputeKind(kind: string): kind is ComputeKind {
   return kind === "vm" || kind === "paas" || kind === "functions" || kind === "edge";
+}
+
+export type ClientKind = "mobile" | "desktop" | "iot";
+
+export function isClientKind(kind: string): kind is ClientKind {
+  return kind === "mobile" || kind === "desktop" || kind === "iot";
+}
+
+/** Nodes that behave as request initiators / end-user surfaces in topology checks. */
+export function isClientishKind(kind: string): boolean {
+  return (
+    isClientKind(kind) ||
+    kind === "static_hosting" ||
+    kind === "cdn"
+  );
 }

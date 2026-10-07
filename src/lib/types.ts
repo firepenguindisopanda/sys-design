@@ -11,7 +11,10 @@ export type ComponentKind =
   | "load_balancer"
   | "static_hosting"
   | "cdn"
-  | "external_api";
+  | "external_api"
+  | "mobile"
+  | "desktop"
+  | "iot";
 
 /** Connection protocol — direction semantics from the System Design PDF. */
 export type EdgeProtocol =
@@ -89,6 +92,12 @@ export type ExternalApiConfig = {
   provider: string;
 };
 
+export type ClientConfig = {
+  kind: "mobile" | "desktop" | "iot";
+  /** Platform or device class note (iOS/Android, browser OS, sensor type) */
+  platform: string;
+};
+
 export type NodeConfig =
   | ComputeConfig
   | DatabaseConfig
@@ -99,7 +108,8 @@ export type NodeConfig =
   | LoadBalancerConfig
   | StaticHostingConfig
   | CdnConfig
-  | ExternalApiConfig;
+  | ExternalApiConfig
+  | ClientConfig;
 
 export type DesignNodeData = {
   label: string;
@@ -157,7 +167,14 @@ export type VerificationResult = {
   estimatedMonthlyCostUsd: number;
 };
 
-export type CatalogCategory = "compute" | "data" | "messaging" | "network" | "edge" | "external";
+export type CatalogCategory =
+  | "clients"
+  | "compute"
+  | "data"
+  | "messaging"
+  | "network"
+  | "edge"
+  | "external";
 
 export type CatalogItem = {
   kind: ComponentKind;

@@ -1,4 +1,9 @@
-import { BASE_MONTHLY_COST, SCALE_FACTOR, isComputeKind } from "./catalog";
+import {
+  BASE_MONTHLY_COST,
+  SCALE_FACTOR,
+  isClientishKind,
+  isComputeKind,
+} from "./catalog";
 import { getEdgeData } from "./edges";
 import type {
   CheckStatus,
@@ -81,6 +86,9 @@ function hopLatencyMs(
   if (sk === "message_queue" || tk === "message_queue") return 10;
   if (sk === "object_storage" || tk === "object_storage") return 28;
   if (sk === "external_api" || tk === "external_api") return 45;
+  if (sk === "iot" || tk === "iot") return 30;
+  if (sk === "mobile" || tk === "mobile") return 28;
+  if (sk === "desktop" || tk === "desktop") return 22;
   if (sk === "static_hosting" || tk === "static_hosting") return 35;
   if (sk === "load_balancer" || tk === "load_balancer") return 8;
   if (tk === "database" || sk === "database") {
@@ -458,8 +466,7 @@ export function runVerification(
     const src = byId.get(e.source);
     const tgt = byId.get(e.target);
     if (!src || !tgt) continue;
-    const clientish =
-      src.data.componentKind === "static_hosting" || src.data.componentKind === "cdn";
+    const clientish = isClientishKind(src.data.componentKind);
     const external =
       tgt.data.componentKind === "external_api" || src.data.componentKind === "external_api";
     if (clientish && external) {
@@ -486,9 +493,7 @@ export function runVerification(
       src.data.componentKind === "external_api" ||
       src.data.componentKind === "task_worker";
     const clientish =
-      tgt.data.componentKind === "static_hosting" ||
-      tgt.data.componentKind === "cdn" ||
-      tgt.data.componentKind === "edge";
+      isClientishKind(tgt.data.componentKind) || tgt.data.componentKind === "edge";
     if (!serverish || !clientish) {
       checks.push({
         id: `topo-sse-dir-${e.id}`,

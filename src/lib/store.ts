@@ -63,6 +63,7 @@ type SimulatorState = {
   setNfr: (patch: Partial<NonFunctionalRequirements>) => void;
   runVerification: () => void;
   loadDemo: () => void;
+  loadFanInDemo: () => void;
   clearCanvas: () => void;
 };
 
@@ -97,10 +98,16 @@ const demoSeed = (): Pick<
   | "pendingProtocol"
 > => {
   seq = 1;
-  const staticNode = createNode("static_hosting", { x: 40, y: 40 });
-  const cdn = createNode("cdn", { x: 40, y: 180 });
-  const lb = createNode("load_balancer", { x: 280, y: 100 });
-  const paas = createNode("paas", { x: 520, y: 40 });
+  const mobile = createNode("mobile", { x: 20, y: 20 });
+  mobile.data.label = "Mobile app";
+  const desktop = createNode("desktop", { x: 20, y: 140 });
+  desktop.data.label = "Desktop web";
+  const iot = createNode("iot", { x: 20, y: 260 });
+  iot.data.label = "Campus IoT";
+  const cdn = createNode("cdn", { x: 240, y: 40 });
+  const staticNode = createNode("static_hosting", { x: 240, y: 160 });
+  const lb = createNode("load_balancer", { x: 460, y: 100 });
+  const paas = createNode("paas", { x: 680, y: 40 });
   paas.data.label = "Programme API";
   paas.data.purpose = "Search & admin API";
   if (paas.data.config.kind === "paas") {
@@ -108,22 +115,22 @@ const demoSeed = (): Pick<
     paas.data.config.hosting = "digitalocean-apps";
     paas.data.config.capacity = { ...DEFAULT_CAPACITIES.paas };
   }
-  const cache = createNode("cache", { x: 760, y: 0 });
+  const cache = createNode("cache", { x: 920, y: 0 });
   cache.data.label = "Read cache";
   if (cache.data.config.kind === "cache") {
     cache.data.config.engine = "redis";
     cache.data.config.memoryGb = 2;
   }
-  const db = createNode("database", { x: 760, y: 160 });
+  const db = createNode("database", { x: 920, y: 160 });
   db.data.label = "Programme Graph DB";
   if (db.data.config.kind === "database") {
     db.data.config.engine = "graph";
     db.data.config.replicas = 2;
     db.data.config.shards = 1;
   }
-  const objects = createNode("object_storage", { x: 520, y: 240 });
+  const objects = createNode("object_storage", { x: 680, y: 240 });
   objects.data.label = "CSV uploads";
-  const queue = createNode("message_queue", { x: 280, y: 280 });
+  const queue = createNode("message_queue", { x: 460, y: 280 });
   queue.data.label = "Upload events";
   if (queue.data.config.kind === "message_queue") {
     queue.data.config.mode = "pubsub";
@@ -153,8 +160,38 @@ const demoSeed = (): Pick<
   ];
 
   return {
-    nodes: [staticNode, cdn, lb, paas, cache, db, objects, queue],
+    nodes: [mobile, desktop, iot, cdn, staticNode, lb, paas, cache, db, objects, queue],
     edges: [
+      createStyledEdge(
+        {
+          id: "e-mobile-cdn",
+          source: mobile.id,
+          target: cdn.id,
+          sourceHandle: "s-right-0",
+          targetHandle: "t-left-0",
+        },
+        "http",
+      ),
+      createStyledEdge(
+        {
+          id: "e-desktop-static",
+          source: desktop.id,
+          target: staticNode.id,
+          sourceHandle: "s-right-1",
+          targetHandle: "t-left-1",
+        },
+        "http",
+      ),
+      createStyledEdge(
+        {
+          id: "e-iot-queue",
+          source: iot.id,
+          target: queue.id,
+          sourceHandle: "s-right-2",
+          targetHandle: "t-left-0",
+        },
+        "websocket",
+      ),
       createStyledEdge(
         { id: "e-cdn-static", source: cdn.id, target: staticNode.id },
         "http",
@@ -164,7 +201,16 @@ const demoSeed = (): Pick<
         "http",
       ),
       createStyledEdge({ id: "e-lb-paas", source: lb.id, target: paas.id }, "http"),
-      createStyledEdge({ id: "e-paas-db", source: paas.id, target: db.id }, "db"),
+      createStyledEdge(
+        {
+          id: "e-paas-db",
+          source: paas.id,
+          target: db.id,
+          sourceHandle: "s-right-2",
+          targetHandle: "t-left-2",
+        },
+        "db",
+      ),
       createStyledEdge({ id: "e-paas-cache", source: paas.id, target: cache.id }, "db"),
       createStyledEdge(
         { id: "e-paas-ws", source: paas.id, target: staticNode.id },
@@ -202,6 +248,73 @@ const demoSeed = (): Pick<
     selectedNodeId: null,
     selectedEdgeId: null,
     pendingProtocol: "http",
+  };
+};
+
+/** Five compute replicas writing to one shared database — fan-in demo. */
+const fanInSeed = (): ReturnType<typeof demoSeed> => {
+  seq = 1;
+  const db = createNode("database", { x: 640, y: 200 });
+  db.data.label = "Shared primary DB";
+  if (db.data.config.kind === "database") {
+    db.data.config.engine = "relational";
+    db.data.config.replicas = 3;
+    db.data.config.shards = 1;
+  }
+
+  const vms = [0, 1, 2, 3, 4].map((i) => {
+    const n = createNode("vm", { x: 120, y: 40 + i * 100 });
+    n.data.label = `API replica ${i + 1}`;
+    if (n.data.config.kind === "vm") {
+      n.data.config.capacity = { ...DEFAULT_CAPACITIES.vm };
+      n.data.config.appType = "express";
+    }
+    return n;
+  });
+
+  const featId = uid("feat");
+  return {
+    nodes: [...vms, db],
+    edges: vms.map((vm, i) =>
+      createStyledEdge(
+        {
+          id: `e-vm${i}-db`,
+          source: vm.id,
+          target: db.id,
+          sourceHandle: `s-right-${i % 5}`,
+          targetHandle: `t-left-${i % 5}`,
+        },
+        "db",
+      ),
+    ),
+    functionalReqs: [
+      {
+        id: uid("freq"),
+        text: "Write path shared across five compute replicas",
+        featureId: featId,
+      },
+    ],
+    features: [
+      {
+        id: featId,
+        name: "Shared write API",
+        description: "Fan-in writes from replicas to one database",
+        resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 },
+        targetRpm: 200,
+        computeMsPerRequest: 30,
+        placedOnNodeId: vms[0]!.id,
+      },
+    ],
+    nfr: {
+      maxLatencyMs: 500,
+      minThroughputRpm: 150,
+      minAvailabilityPct: 99.5,
+      maxMonthlyCostUsd: 400,
+    },
+    verification: null,
+    selectedNodeId: null,
+    selectedEdgeId: null,
+    pendingProtocol: "db",
   };
 };
 
@@ -380,6 +493,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   },
 
   loadDemo: () => set({ ...demoSeed() }),
+
+  loadFanInDemo: () => set({ ...fanInSeed() }),
 
   clearCanvas: () =>
     set({
