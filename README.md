@@ -24,9 +24,9 @@ Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 
 ## What you can do
 
-1. **Component library** — VM, PaaS, Functions, Database (replicas/shards), Load balancer, Static hosting, CDN  
-2. **Canvas** — place nodes, connect directed edges  
+1. **Component library** — VM, PaaS, Functions, Edge; Database, Cache, Object storage; Message queue / Pub-Sub, Task worker; Load balancer; Static hosting, CDN; External API  
+2. **Canvas** — place nodes; connect with a protocol picker (HTTP, WebSocket ↔, SSE, Web Push, DB, WebRTC); click edges to edit protocol, label, endpoints, reverse, or delete  
 3. **Requirements** — functional → feature blocks (memory / vCPU / storage + target RPM); place onto compute; set NFRs  
 4. **Verification** — simulate usage and see pass / warn / fail with reasons  
 
-Use **Load BeUWI demo** for a starter topology inspired by the PDF case study.
+Use **Load BeUWI demo** for a starter topology inspired by the PDF case study (includes cache, object storage, queue, and a WebSocket link).

@@ -8,11 +8,13 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type Edge,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DesignNode } from "./design-node";
+import { PendingProtocolPicker } from "./edge-inspector";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Eraser, Sparkles } from "lucide-react";
@@ -38,26 +40,46 @@ function FitViewOnReady({ nodeCount }: { nodeCount: number }) {
 function FlowCanvas() {
   const nodes = useSimulatorStore((s) => s.nodes);
   const edges = useSimulatorStore((s) => s.edges);
+  const selectedEdgeId = useSimulatorStore((s) => s.selectedEdgeId);
   const onNodesChange = useSimulatorStore((s) => s.onNodesChange);
   const onEdgesChange = useSimulatorStore((s) => s.onEdgesChange);
   const onConnect = useSimulatorStore((s) => s.onConnect);
   const selectNode = useSimulatorStore((s) => s.selectNode);
+  const selectEdge = useSimulatorStore((s) => s.selectEdge);
+
+  const styledEdges: Edge[] = edges.map((e) => ({
+    ...e,
+    selected: e.id === selectedEdgeId,
+    style: {
+      stroke: e.id === selectedEdgeId ? "#0f766e" : "#64748b",
+      strokeWidth: e.id === selectedEdgeId ? 2.5 : 1.5,
+    },
+  }));
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: SimNode) => selectNode(node.id),
     [selectNode],
   );
 
-  const onPaneClick = useCallback(() => selectNode(null), [selectNode]);
+  const onEdgeClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => selectEdge(edge.id),
+    [selectEdge],
+  );
+
+  const onPaneClick = useCallback(() => {
+    selectNode(null);
+    selectEdge(null);
+  }, [selectNode, selectEdge]);
 
   return (
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={styledEdges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
       onNodeClick={onNodeClick}
+      onEdgeClick={onEdgeClick}
       onPaneClick={onPaneClick}
       nodeTypes={nodeTypes}
       fitView
@@ -66,6 +88,8 @@ function FlowCanvas() {
       minZoom={0.2}
       maxZoom={1.5}
       className="bg-transparent"
+      edgesFocusable
+      elementsSelectable
     >
       <FitViewOnReady nodeCount={nodes.length} />
       <Background
@@ -91,8 +115,6 @@ export function DesignCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
 
-  // Avoid mounting React Flow before the flex/absolute container has a real size
-  // (blank first paint was reported in desktop browser testing).
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -110,7 +132,7 @@ export function DesignCanvas() {
 
   return (
     <div ref={containerRef} className="relative h-full w-full">
-      <div className="pointer-events-none absolute left-3 top-3 z-10 flex gap-2">
+      <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2">
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
           <Button
             type="button"
@@ -133,6 +155,7 @@ export function DesignCanvas() {
             Clear
           </Button>
         </div>
+        <PendingProtocolPicker />
       </div>
       {ready ? (
         <ReactFlowProvider>

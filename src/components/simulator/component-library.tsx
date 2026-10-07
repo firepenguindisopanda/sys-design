@@ -2,13 +2,18 @@
 
 import { COMPONENT_CATALOG } from "@/lib/catalog";
 import { useSimulatorStore } from "@/lib/store";
-import type { ComponentKind } from "@/lib/types";
+import type { CatalogCategory, ComponentKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
+  Boxes,
   Cloud,
   Database,
   Globe,
+  HardDrive,
+  Layers,
+  ListTodo,
   Network,
+  Plug,
   Server,
   Zap,
 } from "lucide-react";
@@ -17,18 +22,34 @@ const ICONS: Record<ComponentKind, typeof Server> = {
   vm: Server,
   paas: Cloud,
   functions: Zap,
+  edge: Layers,
   database: Database,
+  cache: HardDrive,
+  object_storage: Boxes,
+  message_queue: ListTodo,
+  task_worker: ListTodo,
   load_balancer: Network,
   static_hosting: Globe,
   cdn: Globe,
+  external_api: Plug,
 };
 
-const CATEGORY_ORDER = ["compute", "data", "network", "edge"] as const;
-const CATEGORY_LABEL: Record<(typeof CATEGORY_ORDER)[number], string> = {
+const CATEGORY_ORDER: CatalogCategory[] = [
+  "compute",
+  "data",
+  "messaging",
+  "network",
+  "edge",
+  "external",
+];
+
+const CATEGORY_LABEL: Record<CatalogCategory, string> = {
   compute: "Compute",
   data: "Data",
+  messaging: "Messaging & workers",
   network: "Network",
   edge: "Edge & static",
+  external: "External",
 };
 
 export function ComponentLibrary() {
@@ -41,12 +62,13 @@ export function ComponentLibrary() {
           Components
         </h2>
         <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-          Drag not required — click to place on the canvas.
+          Click to place. Connect with the protocol picker on the canvas.
         </p>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
         {CATEGORY_ORDER.map((cat) => {
           const items = COMPONENT_CATALOG.filter((c) => c.category === cat);
+          if (items.length === 0) return null;
           return (
             <div key={cat}>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">

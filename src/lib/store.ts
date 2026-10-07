@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  addEdge,
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
@@ -12,6 +11,7 @@ import {
 } from "@xyflow/react";
 import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
+import { createStyledEdge, styleEdgeForProtocol } from "./edges";
 import { canPlaceFeature, runVerification } from "./simulation";
 import type {
   ComponentKind,
@@ -29,6 +29,9 @@ type SimulatorState = {
   nodes: SimNode[];
   edges: Edge[];
   selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+  /** Protocol applied to the next connection drawn on the canvas */
+  pendingProtocol: EdgeProtocol;
   functionalReqs: FunctionalRequirement[];
   features: FeatureBlock[];
   nfr: NonFunctionalRequirements;
@@ -38,9 +41,21 @@ type SimulatorState = {
   onConnect: (connection: Connection) => void;
   addComponent: (kind: ComponentKind) => void;
   selectNode: (id: string | null) => void;
+  selectEdge: (id: string | null) => void;
+  setPendingProtocol: (protocol: EdgeProtocol) => void;
   updateNodeData: (id: string, patch: Partial<DesignNodeData>) => void;
   updateNodeConfig: (id: string, configPatch: Record<string, unknown>) => void;
-  setEdgeProtocol: (edgeId: string, protocol: EdgeProtocol) => void;
+  updateEdge: (
+    edgeId: string,
+    patch: {
+      protocol?: EdgeProtocol;
+      label?: string;
+      source?: string;
+      target?: string;
+    },
+  ) => void;
+  reverseEdge: (edgeId: string) => void;
+  deleteEdge: (edgeId: string) => void;
   addFunctionalRequirement: (text: string) => void;
   removeFunctionalRequirement: (id: string) => void;
   updateFeature: (id: string, patch: Partial<FeatureBlock>) => void;
@@ -71,13 +86,21 @@ function createNode(kind: ComponentKind, position: { x: number; y: number }): Si
 
 const demoSeed = (): Pick<
   SimulatorState,
-  "nodes" | "edges" | "functionalReqs" | "features" | "nfr" | "verification" | "selectedNodeId"
+  | "nodes"
+  | "edges"
+  | "functionalReqs"
+  | "features"
+  | "nfr"
+  | "verification"
+  | "selectedNodeId"
+  | "selectedEdgeId"
+  | "pendingProtocol"
 > => {
   seq = 1;
-  const staticNode = createNode("static_hosting", { x: 80, y: 80 });
-  const cdn = createNode("cdn", { x: 80, y: 220 });
-  const lb = createNode("load_balancer", { x: 320, y: 140 });
-  const paas = createNode("paas", { x: 560, y: 80 });
+  const staticNode = createNode("static_hosting", { x: 40, y: 40 });
+  const cdn = createNode("cdn", { x: 40, y: 180 });
+  const lb = createNode("load_balancer", { x: 280, y: 100 });
+  const paas = createNode("paas", { x: 520, y: 40 });
   paas.data.label = "Programme API";
   paas.data.purpose = "Search & admin API";
   if (paas.data.config.kind === "paas") {
@@ -85,12 +108,25 @@ const demoSeed = (): Pick<
     paas.data.config.hosting = "digitalocean-apps";
     paas.data.config.capacity = { ...DEFAULT_CAPACITIES.paas };
   }
-  const db = createNode("database", { x: 820, y: 140 });
+  const cache = createNode("cache", { x: 760, y: 0 });
+  cache.data.label = "Read cache";
+  if (cache.data.config.kind === "cache") {
+    cache.data.config.engine = "redis";
+    cache.data.config.memoryGb = 2;
+  }
+  const db = createNode("database", { x: 760, y: 160 });
   db.data.label = "Programme Graph DB";
   if (db.data.config.kind === "database") {
     db.data.config.engine = "graph";
     db.data.config.replicas = 2;
     db.data.config.shards = 1;
+  }
+  const objects = createNode("object_storage", { x: 520, y: 240 });
+  objects.data.label = "CSV uploads";
+  const queue = createNode("message_queue", { x: 280, y: 280 });
+  queue.data.label = "Upload events";
+  if (queue.data.config.kind === "message_queue") {
+    queue.data.config.mode = "pubsub";
   }
 
   const browseId = uid("feat");
@@ -117,40 +153,31 @@ const demoSeed = (): Pick<
   ];
 
   return {
-    nodes: [staticNode, cdn, lb, paas, db],
+    nodes: [staticNode, cdn, lb, paas, cache, db, objects, queue],
     edges: [
-      {
-        id: "e-cdn-static",
-        source: cdn.id,
-        target: staticNode.id,
-        animated: true,
-        data: { protocol: "http" as EdgeProtocol },
-        label: "HTTP",
-      },
-      {
-        id: "e-static-lb",
-        source: staticNode.id,
-        target: lb.id,
-        animated: true,
-        data: { protocol: "http" as EdgeProtocol },
-        label: "HTTP",
-      },
-      {
-        id: "e-lb-paas",
-        source: lb.id,
-        target: paas.id,
-        animated: true,
-        data: { protocol: "http" as EdgeProtocol },
-        label: "HTTP",
-      },
-      {
-        id: "e-paas-db",
-        source: paas.id,
-        target: db.id,
-        animated: true,
-        data: { protocol: "db" as EdgeProtocol },
-        label: "DB",
-      },
+      createStyledEdge(
+        { id: "e-cdn-static", source: cdn.id, target: staticNode.id },
+        "http",
+      ),
+      createStyledEdge(
+        { id: "e-static-lb", source: staticNode.id, target: lb.id },
+        "http",
+      ),
+      createStyledEdge({ id: "e-lb-paas", source: lb.id, target: paas.id }, "http"),
+      createStyledEdge({ id: "e-paas-db", source: paas.id, target: db.id }, "db"),
+      createStyledEdge({ id: "e-paas-cache", source: paas.id, target: cache.id }, "db"),
+      createStyledEdge(
+        { id: "e-paas-ws", source: paas.id, target: staticNode.id },
+        "websocket",
+      ),
+      createStyledEdge(
+        { id: "e-paas-objects", source: paas.id, target: objects.id },
+        "http",
+      ),
+      createStyledEdge(
+        { id: "e-paas-queue", source: paas.id, target: queue.id },
+        "http",
+      ),
     ],
     functionalReqs: [
       {
@@ -169,10 +196,12 @@ const demoSeed = (): Pick<
       maxLatencyMs: 500,
       minThroughputRpm: 100,
       minAvailabilityPct: 99.5,
-      maxMonthlyCostUsd: 200,
+      maxMonthlyCostUsd: 250,
     },
     verification: null,
     selectedNodeId: null,
+    selectedEdgeId: null,
+    pendingProtocol: "http",
   };
 };
 
@@ -182,28 +211,48 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) as SimNode[] }),
 
-  onEdgesChange: (changes) => set({ edges: applyEdgeChanges(changes, get().edges) }),
+  onEdgesChange: (changes) => {
+    set({ edges: applyEdgeChanges(changes, get().edges) });
+    const selected = get().selectedEdgeId;
+    if (selected && !get().edges.some((e) => e.id === selected)) {
+      set({ selectedEdgeId: null });
+    }
+  },
 
-  onConnect: (connection) =>
+  onConnect: (connection) => {
+    const protocol = get().pendingProtocol;
+    const edge = createStyledEdge(
+      {
+        ...connection,
+        source: connection.source!,
+        target: connection.target!,
+        sourceHandle: connection.sourceHandle ?? undefined,
+        targetHandle: connection.targetHandle ?? undefined,
+      },
+      protocol,
+    );
     set({
-      edges: addEdge(
-        {
-          ...connection,
-          animated: true,
-          data: { protocol: "http" as EdgeProtocol },
-          label: "HTTP",
-        },
-        get().edges,
-      ),
-    }),
+      edges: [...get().edges, edge],
+      selectedEdgeId: edge.id,
+      selectedNodeId: null,
+    });
+  },
 
   addComponent: (kind) => {
     const offset = get().nodes.length * 24;
     const node = createNode(kind, { x: 120 + offset, y: 100 + (offset % 160) });
-    set({ nodes: [...get().nodes, node], selectedNodeId: node.id });
+    set({
+      nodes: [...get().nodes, node],
+      selectedNodeId: node.id,
+      selectedEdgeId: null,
+    });
   },
 
-  selectNode: (id) => set({ selectedNodeId: id }),
+  selectNode: (id) => set({ selectedNodeId: id, selectedEdgeId: id ? null : get().selectedEdgeId }),
+
+  selectEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: id ? null : get().selectedNodeId }),
+
+  setPendingProtocol: (protocol) => set({ pendingProtocol: protocol }),
 
   updateNodeData: (id, patch) =>
     set({
@@ -226,17 +275,42 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       }),
     }),
 
-  setEdgeProtocol: (edgeId, protocol) =>
+  updateEdge: (edgeId, patch) =>
     set({
-      edges: get().edges.map((e) =>
-        e.id === edgeId
-          ? {
-              ...e,
-              data: { ...(e.data as object), protocol },
-              label: protocol === "db" ? "DB" : protocol.toUpperCase(),
-            }
-          : e,
-      ),
+      edges: get().edges.map((e) => {
+        if (e.id !== edgeId) return e;
+        const next = {
+          ...e,
+          source: patch.source ?? e.source,
+          target: patch.target ?? e.target,
+        };
+        const protocol = patch.protocol ?? ((e.data as { protocol?: EdgeProtocol })?.protocol ?? "http");
+        const label =
+          patch.label !== undefined
+            ? patch.label
+            : ((e.data as { label?: string })?.label ?? undefined);
+        return styleEdgeForProtocol(next, protocol, label);
+      }),
+    }),
+
+  reverseEdge: (edgeId) =>
+    set({
+      edges: get().edges.map((e) => {
+        if (e.id !== edgeId) return e;
+        const protocol = ((e.data as { protocol?: EdgeProtocol })?.protocol ?? "http") as EdgeProtocol;
+        const label = (e.data as { label?: string })?.label;
+        return styleEdgeForProtocol(
+          { ...e, source: e.target, target: e.source },
+          protocol,
+          label,
+        );
+      }),
+    }),
+
+  deleteEdge: (edgeId) =>
+    set({
+      edges: get().edges.filter((e) => e.id !== edgeId),
+      selectedEdgeId: get().selectedEdgeId === edgeId ? null : get().selectedEdgeId,
     }),
 
   addFunctionalRequirement: (text) => {
@@ -312,6 +386,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       nodes: [],
       edges: [],
       selectedNodeId: null,
+      selectedEdgeId: null,
       verification: null,
     }),
 }));

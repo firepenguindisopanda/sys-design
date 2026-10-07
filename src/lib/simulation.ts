@@ -1,4 +1,5 @@
 import { BASE_MONTHLY_COST, SCALE_FACTOR, isComputeKind } from "./catalog";
+import { getEdgeData } from "./edges";
 import type {
   CheckStatus,
   DesignNodeData,
@@ -23,7 +24,12 @@ function remainingCapacity(
   features: FeatureBlock[],
 ): { memoryGb: number; vcpus: number; storageGb: number } | null {
   const cfg = node.data.config;
-  if (cfg.kind !== "vm" && cfg.kind !== "paas" && cfg.kind !== "functions") {
+  if (
+    cfg.kind !== "vm" &&
+    cfg.kind !== "paas" &&
+    cfg.kind !== "functions" &&
+    cfg.kind !== "edge"
+  ) {
     return null;
   }
   const used = features
@@ -66,7 +72,15 @@ function hopLatencyMs(
   const sk = source.data.componentKind;
   const tk = target.data.componentKind;
 
-  if (sk === "cdn" || tk === "cdn") return 18;
+  if (protocol === "websocket") return 15;
+  if (protocol === "sse" || protocol === "web_push") return 12;
+  if (protocol === "webrtc") return 22;
+
+  if (sk === "cdn" || tk === "cdn" || sk === "edge" || tk === "edge") return 14;
+  if (sk === "cache" || tk === "cache") return 5;
+  if (sk === "message_queue" || tk === "message_queue") return 10;
+  if (sk === "object_storage" || tk === "object_storage") return 28;
+  if (sk === "external_api" || tk === "external_api") return 45;
   if (sk === "static_hosting" || tk === "static_hosting") return 35;
   if (sk === "load_balancer" || tk === "load_balancer") return 8;
   if (tk === "database" || sk === "database") {
@@ -81,23 +95,29 @@ function hopLatencyMs(
 
 function estimatePathLatency(nodes: SimNode[], edges: Edge[]): number {
   if (edges.length === 0) {
-    // No topology: assume client → single compute → db if present
     const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
     const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
     const hasDb = nodes.some((n) => n.data.componentKind === "database");
+    const hasCache = nodes.some((n) => n.data.componentKind === "cache");
     let ms = 80;
     if (hasStatic) ms += hasCdn ? 18 : 45;
-    if (hasDb) ms += 25;
+    if (hasDb) ms += hasCache ? 12 : 25;
     return ms;
   }
 
-  // Longest path latency (simple DFS)
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const outgoing = new Map<string, Edge[]>();
   for (const e of edges) {
     const list = outgoing.get(e.source) ?? [];
     list.push(e);
     outgoing.set(e.source, list);
+    // Bidirectional protocols contribute reverse hop for path latency
+    const { protocol } = getEdgeData(e);
+    if (protocol === "websocket" || protocol === "webrtc") {
+      const rev = outgoing.get(e.target) ?? [];
+      rev.push({ ...e, source: e.target, target: e.source });
+      outgoing.set(e.target, rev);
+    }
   }
 
   let max = 0;
@@ -107,8 +127,7 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[]): number {
     const next = new Set(seen);
     next.add(id);
     for (const e of outgoing.get(id) ?? []) {
-      const protocol = ((e.data as { protocol?: EdgeProtocol } | undefined)?.protocol ??
-        "http") as EdgeProtocol;
+      const { protocol } = getEdgeData(e);
       const add = hopLatencyMs(byId.get(e.source), byId.get(e.target), protocol);
       visit(e.target, acc + add, next);
     }
@@ -120,10 +139,14 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[]): number {
     visit(r.id, 0, new Set());
   }
 
-  // CDN pairing bonus for static content
   const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
   const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
   if (hasStatic && !hasCdn) max += 40;
+
+  // Cache-aside bonus when cache sits next to a database
+  const hasCache = nodes.some((n) => n.data.componentKind === "cache");
+  const hasDb = nodes.some((n) => n.data.componentKind === "database");
+  if (hasCache && hasDb) max = Math.max(20, max - 15);
 
   return Math.max(max, 20);
 }
@@ -132,7 +155,6 @@ function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): numb
   const placed = features.filter((f) => f.placedOnNodeId);
   if (placed.length === 0) return 0;
 
-  // Per compute node: capacity RPM from vCPUs × scale × utilization model
   const byNode = new Map<string, FeatureBlock[]>();
   for (const f of placed) {
     const list = byNode.get(f.placedOnNodeId!) ?? [];
@@ -141,37 +163,55 @@ function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): numb
   }
 
   let totalCapacity = 0;
-  let demanded = 0;
 
   for (const [nodeId, feats] of byNode) {
     const node = nodes.find((n) => n.id === nodeId);
     const cfg = node?.data.config;
-    if (!cfg || (cfg.kind !== "vm" && cfg.kind !== "paas" && cfg.kind !== "functions")) {
+    if (
+      !cfg ||
+      (cfg.kind !== "vm" &&
+        cfg.kind !== "paas" &&
+        cfg.kind !== "functions" &&
+        cfg.kind !== "edge")
+    ) {
       continue;
     }
     const scale = SCALE_FACTOR[cfg.kind];
-    // ~1000 RPM per vCPU at 50ms compute work baseline, adjusted by feature work
     const avgMs =
       feats.reduce((s, f) => s + f.computeMsPerRequest, 0) / Math.max(feats.length, 1);
     const rpmPerVcpu = Math.floor((60_000 / Math.max(avgMs, 5)) * 0.7);
     totalCapacity += cfg.capacity.vcpus * rpmPerVcpu * scale;
-    demanded += feats.reduce((s, f) => s + f.targetRpm, 0);
   }
 
-  // Database bottleneck
   const dbs = nodes.filter((n) => n.data.componentKind === "database");
   if (dbs.length > 0) {
     let dbCap = 0;
     for (const db of dbs) {
       const cfg = db.data.config;
       if (cfg.kind !== "database") continue;
-      // Base 400 RPM per shard, +15% per extra replica for reads
       dbCap += 400 * cfg.shards * (1 + (cfg.replicas - 1) * 0.15);
+    }
+    // Cache raises effective read throughput
+    const caches = nodes.filter((n) => n.data.componentKind === "cache");
+    if (caches.length > 0) {
+      let cacheBoost = 0;
+      for (const c of caches) {
+        const cfg = c.data.config;
+        if (cfg.kind === "cache") cacheBoost += cfg.memoryGb * 200;
+      }
+      dbCap += cacheBoost;
     }
     totalCapacity = Math.min(totalCapacity, dbCap);
   }
 
-  return Math.min(totalCapacity, demanded > 0 ? totalCapacity : 0) || totalCapacity;
+  // Queue / worker pattern: async load leveling softens peak throughput pressure
+  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
+  const hasWorker = nodes.some((n) => n.data.componentKind === "task_worker");
+  if (hasQueue && hasWorker) {
+    totalCapacity = Math.floor(totalCapacity * 1.15);
+  }
+
+  return totalCapacity;
 }
 
 function estimateAvailability(nodes: SimNode[], edges: Edge[]): number {
@@ -182,8 +222,11 @@ function estimateAvailability(nodes: SimNode[], edges: Edge[]): number {
   const compute = nodes.filter((n) => isComputeKind(n.data.componentKind));
   const dbs = nodes.filter((n) => n.data.componentKind === "database");
   const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
+  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
 
-  if (compute.some((n) => n.data.componentKind === "functions")) avail = Math.max(avail, 0.995);
+  if (compute.some((n) => n.data.componentKind === "functions" || n.data.componentKind === "edge")) {
+    avail = Math.max(avail, 0.995);
+  }
   if (compute.some((n) => n.data.componentKind === "paas")) avail = Math.max(avail, 0.992);
   if (hasLb && compute.length >= 2) avail += 0.004;
   else if (!hasLb && compute.length >= 2) avail -= 0.01;
@@ -196,24 +239,9 @@ function estimateAvailability(nodes: SimNode[], edges: Edge[]): number {
   }
 
   if (hasCdn) avail += 0.002;
+  if (hasQueue) avail += 0.001; // load leveling / decoupling
 
-  // Soft diagramming: non-compute as intermediate
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const incoming = new Map<string, number>();
-  const outgoing = new Map<string, number>();
-  for (const e of edges) {
-    incoming.set(e.target, (incoming.get(e.target) ?? 0) + 1);
-    outgoing.set(e.source, (outgoing.get(e.source) ?? 0) + 1);
-  }
-  for (const n of nodes) {
-    const inC = incoming.get(n.id) ?? 0;
-    const outC = outgoing.get(n.id) ?? 0;
-    if (inC > 0 && outC > 0 && !isComputeKind(n.data.componentKind) && n.data.componentKind !== "load_balancer") {
-      // PDF: mainly only compute intermediates — small availability/topology penalty already handled as warn
-      void byId;
-    }
-  }
-
+  void edges;
   return Math.min(0.9995, Math.max(0.9, avail)) * 100;
 }
 
@@ -225,19 +253,35 @@ function estimateMonthlyCost(nodes: SimNode[], features: FeatureBlock[]): number
     if (cfg.kind === "database") {
       cost += (cfg.replicas - 1) * 20 + (cfg.shards - 1) * 25;
     }
-    if (cfg.kind === "vm" || cfg.kind === "paas" || cfg.kind === "functions") {
-      cost += cfg.capacity.vcpus * (cfg.kind === "vm" ? 12 : cfg.kind === "paas" ? 8 : 2);
+    if (cfg.kind === "cache") {
+      cost += cfg.memoryGb * 6;
+    }
+    if (cfg.kind === "object_storage") {
+      cost += Math.ceil(cfg.storageGb / 50) * 2;
+    }
+    if (cfg.kind === "task_worker") {
+      cost += cfg.concurrency * 3;
+    }
+    if (
+      cfg.kind === "vm" ||
+      cfg.kind === "paas" ||
+      cfg.kind === "functions" ||
+      cfg.kind === "edge"
+    ) {
+      const vcpuRate =
+        cfg.kind === "vm" ? 12 : cfg.kind === "paas" ? 8 : cfg.kind === "edge" ? 3 : 2;
+      cost += cfg.capacity.vcpus * vcpuRate;
       cost += cfg.capacity.memoryGb * (cfg.kind === "vm" ? 4 : 2);
     }
   }
-  // Functions pay-per-use bump from traffic
   const fnRpm = features
     .filter((f) => {
       const node = nodes.find((n) => n.id === f.placedOnNodeId);
-      return node?.data.componentKind === "functions";
+      const k = node?.data.componentKind;
+      return k === "functions" || k === "edge";
     })
     .reduce((s, f) => s + f.targetRpm, 0);
-  cost += (fnRpm * 60 * 24 * 30) / 1_000_000 * 0.2; // $0.20 / million invocations heuristic
+  cost += (fnRpm * 60 * 24 * 30) / 1_000_000 * 0.2;
   return Math.round(cost);
 }
 
@@ -249,7 +293,6 @@ export function runVerification(
 ): VerificationResult {
   const checks: VerificationCheck[] = [];
 
-  // Placement
   const unplaced = features.filter((f) => !f.placedOnNodeId);
   if (features.length === 0) {
     checks.push({
@@ -279,7 +322,7 @@ export function runVerification(
           category: "placement",
           title: `Capacity overflow on ${n.data.label}`,
           status: "fail",
-          detail: `Placed features exceed ${n.data.label}'s fixed capacity (PDF: VMs have fixed resources).`,
+          detail: `Placed features exceed ${n.data.label}'s capacity.`,
         });
       }
     }
@@ -294,12 +337,13 @@ export function runVerification(
     }
   }
 
-  // Topology soft rules
   const computeCount = nodes.filter((n) => isComputeKind(n.data.componentKind)).length;
   const dbCount = nodes.filter((n) => n.data.componentKind === "database").length;
   const hasLb = nodes.some((n) => n.data.componentKind === "load_balancer");
   const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
   const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
+  const hasCache = nodes.some((n) => n.data.componentKind === "cache");
+  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
 
   if (nodes.length === 0) {
     checks.push({
@@ -329,13 +373,18 @@ export function runVerification(
     });
   }
 
-  // Non-compute intermediates
   const inDeg = new Map<string, number>();
   const outDeg = new Map<string, number>();
   for (const e of edges) {
     inDeg.set(e.target, (inDeg.get(e.target) ?? 0) + 1);
     outDeg.set(e.source, (outDeg.get(e.source) ?? 0) + 1);
   }
+  const hopOk = new Set([
+    "load_balancer",
+    "cdn",
+    "message_queue",
+    "cache",
+  ]);
   for (const n of nodes) {
     const inC = inDeg.get(n.id) ?? 0;
     const outC = outDeg.get(n.id) ?? 0;
@@ -343,8 +392,7 @@ export function runVerification(
       inC > 0 &&
       outC > 0 &&
       !isComputeKind(n.data.componentKind) &&
-      n.data.componentKind !== "load_balancer" &&
-      n.data.componentKind !== "cdn"
+      !hopOk.has(n.data.componentKind)
     ) {
       checks.push({
         id: `topo-intermediate-${n.id}`,
@@ -376,6 +424,82 @@ export function runVerification(
     });
   }
 
+  if (dbCount > 0 && !hasCache) {
+    checks.push({
+      id: "topo-cache",
+      category: "topology",
+      title: "Cache Aside opportunity",
+      status: "warn",
+      detail: "No cache next to the database — consider Redis/Memcached for hot reads (PDF / cost case study).",
+    });
+  } else if (hasCache && dbCount > 0) {
+    checks.push({
+      id: "topo-cache-ok",
+      category: "topology",
+      title: "Cache present",
+      status: "pass",
+      detail: "Cache can absorb hot reads and lower DB latency/cost.",
+    });
+  }
+
+  if (hasQueue) {
+    checks.push({
+      id: "topo-queue",
+      category: "topology",
+      title: "Async messaging",
+      status: "pass",
+      detail: "Message queue / pub-sub decouples producers and consumers (Queue-Based Load Levelling).",
+    });
+  }
+
+  // Security: client-like nodes (static) talking directly to external API
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const e of edges) {
+    const src = byId.get(e.source);
+    const tgt = byId.get(e.target);
+    if (!src || !tgt) continue;
+    const clientish =
+      src.data.componentKind === "static_hosting" || src.data.componentKind === "cdn";
+    const external =
+      tgt.data.componentKind === "external_api" || src.data.componentKind === "external_api";
+    if (clientish && external) {
+      checks.push({
+        id: `topo-api-keys-${e.id}`,
+        category: "topology",
+        title: "Client → external API",
+        status: "warn",
+        detail:
+          "PDF/security: API keys on the client risk reverse engineering. Prefer proxying through compute (Type B).",
+      });
+    }
+  }
+
+  // SSE / push should typically originate from compute/server toward clients
+  for (const e of edges) {
+    const { protocol } = getEdgeData(e);
+    if (protocol !== "sse" && protocol !== "web_push") continue;
+    const src = byId.get(e.source);
+    const tgt = byId.get(e.target);
+    if (!src || !tgt) continue;
+    const serverish =
+      isComputeKind(src.data.componentKind) ||
+      src.data.componentKind === "external_api" ||
+      src.data.componentKind === "task_worker";
+    const clientish =
+      tgt.data.componentKind === "static_hosting" ||
+      tgt.data.componentKind === "cdn" ||
+      tgt.data.componentKind === "edge";
+    if (!serverish || !clientish) {
+      checks.push({
+        id: `topo-sse-dir-${e.id}`,
+        category: "topology",
+        title: `${protocol === "sse" ? "SSE" : "Web Push"} direction`,
+        status: "warn",
+        detail: "Draw SSE / Web Push from server → client (PDF: server delivers messages).",
+      });
+    }
+  }
+
   const latency = estimatePathLatency(nodes, edges);
   const throughput = estimateThroughputRpm(nodes, features);
   const availability = estimateAvailability(nodes, edges);
@@ -392,7 +516,7 @@ export function runVerification(
     detail:
       latency <= nfr.maxLatencyMs
         ? "Estimated critical-path latency meets the NFR."
-        : "Critical path is too slow. Add CDN, shorten hops, or add DB replicas.",
+        : "Critical path is too slow. Add CDN/cache, shorten hops, or add DB replicas.",
     actual: `${Math.round(latency)} ms`,
     target: `≤ ${nfr.maxLatencyMs} ms`,
   });
@@ -410,8 +534,8 @@ export function runVerification(
     status: thrStatus,
     detail:
       thrStatus === "pass"
-        ? "Compute + database capacity covers target usage across features."
-        : "Insufficient capacity. Scale PaaS/Functions, add VM vCPUs, or shard the database.",
+        ? "Compute + data tier capacity covers target usage across features."
+        : "Insufficient capacity. Scale compute, shard DB, add cache, or use queue load-levelling.",
     actual: `${Math.round(throughput)} req/min`,
     target: `≥ ${throughputTarget} req/min`,
   });
@@ -424,7 +548,7 @@ export function runVerification(
     detail:
       availability >= nfr.minAvailabilityPct
         ? "Topology meets the availability target."
-        : "Raise availability with replicas, load balancer, PaaS/Functions, or CDN.",
+        : "Raise availability with replicas, load balancer, PaaS/Functions/Edge, CDN, or queues.",
     actual: `${availability.toFixed(2)}%`,
     target: `≥ ${nfr.minAvailabilityPct}%`,
   });
@@ -438,7 +562,7 @@ export function runVerification(
       detail:
         cost <= nfr.maxMonthlyCostUsd
           ? "Estimated monthly cost is within budget (heuristic; PDF stresses cost as a design axis)."
-          : "Over budget. Prefer Functions at low load, cache-aside, or smaller fixed VMs.",
+          : "Over budget. Prefer Functions/Edge at low load, cache-aside, or smaller fixed VMs.",
       actual: `$${cost}/mo`,
       target: `≤ $${nfr.maxMonthlyCostUsd}/mo`,
     });

@@ -18,6 +18,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2 } from "lucide-react";
 import { NodeInspector } from "./node-inspector";
+import { EdgeInspector } from "./edge-inspector";
 
 export function RequirementsPanel() {
   const [reqText, setReqText] = useState("");
@@ -255,6 +256,15 @@ export function RequirementsPanel() {
             Node inspector
           </div>
           <NodeInspector />
+        </section>
+
+        <Separator />
+
+        <section className="space-y-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Connection inspector
+          </div>
+          <EdgeInspector />
         </section>
       </div>
     </aside>

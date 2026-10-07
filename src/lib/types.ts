@@ -2,12 +2,33 @@ export type ComponentKind =
   | "vm"
   | "paas"
   | "functions"
+  | "edge"
   | "database"
+  | "cache"
+  | "object_storage"
+  | "message_queue"
+  | "task_worker"
   | "load_balancer"
   | "static_hosting"
-  | "cdn";
+  | "cdn"
+  | "external_api";
 
-export type EdgeProtocol = "http" | "websocket" | "sse" | "db";
+/** Connection protocol — direction semantics from the System Design PDF. */
+export type EdgeProtocol =
+  | "http"
+  | "websocket"
+  | "sse"
+  | "web_push"
+  | "db"
+  | "webrtc";
+
+export type EdgeDirection = "directed" | "bidirectional";
+
+export type EdgeData = {
+  protocol: EdgeProtocol;
+  label?: string;
+  [key: string]: unknown;
+};
 
 export type Resources = {
   memoryGb: number;
@@ -16,7 +37,7 @@ export type Resources = {
 };
 
 export type ComputeConfig = {
-  kind: "vm" | "paas" | "functions";
+  kind: "vm" | "paas" | "functions" | "edge";
   capacity: Resources;
   appType: string;
   hosting: string;
@@ -24,10 +45,31 @@ export type ComputeConfig = {
 
 export type DatabaseConfig = {
   kind: "database";
-  engine: "relational" | "document" | "graph";
+  engine: "relational" | "document" | "graph" | "vector";
   replicas: number;
   shards: number;
   storageGb: number;
+};
+
+export type CacheConfig = {
+  kind: "cache";
+  engine: "redis" | "memcached";
+  memoryGb: number;
+};
+
+export type ObjectStorageConfig = {
+  kind: "object_storage";
+  storageGb: number;
+};
+
+export type MessageQueueConfig = {
+  kind: "message_queue";
+  mode: "queue" | "pubsub";
+};
+
+export type TaskWorkerConfig = {
+  kind: "task_worker";
+  concurrency: number;
 };
 
 export type LoadBalancerConfig = {
@@ -42,12 +84,22 @@ export type CdnConfig = {
   kind: "cdn";
 };
 
+export type ExternalApiConfig = {
+  kind: "external_api";
+  provider: string;
+};
+
 export type NodeConfig =
   | ComputeConfig
   | DatabaseConfig
+  | CacheConfig
+  | ObjectStorageConfig
+  | MessageQueueConfig
+  | TaskWorkerConfig
   | LoadBalancerConfig
   | StaticHostingConfig
-  | CdnConfig;
+  | CdnConfig
+  | ExternalApiConfig;
 
 export type DesignNodeData = {
   label: string;
@@ -105,12 +157,14 @@ export type VerificationResult = {
   estimatedMonthlyCostUsd: number;
 };
 
+export type CatalogCategory = "compute" | "data" | "messaging" | "network" | "edge" | "external";
+
 export type CatalogItem = {
   kind: ComponentKind;
   label: string;
   shortLabel: string;
   description: string;
-  category: "compute" | "data" | "edge" | "network";
+  category: CatalogCategory;
   defaultConfig: NodeConfig;
   defaultCapacity?: Resources;
 };
