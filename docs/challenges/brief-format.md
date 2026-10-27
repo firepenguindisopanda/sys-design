@@ -46,7 +46,9 @@ functionalRequirements:
     feature:
       name: Redirect
       description: Look up the code and answer with an HTTP redirect.   # optional
-      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }  # what the feature needs on its node
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }  # what the feature needs on its node;
+                                 # storageGb > 0 also means "keeps data" (see topo-data-store),
+                                 # so set it to 0 for a stateless feature
       targetRpm: 1200            # peak requests per minute
       computeMsPerRequest: 10    # CPU time per request; drives the throughput estimate
 ```
@@ -172,12 +174,14 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-present` | pass | Reports the component and connection counts |
 | `topo-reachable` | pass/warn/fail | **fail** if a compute node hosting features isn't on any request path; **warn**, naming them, if other components aren't |
 | `topo-db-no-compute` | warn | A database but no compute at all |
+| `topo-data-store` | pass/fail | **fail** if a placed feature has `storageGb > 0` and no database or object storage is on a request path; only reported when a feature is placed |
 | `topo-intermediate-<node>` | warn | A non-compute node has edges both in and out (load balancers, CDNs, queues and caches are exempt) |
 | `topo-lb` | warn | Two or more compute nodes and no connected load balancer |
 | `topo-cdn` | warn | Static hosting without a connected CDN |
 | `topo-cache` | warn | A database without a connected cache (`topo-cache-ok` passes otherwise) |
 | `topo-queue` | pass/warn | **pass** if a queue is on a request path and has a consumer; **warn** if queues exist but none is wired up |
 | `topo-api-keys-<edge>` | warn | A client-like node talks to an external API |
+| `topo-client-data-<edge>` | warn | A client-side node (mobile, desktop, IoT, static hosting, CDN) is wired straight to a database or cache, either direction |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
 | `nfr-latency` | pass/fail | Estimated critical-path latency against `maxLatencyMs` |
 | `nfr-throughput` | pass/fail | Estimated capacity against the throughput target |

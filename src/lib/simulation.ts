@@ -443,6 +443,36 @@ export function runVerification(
     }
   }
 
+  // Durable storage: features that keep data need a database or object storage on a
+  // request path; disk on app servers doesn't count. storageGb 0 marks a stateless feature.
+  const placedFeatures = features.filter((f) => f.placedOnNodeId);
+  if (placedFeatures.length > 0) {
+    const storing = placedFeatures.filter((f) => f.resources.storageGb > 0);
+    const hasStore = nodes.some(
+      (n) =>
+        reach.has(n.id) &&
+        (n.data.componentKind === "database" || n.data.componentKind === "object_storage"),
+    );
+    if (storing.length > 0 && !hasStore) {
+      const names = storing.map((f) => f.name).join(" and ");
+      checks.push({
+        id: "topo-data-store",
+        category: "topology",
+        title: "Durable storage",
+        status: "fail",
+        detail: `${names} ${storing.length === 1 ? "stores" : "store"} data, but no database or object storage is on a request path. Data kept on app servers is lost when they restart or scale.`,
+      });
+    } else {
+      checks.push({
+        id: "topo-data-store",
+        category: "topology",
+        title: "Durable storage",
+        status: "pass",
+        detail: storing.length > 0 ? "Data has a durable store." : "Placed features don't store data.",
+      });
+    }
+  }
+
   if (dbCount > 0 && computeCount === 0) {
     checks.push({
       id: "topo-db-no-compute",
@@ -560,6 +590,22 @@ export function runVerification(
           "PDF/security: API keys on the client risk reverse engineering. Prefer proxying through compute (Type B).",
       });
     }
+  }
+
+  // Security: client-side nodes wired straight to a database or cache, either direction
+  const dataTier = new Set<ComponentKind>(["database", "cache"]);
+  for (const e of edges) {
+    const pair = [byId.get(e.source), byId.get(e.target)];
+    const client = pair.find((n) => n && isClientishKind(n.data.componentKind));
+    const store = pair.find((n) => n && dataTier.has(n.data.componentKind));
+    if (!client || !store) continue;
+    checks.push({
+      id: `topo-client-data-${e.id}`,
+      category: "topology",
+      title: "Client → data store",
+      status: "warn",
+      detail: `${client.data.label} talks to ${store.data.label} directly. That puts database credentials on the client; go through compute instead.`,
+    });
   }
 
   // SSE / push should typically originate from compute/server toward clients

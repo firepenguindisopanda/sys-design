@@ -216,6 +216,99 @@ describe("topo-reachable", () => {
   });
 });
 
+describe("topo-data-store", () => {
+  const dataStore = (nodes: Node<DesignNodeData>[], edges: Edge[], features = [feature("api-1")]) =>
+    runVerification(nodes, edges, features, NFR).checks.find((c) => c.id === "topo-data-store");
+
+  const noDb = () => {
+    const { nodes, edges } = base();
+    return {
+      nodes: nodes.filter((n) => n.id !== "db"),
+      edges: edges.filter((e) => e.target !== "db"),
+    };
+  };
+
+  it("passes with a reachable database", () => {
+    const { nodes, edges } = base();
+    expect(dataStore(nodes, edges)).toMatchObject({ status: "pass", detail: "Data has a durable store." });
+  });
+
+  it("fails with no data store, naming the features that store data", () => {
+    const { nodes, edges } = noDb();
+    const features = [feature("api-1"), { ...feature("api-2"), id: "g", name: "Write" }];
+    expect(dataStore(nodes, edges, features)).toMatchObject({
+      status: "fail",
+      detail:
+        "Read and Write store data, but no database or object storage is on a request path. Data kept on app servers is lost when they restart or scale.",
+    });
+  });
+
+  it("passes with reachable object storage only", () => {
+    const { nodes, edges } = noDb();
+    nodes.push(node("files", "object_storage"));
+    edges.push(edge("api-1", "files"));
+    expect(dataStore(nodes, edges)?.status).toBe("pass");
+  });
+
+  it("fails when the only database is unreachable", () => {
+    const { nodes, edges } = base();
+    const cut = edges.filter((e) => e.target !== "db");
+    expect(dataStore(nodes, cut)?.status).toBe("fail");
+  });
+
+  it("passes when every placed feature is stateless", () => {
+    const { nodes, edges } = noDb();
+    const stateless = { ...feature("api-1"), resources: { memoryGb: 1, vcpus: 1, storageGb: 0 } };
+    expect(dataStore(nodes, edges, [stateless])).toMatchObject({
+      status: "pass",
+      detail: "Placed features don't store data.",
+    });
+  });
+
+  it("is not reported when no feature is placed", () => {
+    const { nodes, edges } = noDb();
+    expect(dataStore(nodes, edges, [{ ...feature("api-1"), placedOnNodeId: null }])).toBeUndefined();
+  });
+});
+
+describe("topo-client-data", () => {
+  const warnings = (extra: Node<DesignNodeData>[], extraEdges: Edge[]) => {
+    const { nodes, edges } = base();
+    const { result } = verify([...nodes, ...extra], [...edges, ...extraEdges]);
+    return result.checks.filter((c) => c.id.startsWith("topo-client-data-"));
+  };
+
+  it("warns for a client wired to a database, naming both", () => {
+    const [check] = warnings([], [edge("phone", "db")]);
+    expect(check).toMatchObject({
+      id: "topo-client-data-phone->db",
+      status: "warn",
+      detail:
+        "phone talks to db directly. That puts database credentials on the client; go through compute instead.",
+    });
+  });
+
+  it("warns whichever way the edge is drawn", () => {
+    expect(warnings([], [edge("db", "phone")]).map((c) => c.id)).toEqual([
+      "topo-client-data-db->phone",
+    ]);
+    expect(warnings([], [edge("phone", "db", "websocket")])).toHaveLength(1);
+  });
+
+  it("counts static hosting as client-side, and caches as data stores", () => {
+    const extra = [node("site", "static_hosting"), node("cache", "cache")];
+    expect(warnings(extra, [edge("site", "cache")]).map((c) => c.id)).toEqual([
+      "topo-client-data-site->cache",
+    ]);
+  });
+
+  it("does not warn for object storage or compute → database", () => {
+    const extra = [node("files", "object_storage")];
+    expect(warnings(extra, [edge("phone", "files")])).toEqual([]);
+    expect(warnings([], [])).toEqual([]); // base has api → db edges only
+  });
+});
+
 describe("task worker credit", () => {
   it("only applies the queue + worker throughput bonus for a connected worker", () => {
     const build = (connected: boolean) => {

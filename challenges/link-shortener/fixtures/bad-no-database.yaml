@@ -1,0 +1,23 @@
+description: >-
+  Good design without the database. Links live only in the cache and on the app
+  servers, so a restart or a cache eviction loses them.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Link API 1 }
+    - { id: api-2, kind: paas, label: Link API 2 }
+    - { id: cache, kind: cache, label: Link cache, config: { memoryGb: 6 } }
+  edges:
+    - phone -> lb : http
+    - lab-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+  placements:
+    create-link: api-1
+    redirect: api-2
+expect:
+  fails: [topo-data-store, db-replicas]

@@ -25,3 +25,4 @@ design:
     redirect: api-2
 expect:
   fails: [no-client-to-db]
+  warns: [topo-client-data-lab-pc->db]

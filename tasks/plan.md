@@ -1,95 +1,75 @@
-# Implementation Plan: Phase 2, step 1: score what is connected
+# Implementation Plan: Phase 2, step 2: data-tier checks
 
-Spec: [SPEC-reachability.md](../SPEC-reachability.md) (approved). Task checklist:
-[todo.md](todo.md). Branch: `feat/engine-reachability`. Phase 1 plan and tasks:
-[phase1/](phase1/plan.md).
+Spec: [SPEC-data-checks.md](../SPEC-data-checks.md) (approved). Task checklist:
+[todo.md](todo.md). Branch: `feat/engine-data-checks`. Earlier steps:
+[phase1/](phase1/plan.md), [reachability/](reachability/plan.md).
 
 ## Overview
 
-Add `reachableNodeIds` (nodes on a request path from clients), then make the engine
-credit load balancers, caches, CDNs, task workers and queues only when they are on that
-path, and add a `topo-reachable` check. The four phase 1 known gaps become ordinary
-passing tests; every good fixture keeps its numbers and both demos are unchanged.
+Add two checks to `runVerification`: `topo-client-data-<edge>` (warn when a client-side
+node is wired straight to a database or cache) and `topo-data-store` (fail when features
+store data but no database or object storage is on a request path). One new fixture and
+four strengthened ones prove the engine now catches these on its own.
 
 ## Dependency graph
 
 ```
-demo pin test (baseline, before any engine change)
+topo-client-data  (4 fixtures gain warns; independent of the other check)
+topo-data-store   (new bad-no-database fixture; uses the reachable set from step 1)
         │
-reachability.ts  ──────────────┐
-        │                      │
-credit: LB, cache, CDN, worker │   (closes cache + LB gaps)
-        │                      │
-credit: queue + topo-queue warn│   (closes bus gap)
-        │                      │
-topo-reachable check ──────────┘   (closes no-edges gap)
-        │
-docs: brief-format, findings, spec status
+docs: check table, findings update, spec status
 ```
+
+The two checks don't depend on each other. They're done one after the other because
+both edit `simulation.ts` and `simulation.test.ts`.
 
 ## Architecture decisions
 
-- **One reachable set per verification run.** `runVerification` computes it once and
-  passes it to `estimatePathLatency`, `estimateThroughputRpm` and `estimateAvailability`,
-  so every estimator and check agrees on what's connected.
-- **A single `creditedKinds` helper** in `simulation.ts` returns the set of component
-  kinds that earn credit, using the rules in the spec. Existing `hasLb`-style booleans are
-  derived from it, so each call site changes by one expression and the diff stays small.
-- **Queue consumers use the reachability traversal** (an edge drawn out of the queue, or
-  a two-way edge), as approved.
-- **Gap fixtures keep their `bad-gap-*` names** so references in the phase 1 findings
-  stay valid; the findings note marks them fixed.
-- **Pin the demos before touching the engine**, so the demo test is a true regression
-  check rather than written to match new output.
+- **Each task starts red.** The fixture change for a check lands first in the same task
+  and fails; then the check makes it pass. Every task ends with the suite green, so no
+  task leaves the branch red.
+- **`topo-client-data` sits next to the existing `topo-api-keys` loop** and follows its
+  per-edge id pattern. A small `DATA_TIER` set (`database`, `cache`) keeps the condition
+  readable.
+- **`topo-data-store` reuses the step 1 reachable set** (`reach`), already computed in
+  `runVerification`, so "on a request path" means the same thing everywhere.
+- **No estimator changes.** Both are topology checks; latency, throughput, availability
+  and cost code is untouched, so the probe table can't move unless something is wrong.
 
 ## Task list
 
-### Phase A: Baseline and helper
-- [x] Task 1: Pin both demos in a regression test
-- [x] Task 2: Reachability helper
+### Phase A: Checks
+- [x] Task 1: `topo-client-data` warning
+- [x] Task 2: `topo-data-store` check
 
 ### Checkpoint A
-- [x] Suite green (still 4 expected fail); demos pinned; helper tested
+- [x] Suite green; probe table unchanged; demos unchanged; tsc and lint green
 
-### Phase B: Engine credit rules (test first: remove each `knownGap`, watch it fail, fix)
-- [x] Task 3: Credit load balancers, caches, CDNs and task workers only when connected
-- [x] Task 4: Credit queues only with a consumer; `topo-queue` warns otherwise
-- [x] Task 5: `topo-reachable` check
+Notes from Phase A:
+- `bad-no-database` scores 33,600 rpm and $174/mo (finding 6 in action), and now fails
+  `topo-data-store`. It also fails `nfr-availability` by accident (99.6 %), which it
+  doesn't assert.
+- `topo-data-store` also fires on `bad-gap-no-edges` (its database is unreachable);
+  correct, and not asserted.
 
-### Checkpoint B
-- [x] 0 expected failures; good-fixture estimates unchanged (probe); demos unchanged;
-      tsc and lint green
-
-Notes from Phases A and B:
-- **Credited node ids, not kinds.** The plan's `creditedKinds` became `creditedNodeIds`:
-  a set of kinds can't tell a connected cache from an unconnected one when a design
-  has two.
-- **Bonus:** the engine now also flags `chat-app/bad-no-subscribers` and
-  `notification-system/bad-no-worker` (`topo-queue` warns), which only brief rules
-  caught before.
-- **Latency fallback unchanged:** a design with no edges still gets the fixed estimate
-  (92 ms); `topo-reachable` fails it instead.
-
-### Phase C: Documentation
-- [x] Task 6: Update the authoring guide, findings note and spec status
+### Phase B: Documentation
+- [x] Task 3: Check table, findings update, spec status
 
 ### Checkpoint: Complete
-- [x] All seven spec success criteria met; ready for review (nothing committed until asked)
+- [x] All six spec success criteria met; ready for review (nothing committed until asked)
 
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| A good fixture's numbers move because a component it relies on isn't counted as reachable (e.g. edge direction drawn "backwards") | Med | Run the probe after every engine task and compare with the spec's table; investigate any change before continuing |
-| `topo-reachable` warns on good fixtures or demos for nodes that are legitimately "leaves" | Med | Leaves are reachable (they have an incoming edge), so this only fires for truly disconnected nodes; the demo pin and `pass: true` fixtures would catch it |
-| Client-less designs (fan-in demo) treated as unreachable | Med | Root fallback to nodes with no incoming edges; the fan-in demo is pinned |
-| The latency estimate for a design with no edges stays at its fixed fallback | Low | Intended: `topo-reachable` fails such designs; latency modelling is a later step |
-| Scope creep into database or compute credit | Low | Out of scope in the spec; note candidates in the findings instead |
+| A good fixture or demo has a client-side → cache edge nobody noticed (e.g. a CDN in front of a cache) | Low | Searched: no good fixture or demo has one; the demo pin and `pass: true` fixtures would catch it anyway, as a warning only |
+| `topo-data-store` fails a legitimately stateless brief later | Low | Authors set `storageGb: 0`; documented in the authoring guide |
+| A design with no clients and an unreachable store | Low | Roots fall back to nodes with no incoming edges (step 1), so the fan-in demo's database is reachable; pinned in `tests/demos.test.ts` |
+| Expectation ids with `->` in them | Low | Already used (`topo-sse-dir-phone->worker`); validator accepts any `topo-` id |
 
 ## Parallelization
 
-None worth it: Tasks 3 to 5 all edit `simulation.ts`, and each builds on the previous
-one. Task 6 is small.
+Not worth it: both tasks edit the same two files.
 
 ## Open questions
 

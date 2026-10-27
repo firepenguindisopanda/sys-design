@@ -31,3 +31,4 @@ design:
     fan-out: api-2
 expect:
   fails: [no-client-to-db]
+  warns: [topo-client-data-phone->db]

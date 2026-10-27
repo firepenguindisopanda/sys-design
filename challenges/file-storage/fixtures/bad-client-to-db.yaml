@@ -31,3 +31,4 @@ design:
     download-file: api-2
 expect:
   fails: [no-client-to-db]
+  warns: [topo-client-data-ta-pc->db]

@@ -6,7 +6,7 @@ open questions. One change from the plan: credit is tracked per node
 the same design are scored separately.
 Builds on phase 1 ([SPEC.md](SPEC.md), [findings](docs/challenges/phase1-findings.md)).
 Branch: `feat/engine-reachability`, from `feat/challenge-briefs-phase1`.
-Plan: [tasks/plan.md](tasks/plan.md). Phase 1 tasks moved to `tasks/phase1/`.
+Plan: [tasks/reachability/plan.md](tasks/reachability/plan.md). Phase 1 tasks moved to `tasks/phase1/`.
 
 ## Objective
 

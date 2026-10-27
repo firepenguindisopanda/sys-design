@@ -23,8 +23,36 @@ As a side effect, the engine now also flags `chat-app/bad-no-subscribers` and
 | notification-system | 4 | 2 (push direction, no worker) | 2 | 0 |
 | **Total** | **20** | **11** | **9** | **0** |
 
-Still open: findings 5 to 11, in the order suggested at the end of this note (start with
-the storage check and the client-to-database warning).
+## Update: phase 2, step 2 (data-tier checks)
+
+([SPEC-data-checks.md](../../SPEC-data-checks.md).) Two new engine checks:
+
+- **Finding 8 fixed.** `topo-client-data-<edge>` warns on any edge between a client-side
+  node and a database or cache. All four `bad-client-to-db` fixtures now assert it.
+- **Finding 6 partly fixed.** `topo-data-store` fails a design whose features store data
+  (`storageGb > 0`) when no database or object storage is on a request path. A new
+  fixture, `link-shortener/bad-no-database`, shows the original problem: without a
+  database it scores 33,600 rpm and $174/mo, and now fails the new check.
+  `file-storage/bad-no-metadata-db` still has object storage, so it passes this check;
+  "records need a queryable database" stays a brief rule. Throughput estimation without a
+  database is unchanged.
+
+Good designs and both demos kept their exact results. Updated tally:
+
+| Brief | Bad designs | Caught by the engine | Caught only by brief rules |
+|---|---|---|---|
+| link-shortener | 8 (adds `bad-no-database`) | 8 | 0 |
+| chat-app | 5 | 3 | 2 (`bad-http-polling`, `bad-no-pubsub`) |
+| file-storage | 4 | 2 | 2 (`bad-files-in-db`, `bad-no-metadata-db`) |
+| notification-system | 4 | 3 | 1 (`bad-sync-delivery`) |
+| **Total** | **21** | **16** | **5** |
+
+Of the original 20, the engine now catches 15 (was 5 in phase 1, 11 after step 1).
+
+Still open: findings 5, 6 (the database-specific part), 7, 9, 10 and 11, in the order
+suggested at the end of this note. The five brief-rule-only fixtures map to findings 5
+(files in the database), 6 (no metadata database), 7 (polling), and 10 (synchronous
+fan-out, and no pub/sub).
 
 The rest of this note is the original phase 1 analysis, kept as written.
 

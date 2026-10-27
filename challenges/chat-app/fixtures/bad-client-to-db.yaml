@@ -29,3 +29,4 @@ design:
     load-history: chat-2
 expect:
   fails: [no-client-to-db]
+  warns: [topo-client-data-laptop->db]
