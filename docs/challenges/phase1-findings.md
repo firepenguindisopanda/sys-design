@@ -3,6 +3,31 @@
 Date: 2026-10-27. Covers the four pilot briefs in `challenges/` and the engine in
 `src/lib/simulation.ts` as of commit `0b9de45` (unchanged in phase 1).
 
+## Update: phase 2, step 1 (connection-aware scoring)
+
+Known gaps 1 to 4 below are **fixed** ([SPEC-reachability.md](../../SPEC-reachability.md)).
+The engine now credits load balancers, caches, CDNs, task workers and queues only when
+they are on a request path, and a new `topo-reachable` check fails stranded compute and
+warns about other disconnected components. The four `bad-gap-*` fixtures are now
+ordinary tests and the suite has no expected failures. Good designs and both demos kept
+their exact results.
+
+As a side effect, the engine now also flags `chat-app/bad-no-subscribers` and
+`notification-system/bad-no-worker` through `topo-queue`. Updated tally:
+
+| Brief | Bad designs | Caught by the engine | Caught only by brief rules | Known engine gaps |
+|---|---|---|---|---|
+| link-shortener | 7 | 6 | 1 (client → DB) | 0 |
+| chat-app | 5 | 2 (unconnected bus, no subscribers) | 3 | 0 |
+| file-storage | 4 | 1 | 3 | 0 |
+| notification-system | 4 | 2 (push direction, no worker) | 2 | 0 |
+| **Total** | **20** | **11** | **9** | **0** |
+
+Still open: findings 5 to 11, in the order suggested at the end of this note (start with
+the storage check and the client-to-database warning).
+
+The rest of this note is the original phase 1 analysis, kept as written.
+
 ## Short answer
 
 **Mostly no, without brief rules.** Across 20 bad designs, the engine on its own catches
@@ -29,9 +54,9 @@ but the NFR scores students see are not trustworthy until the phase 2 fixes land
 `file-storage/bad-no-metadata-db` also fails availability, but only incidentally (see
 finding 6), so it is counted under brief rules.
 
-Every good design passes, and each one's estimates are in `tasks/plan.md`.
+Every good design passes, and each one's estimates are in `tasks/phase1/plan.md`.
 
-## Known gaps (tracked as expected failures in the test suite)
+## Known gaps (all four fixed in phase 2, step 1)
 
 These four fixtures run as `it.fails`. When a phase 2 fix makes one pass, its test turns
 red and the `knownGap` line in the fixture must be removed.

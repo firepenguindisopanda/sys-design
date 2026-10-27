@@ -26,6 +26,3 @@ design:
 expect:
   fails: [fanout-publish, fanout-subscribe]
   warns: [topo-queue]
-knownGap: >-
-  The async-messaging check reports pass, and the availability estimate adds a bonus,
-  for any message queue on the canvas, connected or not.

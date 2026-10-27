@@ -23,6 +23,3 @@ design:
 expect:
   fails: [nfr-availability]
   warns: [topo-lb]
-knownGap: >-
-  The availability estimate and the load balancer warning only check that a load
-  balancer exists, not that it sits in front of the compute nodes.

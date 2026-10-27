@@ -170,18 +170,31 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `placement-ok` | pass | Every feature fits |
 | `topo-empty` | fail | The canvas is empty |
 | `topo-present` | pass | Reports the component and connection counts |
+| `topo-reachable` | pass/warn/fail | **fail** if a compute node hosting features isn't on any request path; **warn**, naming them, if other components aren't |
 | `topo-db-no-compute` | warn | A database but no compute at all |
 | `topo-intermediate-<node>` | warn | A non-compute node has edges both in and out (load balancers, CDNs, queues and caches are exempt) |
-| `topo-lb` | warn | Two or more compute nodes and no load balancer |
-| `topo-cdn` | warn | Static hosting without a CDN |
-| `topo-cache` | warn | A database without a cache (`topo-cache-ok` passes when both exist) |
-| `topo-queue` | pass | A message queue exists |
+| `topo-lb` | warn | Two or more compute nodes and no connected load balancer |
+| `topo-cdn` | warn | Static hosting without a connected CDN |
+| `topo-cache` | warn | A database without a connected cache (`topo-cache-ok` passes otherwise) |
+| `topo-queue` | pass/warn | **pass** if a queue is on a request path and has a consumer; **warn** if queues exist but none is wired up |
 | `topo-api-keys-<edge>` | warn | A client-like node talks to an external API |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
 | `nfr-latency` | pass/fail | Estimated critical-path latency against `maxLatencyMs` |
 | `nfr-throughput` | pass/fail | Estimated capacity against the throughput target |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |
+
+### Only connected components count
+
+The engine gives credit (capacity, latency and availability bonuses, and passing
+topology checks) only to components on a **request path**: reachable by following edges
+from a client node, or, in a design with no clients, from the nodes with no incoming
+edges. Edges are followed in the direction drawn; `websocket` and `webrtc` are followed
+both ways. On top of that, a load balancer must forward to a compute node, and a queue
+must have a consumer (an edge out of it, or a two-way edge).
+
+So in a bad fixture, an unconnected component is a real flaw the engine scores, not a
+loophole. See `src/lib/reachability.ts` and `SPEC-reachability.md`.
 
 ### knownGap
 

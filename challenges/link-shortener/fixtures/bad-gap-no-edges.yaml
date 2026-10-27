@@ -14,7 +14,4 @@ design:
     create-link: api-1
     redirect: api-2
 expect:
-  fails: [cache-on-read-path, topo-present]
-knownGap: >-
-  No engine check needs components to be connected; with no edges, latency falls
-  back to a fixed estimate and every NFR passes.
+  fails: [cache-on-read-path, topo-reachable]

@@ -22,6 +22,3 @@ design:
     redirect: api-2
 expect:
   fails: [cache-on-read-path, nfr-throughput]
-knownGap: >-
-  The engine credits cache capacity and the cache-aside latency bonus to any cache
-  on the canvas, connected or not.

@@ -5,8 +5,10 @@ import {
   isComputeKind,
 } from "./catalog";
 import { getEdgeData } from "./edges";
+import { outgoingNeighbours, reachableNodeIds } from "./reachability";
 import type {
   CheckStatus,
+  ComponentKind,
   DesignNodeData,
   EdgeProtocol,
   FeatureBlock,
@@ -17,6 +19,35 @@ import type {
 import type { Edge, Node } from "@xyflow/react";
 
 type SimNode = Node<DesignNodeData>;
+
+/** Ids of nodes that earn credit in the estimates and topology checks. */
+type Credited = Set<string>;
+
+/**
+ * A component earns credit only on a request path (reachable from a client).
+ * A load balancer must also forward to compute, and a queue must have a
+ * consumer (an edge out of it, or a two-way edge).
+ */
+function creditedNodeIds(nodes: SimNode[], edges: Edge[], reach: Set<string>): Credited {
+  const out = outgoingNeighbours(edges);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const credited: Credited = new Set();
+  for (const n of nodes) {
+    if (!reach.has(n.id)) continue;
+    const next = out.get(n.id) ?? [];
+    if (n.data.componentKind === "load_balancer") {
+      const k = (id: string) => byId.get(id)?.data.componentKind;
+      if (!next.some((id) => isComputeKind(k(id) ?? ""))) continue;
+    }
+    if (n.data.componentKind === "message_queue" && next.length === 0) continue;
+    credited.add(n.id);
+  }
+  return credited;
+}
+
+function hasCredited(nodes: SimNode[], credited: Credited, kind: ComponentKind): boolean {
+  return nodes.some((n) => n.data.componentKind === kind && credited.has(n.id));
+}
 
 function worst(...statuses: CheckStatus[]): CheckStatus {
   if (statuses.includes("fail")) return "fail";
@@ -101,7 +132,7 @@ function hopLatencyMs(
   return 40;
 }
 
-function estimatePathLatency(nodes: SimNode[], edges: Edge[]): number {
+function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited): number {
   if (edges.length === 0) {
     const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
     const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
@@ -147,19 +178,23 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[]): number {
     visit(r.id, 0, new Set());
   }
 
-  const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
+  const hasCdn = hasCredited(nodes, credited, "cdn");
   const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
   if (hasStatic && !hasCdn) max += 40;
 
-  // Cache-aside bonus when cache sits next to a database
-  const hasCache = nodes.some((n) => n.data.componentKind === "cache");
+  // Cache-aside bonus when a connected cache sits next to a database
+  const hasCache = hasCredited(nodes, credited, "cache");
   const hasDb = nodes.some((n) => n.data.componentKind === "database");
   if (hasCache && hasDb) max = Math.max(20, max - 15);
 
   return Math.max(max, 20);
 }
 
-function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): number {
+function estimateThroughputRpm(
+  nodes: SimNode[],
+  features: FeatureBlock[],
+  credited: Credited,
+): number {
   const placed = features.filter((f) => f.placedOnNodeId);
   if (placed.length === 0) return 0;
 
@@ -199,8 +234,10 @@ function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): numb
       if (cfg.kind !== "database") continue;
       dbCap += 400 * cfg.shards * (1 + (cfg.replicas - 1) * 0.15);
     }
-    // Cache raises effective read throughput
-    const caches = nodes.filter((n) => n.data.componentKind === "cache");
+    // A connected cache raises effective read throughput
+    const caches = nodes.filter(
+      (n) => n.data.componentKind === "cache" && credited.has(n.id),
+    );
     if (caches.length > 0) {
       let cacheBoost = 0;
       for (const c of caches) {
@@ -213,8 +250,8 @@ function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): numb
   }
 
   // Queue / worker pattern: async load leveling softens peak throughput pressure
-  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
-  const hasWorker = nodes.some((n) => n.data.componentKind === "task_worker");
+  const hasQueue = hasCredited(nodes, credited, "message_queue");
+  const hasWorker = hasCredited(nodes, credited, "task_worker");
   if (hasQueue && hasWorker) {
     totalCapacity = Math.floor(totalCapacity * 1.15);
   }
@@ -222,15 +259,15 @@ function estimateThroughputRpm(nodes: SimNode[], features: FeatureBlock[]): numb
   return totalCapacity;
 }
 
-function estimateAvailability(nodes: SimNode[], edges: Edge[]): number {
+function estimateAvailability(nodes: SimNode[], credited: Credited): number {
   if (nodes.length === 0) return 0;
 
   let avail = 0.985;
-  const hasLb = nodes.some((n) => n.data.componentKind === "load_balancer");
+  const hasLb = hasCredited(nodes, credited, "load_balancer");
   const compute = nodes.filter((n) => isComputeKind(n.data.componentKind));
   const dbs = nodes.filter((n) => n.data.componentKind === "database");
-  const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
-  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
+  const hasCdn = hasCredited(nodes, credited, "cdn");
+  const hasQueue = hasCredited(nodes, credited, "message_queue");
 
   if (compute.some((n) => n.data.componentKind === "functions" || n.data.componentKind === "edge")) {
     avail = Math.max(avail, 0.995);
@@ -249,7 +286,6 @@ function estimateAvailability(nodes: SimNode[], edges: Edge[]): number {
   if (hasCdn) avail += 0.002;
   if (hasQueue) avail += 0.001; // load leveling / decoupling
 
-  void edges;
   return Math.min(0.9995, Math.max(0.9, avail)) * 100;
 }
 
@@ -345,13 +381,18 @@ export function runVerification(
     }
   }
 
+  // Only components on a request path earn credit (SPEC-reachability.md).
+  const reach = reachableNodeIds(nodes, edges);
+  const credited = creditedNodeIds(nodes, edges, reach);
+
   const computeCount = nodes.filter((n) => isComputeKind(n.data.componentKind)).length;
   const dbCount = nodes.filter((n) => n.data.componentKind === "database").length;
-  const hasLb = nodes.some((n) => n.data.componentKind === "load_balancer");
+  const hasLb = hasCredited(nodes, credited, "load_balancer");
   const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
-  const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
-  const hasCache = nodes.some((n) => n.data.componentKind === "cache");
-  const hasQueue = nodes.some((n) => n.data.componentKind === "message_queue");
+  const hasCdn = hasCredited(nodes, credited, "cdn");
+  const hasCache = hasCredited(nodes, credited, "cache");
+  const anyQueue = nodes.some((n) => n.data.componentKind === "message_queue");
+  const hasQueue = hasCredited(nodes, credited, "message_queue");
 
   if (nodes.length === 0) {
     checks.push({
@@ -369,6 +410,37 @@ export function runVerification(
       status: "pass",
       detail: `${nodes.length} component(s), ${edges.length} connection(s).`,
     });
+
+    // Disconnected parts: fatal for compute hosting features, otherwise a warning.
+    const hosting = new Set(features.map((f) => f.placedOnNodeId));
+    const unreachable = nodes.filter((n) => !reach.has(n.id));
+    const stranded = unreachable.filter((n) => hosting.has(n.id));
+    const labels = (list: SimNode[]) => list.map((n) => n.data.label).join(", ");
+    if (stranded.length > 0) {
+      checks.push({
+        id: "topo-reachable",
+        category: "topology",
+        title: "Request path",
+        status: "fail",
+        detail: `No request path reaches ${labels(stranded)}. Connect ${stranded.length === 1 ? "it" : "them"} to a client, directly or through a load balancer.`,
+      });
+    } else if (unreachable.length > 0) {
+      checks.push({
+        id: "topo-reachable",
+        category: "topology",
+        title: "Request path",
+        status: "warn",
+        detail: `${labels(unreachable)} ${unreachable.length === 1 ? "isn't" : "aren't"} on any request path, so ${unreachable.length === 1 ? "it earns" : "they earn"} no credit.`,
+      });
+    } else {
+      checks.push({
+        id: "topo-reachable",
+        category: "topology",
+        title: "Request path",
+        status: "pass",
+        detail: "Every component is on a request path.",
+      });
+    }
   }
 
   if (dbCount > 0 && computeCount === 0) {
@@ -458,6 +530,15 @@ export function runVerification(
       status: "pass",
       detail: "Message queue / pub-sub decouples producers and consumers (Queue-Based Load Levelling).",
     });
+  } else if (anyQueue) {
+    checks.push({
+      id: "topo-queue",
+      category: "topology",
+      title: "Async messaging",
+      status: "warn",
+      detail:
+        "Queue isn't wired up: it needs a producer on a request path and a consumer. Until then it earns no credit.",
+    });
   }
 
   // Security: client-like nodes (static) talking directly to external API
@@ -505,9 +586,9 @@ export function runVerification(
     }
   }
 
-  const latency = estimatePathLatency(nodes, edges);
-  const throughput = estimateThroughputRpm(nodes, features);
-  const availability = estimateAvailability(nodes, edges);
+  const latency = estimatePathLatency(nodes, edges, credited);
+  const throughput = estimateThroughputRpm(nodes, features, credited);
+  const availability = estimateAvailability(nodes, credited);
   const cost = estimateMonthlyCost(nodes, features);
 
   const demandedRpm = features.reduce((s, f) => s + f.targetRpm, 0);
