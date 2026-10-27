@@ -1,3 +1,6 @@
+// Reads the filesystem: server only. Importing this from a Client Component is a
+// build error. (vitest aliases "server-only" to an empty module.)
+import "server-only";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";

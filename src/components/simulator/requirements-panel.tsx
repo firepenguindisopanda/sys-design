@@ -33,6 +33,8 @@ export function RequirementsPanel() {
   const updateFeature = useSimulatorStore((s) => s.updateFeature);
   const placeFeature = useSimulatorStore((s) => s.placeFeature);
   const setNfr = useSimulatorStore((s) => s.setNfr);
+  // In a challenge the brief fixes requirements and targets; placement stays open.
+  const locked = useSimulatorStore((s) => s.challenge !== null);
 
   const computeNodes = nodes.filter((n) => isComputeKind(n.data.componentKind));
 
@@ -52,6 +54,11 @@ export function RequirementsPanel() {
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             Functional → features
           </div>
+          {locked ? (
+            <p className="text-[11px] leading-snug text-slate-500">
+              Set by the challenge brief. Place each feature on compute.
+            </p>
+          ) : (
           <form
             className="flex gap-1.5"
             onSubmit={(e) => {
@@ -71,6 +78,7 @@ export function RequirementsPanel() {
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </form>
+          )}
 
           <ul className="space-y-2">
             {functionalReqs.map((req) => {
@@ -83,15 +91,17 @@ export function RequirementsPanel() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-xs font-medium leading-snug text-slate-800">{req.text}</p>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6 shrink-0 text-slate-400"
-                      onClick={() => removeFunctionalRequirement(req.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                    {locked ? null : (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 text-slate-400"
+                        onClick={() => removeFunctionalRequirement(req.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
 
                   <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -117,6 +127,7 @@ export function RequirementsPanel() {
                               },
                             })
                           }
+                          disabled={locked}
                           className="h-7 text-[11px]"
                         />
                       </div>
@@ -133,6 +144,7 @@ export function RequirementsPanel() {
                         onChange={(e) =>
                           updateFeature(feature.id, { targetRpm: Number(e.target.value) })
                         }
+                        disabled={locked}
                         className="h-7 text-[11px]"
                       />
                     </div>
@@ -206,6 +218,7 @@ export function RequirementsPanel() {
                 type="number"
                 value={nfr.maxLatencyMs}
                 onChange={(e) => setNfr({ maxLatencyMs: Number(e.target.value) })}
+                disabled={locked}
                 className="h-8 text-xs"
               />
             </div>
@@ -215,6 +228,7 @@ export function RequirementsPanel() {
                 type="number"
                 value={nfr.minThroughputRpm}
                 onChange={(e) => setNfr({ minThroughputRpm: Number(e.target.value) })}
+                disabled={locked}
                 className="h-8 text-xs"
               />
             </div>
@@ -225,6 +239,7 @@ export function RequirementsPanel() {
                 step={0.01}
                 value={nfr.minAvailabilityPct}
                 onChange={(e) => setNfr({ minAvailabilityPct: Number(e.target.value) })}
+                disabled={locked}
                 className="h-8 text-xs"
               />
             </div>
@@ -240,6 +255,7 @@ export function RequirementsPanel() {
                       e.target.value === "" ? null : Number(e.target.value),
                   })
                 }
+                disabled={locked}
                 className="h-8 text-xs"
               />
             </div>

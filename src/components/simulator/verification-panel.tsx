@@ -22,6 +22,7 @@ function statusLabel(status: CheckStatus) {
 export function VerificationPanel() {
   const run = useSimulatorStore((s) => s.runVerification);
   const verification = useSimulatorStore((s) => s.verification);
+  const ruleResults = useSimulatorStore((s) => s.ruleResults);
 
   return (
     <div className="border-t border-slate-200 bg-white">
@@ -85,6 +86,23 @@ export function VerificationPanel() {
                       {check.target && <span>Target {check.target}</span>}
                     </div>
                   )}
+                </div>
+              </li>
+            ))}
+            {/* Brief rules, only in a challenge; they count toward the overall result. */}
+            {ruleResults?.map((rule) => (
+              <li
+                key={`rule-${rule.id}`}
+                className="flex gap-2 rounded border border-teal-100 bg-teal-50/40 px-2.5 py-2"
+              >
+                <StatusIcon status={rule.status} />
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-slate-800">
+                    Brief rule: {rule.id}
+                  </div>
+                  <div className="mt-0.5 text-[10px] leading-snug text-slate-500">
+                    {rule.detail}
+                  </div>
                 </div>
               </li>
             ))}

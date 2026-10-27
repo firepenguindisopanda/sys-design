@@ -12,8 +12,11 @@ import {
 import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
 import { createStyledEdge, styleEdgeForProtocol } from "./edges";
+import { evaluateRules } from "./challenges/rules";
+import type { Brief, RuleResult } from "./challenges/types";
 import { canPlaceFeature, runVerification } from "./simulation";
 import type {
+  CheckStatus,
   ComponentKind,
   DesignNodeData,
   EdgeProtocol,
@@ -36,6 +39,10 @@ type SimulatorState = {
   features: FeatureBlock[];
   nfr: NonFunctionalRequirements;
   verification: VerificationResult | null;
+  /** Active challenge brief; null in the sandbox */
+  challenge: Brief | null;
+  /** Brief rule results from the last verification in a challenge */
+  ruleResults: RuleResult[] | null;
   onNodesChange: (changes: NodeChange<SimNode>[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
@@ -65,6 +72,8 @@ type SimulatorState = {
   loadDemo: () => void;
   loadFanInDemo: () => void;
   clearCanvas: () => void;
+  startChallenge: (brief: Brief) => void;
+  leaveChallenge: () => void;
 };
 
 let seq = 1;
@@ -318,11 +327,47 @@ const fanInSeed = (): ReturnType<typeof demoSeed> => {
   };
 };
 
+const SEVERITY: Record<CheckStatus, number> = { pass: 0, warn: 1, fail: 2 };
+
+/** Fresh canvas for a challenge: the brief's requirements as unplaced features. */
+function challengeSeed(brief: Brief) {
+  return {
+    challenge: brief,
+    ruleResults: null,
+    nodes: [],
+    edges: [],
+    functionalReqs: brief.functionalRequirements.map((fr) => ({
+      id: `freq-${fr.id}`,
+      text: fr.text,
+      featureId: fr.id,
+    })),
+    features: brief.functionalRequirements.map(
+      (fr): FeatureBlock => ({ id: fr.id, ...fr.feature, placedOnNodeId: null }),
+    ),
+    nfr: { ...brief.nfr },
+    verification: null,
+    selectedNodeId: null,
+    selectedEdgeId: null,
+  };
+}
+
+/** Features stay placed only on nodes that still exist. */
+function unplaceMissing(features: FeatureBlock[], nodes: SimNode[]): FeatureBlock[] {
+  const ids = new Set(nodes.map((n) => n.id));
+  return features.map((f) =>
+    f.placedOnNodeId && !ids.has(f.placedOnNodeId) ? { ...f, placedOnNodeId: null } : f,
+  );
+}
+
 export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   ...demoSeed(),
+  challenge: null,
+  ruleResults: null,
 
-  onNodesChange: (changes) =>
-    set({ nodes: applyNodeChanges(changes, get().nodes) as SimNode[] }),
+  onNodesChange: (changes) => {
+    const nodes = applyNodeChanges(changes, get().nodes) as SimNode[];
+    set({ nodes, features: unplaceMissing(get().features, nodes) });
+  },
 
   onEdgesChange: (changes) => {
     set({ edges: applyEdgeChanges(changes, get().edges) });
@@ -427,6 +472,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     }),
 
   addFunctionalRequirement: (text) => {
+    if (get().challenge) return; // a challenge's requirements are fixed
     const featureId = uid("feat");
     const reqId = uid("freq");
     const feature: FeatureBlock = {
@@ -445,6 +491,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   },
 
   removeFunctionalRequirement: (id) => {
+    if (get().challenge) return;
     const req = get().functionalReqs.find((r) => r.id === id);
     set({
       functionalReqs: get().functionalReqs.filter((r) => r.id !== id),
@@ -452,10 +499,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     });
   },
 
-  updateFeature: (id, patch) =>
+  updateFeature: (id, patch) => {
+    if (get().challenge) return; // feature numbers come from the brief
     set({
       features: get().features.map((f) => (f.id === id ? { ...f, ...patch } : f)),
-    }),
+    });
+  },
 
   placeFeature: (featureId, nodeId) => {
     const { features, nodes } = get();
@@ -485,23 +534,42 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     return { ok: true };
   },
 
-  setNfr: (patch) => set({ nfr: { ...get().nfr, ...patch } }),
-
-  runVerification: () => {
-    const { nodes, edges, features, nfr } = get();
-    set({ verification: runVerification(nodes, edges, features, nfr) });
+  setNfr: (patch) => {
+    if (get().challenge) return; // brief targets are fixed in a challenge
+    set({ nfr: { ...get().nfr, ...patch } });
   },
 
-  loadDemo: () => set({ ...demoSeed() }),
+  runVerification: () => {
+    const { nodes, edges, features, nfr, challenge } = get();
+    const verification = runVerification(nodes, edges, features, nfr);
+    if (!challenge) {
+      set({ verification, ruleResults: null });
+      return;
+    }
+    // In a challenge the brief's rules count too: overall is the worst of both.
+    const ruleResults = evaluateRules(challenge, nodes, edges);
+    const overall = [verification.overall, ...ruleResults.map((r) => r.status)].reduce(
+      (a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a),
+    );
+    set({ verification: { ...verification, overall }, ruleResults });
+  },
 
-  loadFanInDemo: () => set({ ...fanInSeed() }),
+  loadDemo: () => set({ ...demoSeed(), challenge: null, ruleResults: null }),
+
+  loadFanInDemo: () => set({ ...fanInSeed(), challenge: null, ruleResults: null }),
 
   clearCanvas: () =>
     set({
       nodes: [],
       edges: [],
+      features: unplaceMissing(get().features, []),
       selectedNodeId: null,
       selectedEdgeId: null,
       verification: null,
+      ruleResults: null,
     }),
+
+  startChallenge: (brief) => set(challengeSeed(brief)),
+
+  leaveChallenge: () => set({ ...demoSeed(), challenge: null, ruleResults: null }),
 }));

@@ -1,75 +1,117 @@
-# Implementation Plan: Phase 2, step 2: data-tier checks
+# Implementation Plan: Phase 3, slice 1: start and verify a challenge
 
-Spec: [SPEC-data-checks.md](../SPEC-data-checks.md) (approved). Task checklist:
-[todo.md](todo.md). Branch: `feat/engine-data-checks`. Earlier steps:
-[phase1/](phase1/plan.md), [reachability/](reachability/plan.md).
+Spec: [SPEC-challenge-slice1.md](../SPEC-challenge-slice1.md) (approved). Map:
+[CAPABILITY-MAP-phase3.md](../CAPABILITY-MAP-phase3.md). Task checklist: [todo.md](todo.md).
+Branch: `feat/challenge-slice1`. Earlier steps: [phase1/](phase1/plan.md),
+[reachability/](reachability/plan.md), [data-checks/](data-checks/plan.md).
 
 ## Overview
 
-Add two checks to `runVerification`: `topo-client-data-<edge>` (warn when a client-side
-node is wired straight to a database or cache) and `topo-data-store` (fail when features
-store data but no database or object storage is on a request path). One new fixture and
-four strengthened ones prove the engine now catches these on its own.
+Load the briefs on the server and hand them to the client; add a challenge session to
+the Zustand store (start, leave, locks, verification with rules); then a toolbar picker
+and the small panel changes that make locks and rule results visible. Along the way, fix
+features staying "placed" on removed nodes.
 
 ## Dependency graph
 
 ```
-topo-client-data  (4 fixtures gain warns; independent of the other check)
-topo-data-store   (new bad-no-database fixture; uses the reachable set from step 1)
-        │
-docs: check table, findings update, spec status
+T1 challenge-content (page loads briefs; server-only)      T2 unplace on node removal
+          │                                                        │
+          └───────────────► T3 challenge-session (store) ◄─────────┘
+                                     │
+                     ┌───────────────┴───────────────┐
+              T4 picker in toolbar          T5 panels: locks + rule rows
+                     └───────────────┬───────────────┘
+                               T6 browser + build check, README
 ```
-
-The two checks don't depend on each other. They're done one after the other because
-both edit `simulation.ts` and `simulation.test.ts`.
 
 ## Architecture decisions
 
-- **Each task starts red.** The fixture change for a check lands first in the same task
-  and fails; then the check makes it pass. Every task ends with the suite green, so no
-  task leaves the branch red.
-- **`topo-client-data` sits next to the existing `topo-api-keys` loop** and follows its
-  per-edge id pattern. A small `DATA_TIER` set (`database`, `cache`) keeps the condition
-  readable.
-- **`topo-data-store` reuses the step 1 reachable set** (`reach`), already computed in
-  `runVerification`, so "on a request path" means the same thing everywhere.
-- **No estimator changes.** Both are topology checks; latency, throughput, availability
-  and cost code is untouched, so the probe table can't move unless something is wrong.
+- **Briefs travel as props.** `page.tsx` (Server Component) → `SimulatorApp` →
+  `DesignCanvas`. Only the picker needs the list; prop drilling two levels is simpler
+  than a context or putting a static list in the store.
+- **The store owns the session and the locks.** UI disabling is cosmetic on top; the
+  store tests are the source of truth for "students can't change a brief".
+- **Rules run inside the store's `runVerification`**, reusing
+  `src/lib/challenges/rules.ts` (no `node:fs`, so it's safe in the browser). The overall
+  status combines both, so every panel that reads `verification.overall` gets the right
+  answer for free.
+- **`load.ts` gets `import "server-only"`** so any accidental import from client code is a
+  build error. vitest runs in a plain node environment, where `server-only` would throw
+  on import; the test config aliases it to an empty module (documented in the config).
+- **The end-to-end test drives the store with the fixture designs**, built by the
+  existing `buildDesign`, so the UI path and the fixture harness can't drift apart.
 
 ## Task list
 
-### Phase A: Checks
-- [x] Task 1: `topo-client-data` warning
-- [x] Task 2: `topo-data-store` check
+### Phase A: Foundations (independent)
+- [x] Task 1: Load briefs on the server and pass them to the client
+- [x] Task 2: Unplace features when their node is removed
 
 ### Checkpoint A
-- [x] Suite green; probe table unchanged; demos unchanged; tsc and lint green
+- [x] Tests, types, lint and `npm run build` green; app unchanged in the browser
 
-Notes from Phase A:
-- `bad-no-database` scores 33,600 rpm and $174/mo (finding 6 in action), and now fails
-  `topo-data-store`. It also fails `nfr-availability` by accident (99.6 %), which it
-  doesn't assert.
-- `topo-data-store` also fires on `bad-gap-no-edges` (its database is unreachable);
-  correct, and not asserted.
+### Phase B: Session
+- [x] Task 3: Challenge session in the store (start, leave, locks, verification with rules)
 
-### Phase B: Documentation
-- [x] Task 3: Check table, findings update, spec status
+### Checkpoint B
+- [x] Store tests and the end-to-end test pass; demos test unchanged
 
-### Checkpoint: Complete
-- [x] All six spec success criteria met; ready for review (nothing committed until asked)
+Notes from Phases A and B:
+- **`server-only`:** Next 16 says installing it is optional; installed anyway as
+  approved. Verified a client import fails the build. vitest aliases it to `empty.js`.
+- **Demo buttons leave the challenge too** (`loadDemo` / `loadFanInDemo` clear
+  `challenge`), so a demo can never mix with a locked brief.
+- **The end-to-end test** puts fixture nodes and edges into the store with `setState`
+  (exact ids can't be rebuilt through `addComponent` / `onConnect`), then uses the real
+  `startChallenge`, `placeFeature` and `runVerification`.
+- **Browser click-through of node deletion** was deferred to Task 6: the pane was in the
+  background and clicks didn't land. The same `onNodesChange` path is unit-tested.
+- **Next.js security notice:** `next build` reports `next@16.4.0` is affected by known
+  advisories (confirmed with `npm audit`: fixed in 16.4.3). Not part of this slice;
+  raised with the user.
+
+**Pending: rebase onto the new `main` once this slice is committed** (agreed with the
+user). `main` moved to `896c8f9` (Next.js 16.4.3 security upgrade) after this branch
+was cut from `01f8912`. Expect a conflict in `package.json` / `package-lock.json`
+(this branch adds `server-only`; `main` bumps `next`): keep both, then run
+`npm install` to regenerate the lockfile, and re-run tests, lint and build. Until the
+rebase, this checkout (and the dev server on 43127) still runs `next@16.4.0`.
+
+### Phase C: UI
+- [x] Task 4: Challenge picker in the toolbar
+- [x] Task 5: Locked requirements panel and rule rows in the verification panel
+
+Notes from Phase C:
+- The picker uses Base UI's `items` map so the trigger shows titles, not ids.
+- Browser walkthrough (1440px): picked the link shortener; 12/12 number inputs
+  disabled, no add form or remove buttons; added a PaaS, placed both features, ran
+  verification → Fail with three "Brief rule" rows; deleted the node by keyboard → both
+  features back to "Needs placement"; Sandbox restored the 11-node demo. No console errors.
+- **Existing layout gap (not fixed):** between 1024 and 1279px the requirements panel is
+  unreachable: the desktop panel is `hidden xl:block`, the header drawer buttons are
+  `lg:hidden`.
+- **Existing (not fixed):** the placement select shows the raw node id (e.g. `paas-16`)
+  rather than the label; same fix as the picker (`items`), for `challenge-panels`.
+
+### Checkpoint C (complete)
+- [x] Task 6: Browser walkthrough of all five user stories, build, README note
+- [x] All five spec success criteria met; ready for review (nothing committed until asked)
 
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| A good fixture or demo has a client-side → cache edge nobody noticed (e.g. a CDN in front of a cache) | Low | Searched: no good fixture or demo has one; the demo pin and `pass: true` fixtures would catch it anyway, as a warning only |
-| `topo-data-store` fails a legitimately stateless brief later | Low | Authors set `storageGb: 0`; documented in the authoring guide |
-| A design with no clients and an unreachable store | Low | Roots fall back to nodes with no incoming edges (step 1), so the fan-in demo's database is reachable; pinned in `tests/demos.test.ts` |
-| Expectation ids with `->` in them | Low | Already used (`topo-sse-dir-phone->worker`); validator accepts any `topo-` id |
+| `server-only` throws under vitest (no React server condition) | Med | Alias it to an empty module in `vitest.config.mts`; `npm run build` still enforces it |
+| Turbopack dev doesn't pick up YAML edits (page cached) | Low | Dev re-renders the page per request; if not, note it in the README; the build is the source of truth |
+| Node deletion goes through `onNodesChange` with React Flow change objects | Med | Unplace on `remove` changes specifically; test with a real `applyNodeChanges` remove |
+| shadcn `Select` from `@base-ui/react` behaves differently from Radix | Low | Copy the pattern already used for the protocol picker in the toolbar |
+| Starting a challenge wipes a sandbox design without warning | Low | Accepted in the spec (assumption 3); confirm dialog is a later polish item |
 
 ## Parallelization
 
-Not worth it: both tasks edit the same two files.
+Tasks 1 and 2 are independent, as are 4 and 5, but each pair is small and the second of
+each touches files near the first, so they run in sequence.
 
 ## Open questions
 

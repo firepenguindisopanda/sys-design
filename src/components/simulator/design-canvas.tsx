@@ -15,11 +15,13 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChallengePicker } from "./challenge-picker";
 import { DesignNode } from "./design-node";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Eraser, Sparkles } from "lucide-react";
+import type { Brief } from "@/lib/challenges/types";
 
 const nodeTypes = {
   designNode: DesignNode,
@@ -121,7 +123,8 @@ function FlowCanvas() {
   );
 }
 
-export function DesignCanvas() {
+export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
+  const inChallenge = useSimulatorStore((s) => s.challenge !== null);
   const loadDemo = useSimulatorStore((s) => s.loadDemo);
   const loadFanInDemo = useSimulatorStore((s) => s.loadFanInDemo);
   const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
@@ -146,26 +149,32 @@ export function DesignCanvas() {
   return (
     <div ref={containerRef} className="relative h-full w-full">
       <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2">
+        <ChallengePicker briefs={briefs} />
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={loadDemo}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Load BeUWI demo
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs"
-            onClick={loadFanInDemo}
-          >
-            Fan-in DB demo
-          </Button>
+          {/* Demos belong to the sandbox; in a challenge they would replace the brief. */}
+          {inChallenge ? null : (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 text-xs"
+                onClick={loadDemo}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Load BeUWI demo
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 text-xs"
+                onClick={loadFanInDemo}
+              >
+                Fan-in DB demo
+              </Button>
+            </>
+          )}
           <Button
             type="button"
             size="sm"

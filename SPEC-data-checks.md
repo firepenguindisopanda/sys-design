@@ -5,7 +5,7 @@ Status: **implemented** (2026-10-27). Approved with the proposed answers: `topo-
 Builds on [SPEC-reachability.md](SPEC-reachability.md) (implemented) and findings 6 and 8
 in [phase1-findings.md](docs/challenges/phase1-findings.md).
 Branch: `feat/engine-data-checks`, from `feat/engine-reachability`.
-Plan: [tasks/plan.md](tasks/plan.md). Earlier tasks: `tasks/phase1/`, `tasks/reachability/`.
+Plan: [tasks/data-checks/plan.md](tasks/data-checks/plan.md).
 
 ## Objective
 

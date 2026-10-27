@@ -7,8 +7,9 @@ import { VerificationPanel } from "./verification-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Boxes, ListChecks } from "lucide-react";
+import type { Brief } from "@/lib/challenges/types";
 
-export function SimulatorApp() {
+export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
   return (
     <TooltipProvider>
         <div className="flex h-dvh flex-col overflow-hidden bg-[var(--app-bg)] text-slate-900">
@@ -64,7 +65,7 @@ export function SimulatorApp() {
                 }}
               />
               <div className="absolute inset-0">
-                <DesignCanvas />
+                <DesignCanvas briefs={briefs} />
               </div>
             </main>
             <div className="hidden w-80 shrink-0 xl:block 2xl:w-[22rem]">
