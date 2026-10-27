@@ -1,6 +1,7 @@
 import {
   BASE_MONTHLY_COST,
   SCALE_FACTOR,
+  isClientKind,
   isClientishKind,
   isComputeKind,
 } from "./catalog";
@@ -494,6 +495,8 @@ export function runVerification(
     "cdn",
     "message_queue",
     "cache",
+    // Workers do background compute: consuming a queue and calling on is their job.
+    "task_worker",
   ]);
   for (const n of nodes) {
     const inC = inDeg.get(n.id) ?? 0;
@@ -502,6 +505,8 @@ export function runVerification(
       inC > 0 &&
       outC > 0 &&
       !isComputeKind(n.data.componentKind) &&
+      // A client that receives pushes and sends requests is an endpoint, not a hop.
+      !isClientKind(n.data.componentKind) &&
       !hopOk.has(n.data.componentKind)
     ) {
       checks.push({

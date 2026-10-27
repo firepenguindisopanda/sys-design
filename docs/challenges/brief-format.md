@@ -175,7 +175,7 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-reachable` | pass/warn/fail | **fail** if a compute node hosting features isn't on any request path; **warn**, naming them, if other components aren't |
 | `topo-db-no-compute` | warn | A database but no compute at all |
 | `topo-data-store` | pass/fail | **fail** if a placed feature has `storageGb > 0` and no database or object storage is on a request path; only reported when a feature is placed |
-| `topo-intermediate-<node>` | warn | A non-compute node has edges both in and out (load balancers, CDNs, queues and caches are exempt) |
+| `topo-intermediate-<node>` | warn | A non-compute node has edges both in and out (exempt: load balancers, CDNs, queues, caches, task workers, and client devices) |
 | `topo-lb` | warn | Two or more compute nodes and no connected load balancer |
 | `topo-cdn` | warn | Static hosting without a connected CDN |
 | `topo-cache` | warn | A database without a connected cache (`topo-cache-ok` passes otherwise) |

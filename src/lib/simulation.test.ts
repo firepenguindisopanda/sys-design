@@ -309,6 +309,39 @@ describe("topo-client-data", () => {
   });
 });
 
+describe("topo-intermediate", () => {
+  const hopWarnings = (extra: Node<DesignNodeData>[], extraEdges: Edge[]) => {
+    const { nodes, edges } = base();
+    const { result } = verify([...nodes, ...extra], [...edges, ...extraEdges]);
+    return result.checks.filter((c) => c.id.startsWith("topo-intermediate-")).map((c) => c.id);
+  };
+
+  // Finding 9: these are endpoints doing their job, not hops.
+  it("does not flag a client that receives push and sends requests", () => {
+    const extra = [node("jobs", "message_queue"), node("worker", "task_worker")];
+    const extraEdges = [edge("api-1", "jobs"), edge("jobs", "worker"), edge("worker", "phone", "web_push")];
+    expect(hopWarnings(extra, extraEdges)).toEqual([]);
+  });
+
+  it("does not flag a task worker that consumes a queue and calls on", () => {
+    const extra = [node("jobs", "message_queue"), node("worker", "task_worker"), node("files", "object_storage")];
+    const extraEdges = [edge("api-1", "jobs"), edge("jobs", "worker"), edge("worker", "files")];
+    expect(hopWarnings(extra, extraEdges)).toEqual([]);
+  });
+
+  it("still flags a data store used as a hop", () => {
+    const extra = [node("files", "object_storage")];
+    expect(hopWarnings(extra, [edge("db", "files")])).toEqual(["topo-intermediate-db"]);
+  });
+
+  it("still flags static hosting used as a hop", () => {
+    const extra = [node("site", "static_hosting")];
+    expect(hopWarnings(extra, [edge("phone", "site"), edge("site", "lb")])).toEqual([
+      "topo-intermediate-site",
+    ]);
+  });
+});
+
 describe("task worker credit", () => {
   it("only applies the queue + worker throughput bonus for a connected worker", () => {
     const build = (connected: boolean) => {

@@ -49,7 +49,14 @@ Good designs and both demos kept their exact results. Updated tally:
 
 Of the original 20, the engine now catches 15 (was 5 in phase 1, 11 after step 1).
 
-Still open: findings 5, 6 (the database-specific part), 7, 9, 10 and 11, in the order
+## Update: finding 9 fixed
+
+`topo-intermediate` no longer flags client devices (a phone that receives push and sends
+requests is an endpoint) or task workers (consuming a queue and calling on is their job).
+`notification-system/good` is now warning-free with unchanged numbers. Static hosting
+and data stores used as hops still warn, so the BeUWI demo keeps its warning.
+
+Still open: findings 5, 6 (the database-specific part), 7, 10 and 11, in the order
 suggested at the end of this note. The five brief-rule-only fixtures map to findings 5
 (files in the database), 6 (no metadata database), 7 (polling), and 10 (synchronous
 fan-out, and no pub/sub).
