@@ -33,6 +33,7 @@ function checkComponentRule(rule: ComponentRule, nodes: SimNode[]): RuleResult {
   const ok = found >= rule.min;
   return {
     id: rule.id,
+    title: rule.title,
     status: ok ? "pass" : rule.severity,
     detail: ok
       ? `Has ${describeComponent(rule)}.`
@@ -68,7 +69,7 @@ function checkEdgeRule(rule: EdgeRule, nodes: SimNode[], edges: Edge[]): RuleRes
       ? `No ${link} connection.`
       : `${rule.why} Remove ${hits.map((e) => e.id).join(", ")}.`;
   }
-  return { id: rule.id, status: ok ? "pass" : rule.severity, detail };
+  return { id: rule.id, title: rule.title, status: ok ? "pass" : rule.severity, detail };
 }
 
 /** Check a design against the scenario-specific rules of a brief. */

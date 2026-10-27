@@ -2,14 +2,18 @@
 
 import { ComponentLibrary } from "./component-library";
 import { DesignCanvas } from "./design-canvas";
-import { RequirementsPanel } from "./requirements-panel";
+import { SidePanel } from "./side-panel";
 import { VerificationPanel } from "./verification-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Boxes, ListChecks } from "lucide-react";
+import { Boxes, FileText, ListChecks } from "lucide-react";
+import { useSimulatorStore } from "@/lib/store";
 import type { Brief } from "@/lib/challenges/types";
 
 export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
+  // The side-panel sheet opens on the brief in a challenge, so the button says so.
+  const inChallenge = useSimulatorStore((s) => s.challenge !== null);
+
   return (
     <TooltipProvider>
         <div className="flex h-dvh flex-col overflow-hidden bg-[var(--app-bg)] text-slate-900">
@@ -30,9 +34,10 @@ export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 lg:hidden">
+            {/* Each button hides at the width where its panel appears inline. */}
+            <div className="flex items-center gap-1.5 xl:hidden">
               <Sheet>
-                <SheetTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium">
+                <SheetTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium lg:hidden">
                   <Boxes className="h-3.5 w-3.5" />
                   Library
                 </SheetTrigger>
@@ -42,11 +47,15 @@ export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
               </Sheet>
               <Sheet>
                 <SheetTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium">
-                  <ListChecks className="h-3.5 w-3.5" />
-                  Reqs
+                  {inChallenge ? (
+                    <FileText className="h-3.5 w-3.5" />
+                  ) : (
+                    <ListChecks className="h-3.5 w-3.5" />
+                  )}
+                  {inChallenge ? "Brief" : "Reqs"}
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[320px] p-0">
-                  <RequirementsPanel />
+                  <SidePanel />
                 </SheetContent>
               </Sheet>
             </div>
@@ -69,7 +78,7 @@ export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
               </div>
             </main>
             <div className="hidden w-80 shrink-0 xl:block 2xl:w-[22rem]">
-              <RequirementsPanel />
+              <SidePanel />
             </div>
           </div>
 

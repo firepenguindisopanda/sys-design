@@ -97,8 +97,9 @@ export function VerificationPanel() {
               >
                 <StatusIcon status={rule.status} />
                 <div className="min-w-0">
-                  <div className="truncate text-xs font-medium text-slate-800">
-                    Brief rule: {rule.id}
+                  {/* The id is on hover for brief authors. */}
+                  <div className="truncate text-xs font-medium text-slate-800" title={rule.id}>
+                    {rule.title}
                   </div>
                   <div className="mt-0.5 text-[10px] leading-snug text-slate-500">
                     {rule.detail}

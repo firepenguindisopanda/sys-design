@@ -16,6 +16,8 @@ export type RuleSeverity = "fail" | "warn";
 
 export type ComponentRule = {
   id: string;
+  /** Short name shown to students in verification results */
+  title: string;
   type: "component";
   kind: NodeMatcher;
   /** At least this many matching nodes must meet minConfig */
@@ -28,6 +30,8 @@ export type ComponentRule = {
 
 export type EdgeRule = {
   id: string;
+  /** Short name shown to students in verification results */
+  title: string;
   type: "edge";
   mode: "required" | "forbidden";
   /** Any of these may be the source (YAML accepts one value or a list) */
@@ -115,6 +119,7 @@ export type Fixture = {
 
 export type RuleResult = {
   id: string;
+  title: string;
   status: CheckStatus;
   detail: string;
 };

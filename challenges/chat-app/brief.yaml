@@ -43,6 +43,7 @@ nfr:
 
 rules:
   - id: realtime-websocket
+    title: Clients connect over WebSocket
     type: edge
     mode: required
     from: client
@@ -51,6 +52,7 @@ rules:
     severity: fail
     why: Messages must be pushed to clients as they arrive; a persistent WebSocket avoids polling.
   - id: fanout-publish
+    title: Servers publish messages to a queue
     type: edge
     mode: required
     from: compute
@@ -58,6 +60,7 @@ rules:
     severity: fail
     why: A server that receives a message must publish it so other chat servers can deliver it.
   - id: fanout-subscribe
+    title: Servers subscribe to the queue
     type: edge
     mode: required
     from: message_queue
@@ -65,6 +68,7 @@ rules:
     severity: fail
     why: Chat servers must subscribe to published messages to relay them to their own sockets.
   - id: no-client-to-db
+    title: No client talks to the database
     type: edge
     mode: forbidden
     from: client

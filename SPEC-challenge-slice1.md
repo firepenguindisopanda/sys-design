@@ -3,7 +3,7 @@
 Status: **implemented** (2026-10-27). Approved with all three proposals: unplacing fixed in both
 modes, overall = worst of engine and rules, `server-only` package added. Modules `challenge-content`, `challenge-session` and a
 minimal `challenge-picker` from the approved
-[capability map](CAPABILITY-MAP-phase3.md). Branch: `feat/challenge-slice1`, from `main`. Plan: [tasks/plan.md](tasks/plan.md).
+[capability map](CAPABILITY-MAP-phase3.md). Branch: `feat/challenge-slice1`, from `main`. Plan: [tasks/challenge-slice1/plan.md](tasks/challenge-slice1/plan.md).
 
 ## Objective
 

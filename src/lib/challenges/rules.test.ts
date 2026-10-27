@@ -38,6 +38,7 @@ type EdgePatch = Omit<Partial<EdgeRule>, "from" | "to"> & {
 function edgeRule({ from = "client", to = "compute", ...patch }: EdgePatch): EdgeRule {
   return {
     id: "r",
+    title: "Rule",
     type: "edge",
     mode: "required",
     protocols: null,
@@ -52,6 +53,7 @@ function edgeRule({ from = "client", to = "compute", ...patch }: EdgePatch): Edg
 function componentRule(patch: Partial<ComponentRule>): ComponentRule {
   return {
     id: "r",
+    title: "Rule",
     type: "component",
     kind: "database",
     min: 1,
@@ -171,5 +173,15 @@ describe("evaluateRules: component rules", () => {
       knownGap: null,
     });
     expect(evaluateRules(brief, nodes, edges).map((r) => r.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("evaluateRules: titles", () => {
+  it("carries the rule's title on passing and failing results of both types", () => {
+    const title = "Readable name";
+    expect(run(edgeRule({ title, from: "compute", to: "database" }))).toMatchObject({ title, status: "pass" });
+    expect(run(edgeRule({ title, from: "compute", to: "cache" }))).toMatchObject({ title, status: "fail" });
+    expect(run(componentRule({ title, minConfig: { replicas: 2 } }))).toMatchObject({ title, status: "pass" });
+    expect(run(componentRule({ title, min: 3 }))).toMatchObject({ title, status: "fail" });
   });
 });

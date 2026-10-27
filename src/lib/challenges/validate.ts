@@ -166,10 +166,11 @@ function readRule(r: Reader, raw: unknown, path: string): Rule {
     r.fail(r.at(path, "id"), `"${id}" clashes with engine check ids (${ENGINE_CHECK_PREFIXES.join(", ")})`);
   }
   const severity = r.oneOf<Rule["severity"]>(raw.severity, r.at(path, "severity"), SEVERITIES, "severity");
+  const title = r.str(raw.title, r.at(path, "title"));
   const why = r.str(raw.why, r.at(path, "why"));
 
   if (raw.type === "component") {
-    const o = r.obj(raw, path, ["id", "type", "kind", "min", "minConfig", "severity", "why"]);
+    const o = r.obj(raw, path, ["id", "title", "type", "kind", "min", "minConfig", "severity", "why"]);
     const kind = r.oneOf<NodeMatcher>(o.kind, r.at(path, "kind"), MATCHERS, "kind");
     const minConfig: Record<string, number> = {};
     if (o.minConfig !== undefined) {
@@ -184,6 +185,7 @@ function readRule(r: Reader, raw: unknown, path: string): Rule {
     }
     return {
       id,
+      title,
       type: "component",
       kind,
       min: o.min === undefined ? 1 : r.num(o.min, r.at(path, "min"), 1),
@@ -194,7 +196,7 @@ function readRule(r: Reader, raw: unknown, path: string): Rule {
   }
 
   if (raw.type === "edge") {
-    const o = r.obj(raw, path, ["id", "type", "mode", "from", "to", "protocols", "severity", "why"]);
+    const o = r.obj(raw, path, ["id", "title", "type", "mode", "from", "to", "protocols", "severity", "why"]);
     const pp = r.at(path, "protocols");
     const matchers = (v: unknown, p: string): NodeMatcher[] => {
       if (!Array.isArray(v)) return [r.oneOf<NodeMatcher>(v, p, MATCHERS, "kind")];
@@ -203,6 +205,7 @@ function readRule(r: Reader, raw: unknown, path: string): Rule {
     };
     return {
       id,
+      title,
       type: "edge",
       mode: r.oneOf(o.mode, r.at(path, "mode"), EDGE_MODES, "mode"),
       from: matchers(o.from, r.at(path, "from")),

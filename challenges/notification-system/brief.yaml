@@ -51,6 +51,7 @@ nfr:
 
 rules:
   - id: enqueue-delivery
+    title: Deliveries go on a queue
     type: edge
     mode: required
     from: compute
@@ -58,6 +59,7 @@ rules:
     severity: fail
     why: Publishing should return at once; delivery jobs go on a queue instead of being sent inline.
   - id: worker-consumes-queue
+    title: Workers consume the queue
     type: edge
     mode: required
     from: message_queue
@@ -65,6 +67,7 @@ rules:
     severity: fail
     why: Background workers take delivery jobs off the queue, so a spike only makes the queue longer.
   - id: push-to-clients
+    title: Alerts sent as web push
     type: edge
     mode: required
     from: [task_worker, compute]
@@ -73,6 +76,7 @@ rules:
     severity: fail
     why: Alerts reach phones as push notifications, sent from the server side to the client.
   - id: no-client-to-db
+    title: No client talks to the database
     type: edge
     mode: forbidden
     from: client

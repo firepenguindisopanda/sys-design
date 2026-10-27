@@ -37,9 +37,15 @@ export function RequirementsPanel() {
   const locked = useSimulatorStore((s) => s.challenge !== null);
 
   const computeNodes = nodes.filter((n) => isComputeKind(n.data.componentKind));
+  // Lets <SelectValue> show node names instead of ids.
+  const placementItems: Record<string, string> = { unplaced: "Unplaced" };
+  for (const n of computeNodes) {
+    const rem = remainingCapacity(n, features);
+    placementItems[n.id] = `${n.data.label}${rem ? ` (${rem.vcpus.toFixed(1)} vCPU left)` : ""}`;
+  }
 
   return (
-    <aside className="flex h-full flex-col border-l border-slate-200 bg-[var(--panel)]">
+    <aside className="flex h-full flex-col bg-[var(--panel)]">
       <div className="border-b border-slate-200 px-3 py-3">
         <h2 className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-tight text-slate-900">
           Requirements
@@ -148,9 +154,10 @@ export function RequirementsPanel() {
                         className="h-7 text-[11px]"
                       />
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="min-w-0 space-y-0.5">
                       <Label className="text-[10px] text-slate-500">Place on compute</Label>
                       <Select
+                        items={placementItems}
                         value={feature.placedOnNodeId ?? "unplaced"}
                         onValueChange={(v) => {
                           const result = placeFeature(
@@ -160,22 +167,20 @@ export function RequirementsPanel() {
                           setPlaceError(result.ok ? null : result.reason ?? "Cannot place");
                         }}
                       >
-                        <SelectTrigger className="h-7 text-[11px]">
-                          <SelectValue placeholder="Unplaced" />
+                        {/* Node names can be long: fill the cell and truncate. */}
+                        <SelectTrigger
+                          className="h-7 w-full min-w-0 text-[11px]"
+                          title={placementItems[feature.placedOnNodeId ?? "unplaced"]}
+                        >
+                          <SelectValue placeholder="Unplaced" className="block! min-w-0 truncate" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="unplaced">Unplaced</SelectItem>
-                          {computeNodes.map((n) => {
-                            const rem = remainingCapacity(n, features);
-                            return (
-                              <SelectItem key={n.id} value={n.id}>
-                                {n.data.label}
-                                {rem
-                                  ? ` (${rem.vcpus.toFixed(1)} vCPU left)`
-                                  : ""}
-                              </SelectItem>
-                            );
-                          })}
+                          {computeNodes.map((n) => (
+                            <SelectItem key={n.id} value={n.id}>
+                              {placementItems[n.id]}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -260,9 +265,11 @@ export function RequirementsPanel() {
               />
             </div>
           </div>
-          <p className="text-[10px] leading-snug text-slate-500">
-            Defaults mirror BeUWI case study from the PDF (query &lt; 500ms, high search traffic).
-          </p>
+          {locked ? null : (
+            <p className="text-[10px] leading-snug text-slate-500">
+              Defaults mirror BeUWI case study from the PDF (query &lt; 500ms, high search traffic).
+            </p>
+          )}
         </section>
 
         <Separator />

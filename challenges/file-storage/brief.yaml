@@ -50,6 +50,7 @@ nfr:
 
 rules:
   - id: blobs-in-object-storage
+    title: Files stored in object storage
     type: edge
     mode: required
     from: compute
@@ -57,6 +58,7 @@ rules:
     severity: fail
     why: Large files belong in object storage; a database is the wrong place for 200 MB blobs.
   - id: metadata-db
+    title: Submission records in a database
     type: edge
     mode: required
     from: compute
@@ -64,6 +66,7 @@ rules:
     severity: fail
     why: Submission records (who, which assignment, when, which file) need a queryable database.
   - id: cdn-for-downloads
+    title: CDN in front of object storage
     type: edge
     mode: required
     from: cdn
@@ -71,6 +74,7 @@ rules:
     severity: warn
     why: Serving downloads from a CDN in front of object storage keeps marking-day spikes off your servers.
   - id: no-client-to-db
+    title: No client talks to the database
     type: edge
     mode: forbidden
     from: client

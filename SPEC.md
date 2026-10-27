@@ -144,6 +144,7 @@ nfr:
 
 rules:
   - id: cache-on-read-path
+    title: Cache on the read path
     type: edge                      # edge | component
     mode: required                  # required | forbidden
     from: compute                   # a ComponentKind, or a group: client | compute
@@ -151,6 +152,7 @@ rules:
     severity: fail                  # fail | warn
     why: Redirects are read-heavy; hot links should be served from a cache.
   - id: db-replicas
+    title: Replicated database
     type: component
     kind: database
     min: 1
@@ -158,6 +160,7 @@ rules:
     severity: fail
     why: Losing the only database copy takes every link down.
   - id: no-client-to-db
+    title: No client talks to the database
     type: edge
     mode: forbidden
     from: client

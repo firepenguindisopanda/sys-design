@@ -43,6 +43,7 @@ nfr:
 
 rules:
   - id: cache-on-read-path
+    title: Cache on the read path
     type: edge
     mode: required
     from: compute
@@ -50,12 +51,14 @@ rules:
     severity: fail
     why: Redirects are read-heavy; the service handling them should check a cache before the database.
   - id: db-replicas
+    title: Replicated database
     type: component
     kind: database
     minConfig: { replicas: 2 }
     severity: fail
     why: The link table is the whole product; one database copy is a single point of failure.
   - id: no-client-to-db
+    title: No client talks to the database
     type: edge
     mode: forbidden
     from: client

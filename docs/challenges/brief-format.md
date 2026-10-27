@@ -71,13 +71,15 @@ Calibrate against your good design (see "Calibrating" below).
 
 Rules check things the generic engine can't know about the scenario. Each rule has an
 `id` (kebab-case, unique, and not starting with `placement-`, `topo-` or `nfr-`, which
-belong to the engine), a `severity` (`fail` or `warn`) and a `why` sentence the student
-sees when the rule isn't met.
+belong to the engine), a `title` (a short phrase in sentence case, at most about 40
+characters, shown to students as the name of the verification row), a `severity`
+(`fail` or `warn`) and a `why` sentence the student sees when the rule isn't met.
 
 **Component rule:** at least `min` nodes of a kind, each meeting `minConfig`.
 
 ```yaml
 - id: db-replicas
+  title: Replicated database
   type: component
   kind: database          # a kind or a group
   min: 1                  # optional, default 1
@@ -90,6 +92,7 @@ sees when the rule isn't met.
 
 ```yaml
 - id: realtime-websocket
+  title: Clients connect over WebSocket
   type: edge
   mode: required          # required | forbidden
   from: client            # a kind, a group, or a list of them

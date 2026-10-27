@@ -45,6 +45,7 @@ function rawBrief(): Record<string, any> {
     rules: [
       {
         id: "cache-on-read-path",
+        title: "Cache on the read path",
         type: "edge",
         mode: "required",
         from: "compute",
@@ -54,6 +55,7 @@ function rawBrief(): Record<string, any> {
       },
       {
         id: "db-replicas",
+        title: "Replicated database",
         type: "component",
         kind: "database",
         minConfig: { replicas: 2 },
@@ -120,6 +122,20 @@ describe("validateBrief", () => {
       to: ["cache"],
       protocols: null,
     });
+  });
+
+  it("reads rule titles and requires them", () => {
+    const brief = validateBrief(rawBrief(), FILE);
+    expect(brief.rules.map((rule) => rule.title)).toEqual([
+      "Cache on the read path",
+      "Replicated database",
+    ]);
+    expect(briefError((b) => delete b.rules[0].title)).toBe(
+      `${FILE}: rules[0].title: expected a non-empty string`,
+    );
+    expect(briefError((b) => (b.rules[1].title = ""))).toBe(
+      `${FILE}: rules[1].title: expected a non-empty string`,
+    );
   });
 
   it("accepts a list of kinds as an edge rule endpoint", () => {
