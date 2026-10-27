@@ -122,13 +122,19 @@ function DesignNodeComponent({ data, selected }: NodeProps) {
     meta = cfg.platform;
   }
 
+  // Per-side borders: mixing the `border` shorthand with `borderLeft` makes
+  // React warn when `selected` toggles.
+  const sideBorder = selected ? "2px solid #0f766e" : "1px solid #e2e8f0";
+
   return (
     <div
       style={{
         minWidth: 180,
         maxWidth: 220,
         borderRadius: 6,
-        border: selected ? "2px solid #0f766e" : "1px solid #e2e8f0",
+        borderTop: sideBorder,
+        borderRight: sideBorder,
+        borderBottom: sideBorder,
         borderLeft: `4px solid ${style.accent}`,
         background: "#fff",
         boxShadow: selected
