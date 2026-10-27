@@ -1,0 +1,27 @@
+description: >-
+  Good design with the cache placed on the canvas but connected to nothing. No
+  request can use it, so it should add no read capacity or latency benefit.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Link API 1 }
+    - { id: api-2, kind: paas, label: Link API 2 }
+    - { id: cache, kind: cache, label: Link cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Links DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - lab-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    create-link: api-1
+    redirect: api-2
+expect:
+  fails: [cache-on-read-path, nfr-throughput]
+knownGap: >-
+  The engine credits cache capacity and the cache-aside latency bonus to any cache
+  on the canvas, connected or not.

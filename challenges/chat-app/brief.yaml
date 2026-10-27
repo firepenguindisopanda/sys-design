@@ -1,0 +1,78 @@
+id: chat-app
+title: Course group chat
+tagline: Real-time chat rooms for course sections and project groups
+source: >-
+  Adapted from the "whatsapp" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten at course scale without end-to-end encryption.
+summary: >-
+  Every course section and project group gets a chat room. Students and TAs post from
+  phones and laptops and expect new messages to appear for everyone in the room within
+  a second, wherever they are connected. Journeys: send a message to a room; receive
+  messages from others in real time; open a room and scroll back through its history.
+  The hard part: members of one room are connected to different chat servers, so a
+  message received by one server must reach the others.
+outOfScope:
+  - end-to-end encryption
+  - voice and video calls
+  - file attachments
+  - read receipts
+
+functionalRequirements:
+  - id: send-message
+    text: A member sends a message to a room and everyone connected to the room receives it.
+    feature:
+      name: Send and relay message
+      description: Accept the message on the socket, store it, publish it to the room.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 900
+      computeMsPerRequest: 20
+  - id: load-history
+    text: A member opens a room and loads earlier messages, newest first.
+    feature:
+      name: Load history
+      description: Page through stored messages for a room.
+      resources: { memoryGb: 1, vcpus: 0.5, storageGb: 2 }
+      targetRpm: 300
+      computeMsPerRequest: 40
+
+nfr:
+  maxLatencyMs: 150
+  minThroughputRpm: 1200
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 300
+
+rules:
+  - id: realtime-websocket
+    type: edge
+    mode: required
+    from: client
+    to: [compute, load_balancer]
+    protocols: [websocket]
+    severity: fail
+    why: Messages must be pushed to clients as they arrive; a persistent WebSocket avoids polling.
+  - id: fanout-publish
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: A server that receives a message must publish it so other chat servers can deliver it.
+  - id: fanout-subscribe
+    type: edge
+    mode: required
+    from: message_queue
+    to: compute
+    severity: fail
+    why: Chat servers must subscribe to published messages to relay them to their own sockets.
+  - id: no-client-to-db
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - Two members post at the same moment. How does everyone see the messages in the same order?
+  - A phone loses signal for 30 seconds. How does it catch up without reloading the whole room?
+  - Why does the load balancer need to support long-lived connections for this design?

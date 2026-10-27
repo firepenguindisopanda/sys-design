@@ -1,0 +1,31 @@
+description: >-
+  Good design plus a laptop that reads history straight from the database.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: chat-1, kind: paas, label: Chat server 1 }
+    - { id: chat-2, kind: paas, label: Chat server 2 }
+    - { id: bus, kind: message_queue, label: Room events, config: { mode: pubsub } }
+    - { id: cache, kind: cache, label: Recent messages, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Messages DB, config: { engine: document, replicas: 2 } }
+  edges:
+    - phone -> lb : websocket
+    - laptop -> lb : websocket
+    - lb -> chat-1 : websocket
+    - lb -> chat-2 : websocket
+    - laptop -> db : http
+    - chat-1 -> bus : http
+    - chat-2 -> bus : http
+    - bus -> chat-1 : http
+    - bus -> chat-2 : http
+    - chat-1 -> cache : db
+    - chat-2 -> cache : db
+    - chat-1 -> db : db
+    - chat-2 -> db : db
+  placements:
+    send-message: chat-1
+    load-history: chat-2
+expect:
+  fails: [no-client-to-db]

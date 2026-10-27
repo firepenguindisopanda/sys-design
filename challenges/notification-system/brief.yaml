@@ -1,0 +1,86 @@
+id: notification-system
+title: Campus alerts
+tagline: Push announcements to every subscribed student's phone
+source: >-
+  Adapted from the "notification-system" starter in
+  nvidia_genai/architect-it/src/shared/starters.ts (own work), rewritten at course scale.
+summary: >-
+  Staff publish alerts (room changes, cancelled labs, campus closures) to a course or
+  to the whole faculty, and every subscribed student gets a push notification on
+  their phone. Students choose which alerts they want. Journeys: a staff member
+  publishes an alert; each subscriber receives it as a push notification; a student
+  updates their alert preferences. The hard part: one alert fans out to thousands of
+  phones, and publishing must return immediately while delivery happens in the
+  background.
+outOfScope:
+  - SMS and email delivery
+  - read tracking
+  - scheduled alerts
+
+functionalRequirements:
+  - id: publish-alert
+    text: A staff member publishes an alert to a course or to the faculty.
+    feature:
+      name: Publish alert
+      description: Validate and store the alert, then hand it off for delivery.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 30
+      computeMsPerRequest: 50
+  - id: fan-out
+    text: Each subscriber of the alert's audience gets it on their phone.
+    feature:
+      name: Fan out alert
+      description: Expand the audience into recipient batches and enqueue one delivery job per batch.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
+      targetRpm: 1500
+      computeMsPerRequest: 15
+  - id: preferences
+    text: A student views and changes which alerts they receive.
+    feature:
+      name: Alert preferences
+      description: Read and update a student's subscriptions.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 120
+      computeMsPerRequest: 20
+
+nfr:
+  maxLatencyMs: 200
+  minThroughputRpm: 1650
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 300
+
+rules:
+  - id: enqueue-delivery
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Publishing should return at once; delivery jobs go on a queue instead of being sent inline.
+  - id: worker-consumes-queue
+    type: edge
+    mode: required
+    from: message_queue
+    to: task_worker
+    severity: fail
+    why: Background workers take delivery jobs off the queue, so a spike only makes the queue longer.
+  - id: push-to-clients
+    type: edge
+    mode: required
+    from: [task_worker, compute]
+    to: client
+    protocols: [web_push]
+    severity: fail
+    why: Alerts reach phones as push notifications, sent from the server side to the client.
+  - id: no-client-to-db
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A worker crashes halfway through a batch. How do you avoid both lost and duplicate notifications?
+  - How would you stop a mistaken faculty-wide alert once delivery has started?
+  - Push providers rate-limit senders. Where in this design do you slow delivery down?

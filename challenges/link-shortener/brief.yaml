@@ -1,0 +1,69 @@
+id: link-shortener
+title: Campus link shortener
+tagline: Short links for course pages and announcements, read-heavy
+source: >-
+  Adapted from the "bitly" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten at course scale.
+summary: >-
+  Lecturers and TAs turn long URLs (lecture recordings, forms, readings) into short
+  links for slides and announcements. Students open them from phones and lab
+  machines. Journeys: a staff member creates a short link, optionally with a custom
+  alias; anyone opening a short link is redirected to the long URL. The hard part:
+  redirects outnumber creations about 20 to 1, spike when an announcement goes out,
+  and must feel instant.
+outOfScope:
+  - click analytics dashboards
+  - custom domains
+  - QR codes
+  - link expiry
+
+functionalRequirements:
+  - id: create-link
+    text: A staff member creates a short link for a long URL, optionally with a custom alias.
+    feature:
+      name: Create link
+      description: Validate the URL, reserve a unique code, store the mapping.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 60
+      computeMsPerRequest: 30
+  - id: redirect
+    text: Anyone opening a short link is redirected to its long URL.
+    feature:
+      name: Redirect
+      description: Look up the code and answer with an HTTP redirect.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 1200
+      computeMsPerRequest: 10
+
+nfr:
+  maxLatencyMs: 120
+  minThroughputRpm: 1300
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 275
+
+rules:
+  - id: cache-on-read-path
+    type: edge
+    mode: required
+    from: compute
+    to: cache
+    severity: fail
+    why: Redirects are read-heavy; the service handling them should check a cache before the database.
+  - id: db-replicas
+    type: component
+    kind: database
+    minConfig: { replicas: 2 }
+    severity: fail
+    why: The link table is the whole product; one database copy is a single point of failure.
+  - id: no-client-to-db
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - How do you generate unique short codes without a single central counter?
+  - What happens to redirect latency right after the cache restarts empty?
+  - Should a redirect be cached by the browser (301) or not (302)? What do you lose either way?

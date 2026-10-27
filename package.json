@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack -H 0.0.0.0 -p 43127",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 43127",
-    "lint": "next lint"
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -32,6 +34,8 @@
     "eslint-config-next": "15.2.4",
     "playwright": "^1.63.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.12",
+    "yaml": "^2.9.1"
   }
 }

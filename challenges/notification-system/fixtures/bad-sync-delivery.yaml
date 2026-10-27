@@ -1,0 +1,28 @@
+description: >-
+  Good design without the queue and workers. The API sends every push itself while
+  the staff member waits.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: staff-pc, kind: desktop, label: Staff machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Alerts API 1 }
+    - { id: api-2, kind: paas, label: Alerts API 2 }
+    - { id: cache, kind: cache, label: Subscriber cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Alerts DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - staff-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-2 -> phone : web_push
+  placements:
+    publish-alert: api-1
+    preferences: api-1
+    fan-out: api-2
+expect:
+  fails: [enqueue-delivery, worker-consumes-queue]

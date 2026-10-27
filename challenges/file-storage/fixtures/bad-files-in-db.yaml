@@ -1,0 +1,31 @@
+description: >-
+  Good design without object storage. Files are written into the database, and the
+  CDN can only sit in front of the API.
+design:
+  nodes:
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: ta-pc, kind: desktop, label: TA machine }
+    - { id: cdn, kind: cdn, label: Download CDN }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Submissions API 1 }
+    - { id: api-2, kind: paas, label: Submissions API 2 }
+    - { id: cache, kind: cache, label: Metadata cache, config: { memoryGb: 4 } }
+    - { id: db, kind: database, label: Submissions DB, config: { replicas: 2 } }
+  edges:
+    - laptop -> lb : http
+    - ta-pc -> lb : http
+    - ta-pc -> cdn : http
+    - cdn -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    upload-submission: api-1
+    list-submissions: api-1
+    download-file: api-2
+expect:
+  fails: [blobs-in-object-storage]
+  warns: [cdn-for-downloads]

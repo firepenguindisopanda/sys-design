@@ -1,0 +1,20 @@
+description: >-
+  Every component of the good design, with no connections at all. Nothing can
+  reach anything, so it should not pass.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Link API 1 }
+    - { id: api-2, kind: paas, label: Link API 2 }
+    - { id: cache, kind: cache, label: Link cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Links DB, config: { replicas: 2 } }
+  placements:
+    create-link: api-1
+    redirect: api-2
+expect:
+  fails: [cache-on-read-path, topo-present]
+knownGap: >-
+  No engine check needs components to be connected; with no edges, latency falls
+  back to a fixed estimate and every NFR passes.

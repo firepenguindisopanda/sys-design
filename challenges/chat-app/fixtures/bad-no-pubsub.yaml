@@ -1,0 +1,26 @@
+description: >-
+  Good design without the pub/sub bus. A message only reaches members connected to
+  the server that received it.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: chat-1, kind: paas, label: Chat server 1 }
+    - { id: chat-2, kind: paas, label: Chat server 2 }
+    - { id: cache, kind: cache, label: Recent messages, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Messages DB, config: { engine: document, replicas: 2 } }
+  edges:
+    - phone -> lb : websocket
+    - laptop -> lb : websocket
+    - lb -> chat-1 : websocket
+    - lb -> chat-2 : websocket
+    - chat-1 -> cache : db
+    - chat-2 -> cache : db
+    - chat-1 -> db : db
+    - chat-2 -> db : db
+  placements:
+    send-message: chat-1
+    load-history: chat-2
+expect:
+  fails: [fanout-publish, fanout-subscribe]

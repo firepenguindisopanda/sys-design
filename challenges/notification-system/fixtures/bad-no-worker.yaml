@@ -1,0 +1,31 @@
+description: >-
+  Good design without the task workers. Jobs are enqueued but nothing consumes them,
+  so the API ends up pushing to phones directly.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: staff-pc, kind: desktop, label: Staff machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Alerts API 1 }
+    - { id: api-2, kind: paas, label: Alerts API 2 }
+    - { id: cache, kind: cache, label: Subscriber cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Alerts DB, config: { replicas: 2 } }
+    - { id: jobs, kind: message_queue, label: Delivery jobs }
+  edges:
+    - phone -> lb : http
+    - staff-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - api-2 -> phone : web_push
+  placements:
+    publish-alert: api-1
+    preferences: api-1
+    fan-out: api-2
+expect:
+  fails: [worker-consumes-queue]

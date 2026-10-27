@@ -1,0 +1,84 @@
+id: file-storage
+title: Assignment submission store
+tagline: Upload, list and download coursework files around deadlines
+source: >-
+  Adapted from the "dropbox" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten at course scale as a submission store without sync.
+summary: >-
+  Students upload assignment files (PDFs, zipped code, up to 200 MB) to a course, and
+  TAs list and download submissions for marking. Journeys: upload a submission before
+  the deadline; list the submissions for an assignment; download a file. The hard
+  part: uploads spike in the last hour before a deadline, and downloads spike when
+  marking starts, so large files must not flow through the database.
+outOfScope:
+  - folder sync across devices
+  - file previews
+  - plagiarism checking
+  - version history
+
+functionalRequirements:
+  - id: upload-submission
+    text: A student uploads a file for an assignment before its deadline.
+    feature:
+      name: Upload submission
+      description: Check the deadline, store the file, record its metadata.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 2 }
+      targetRpm: 120
+      computeMsPerRequest: 150
+  - id: download-file
+    text: A TA or the submitting student downloads a submitted file.
+    feature:
+      name: Download file
+      description: Check access, then hand back the stored file.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 600
+      computeMsPerRequest: 60
+  - id: list-submissions
+    text: A TA lists the submissions for an assignment with name, time and size.
+    feature:
+      name: List submissions
+      description: Query submission metadata for one assignment.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 30
+
+nfr:
+  maxLatencyMs: 250
+  minThroughputRpm: 1000
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 300
+
+rules:
+  - id: blobs-in-object-storage
+    type: edge
+    mode: required
+    from: compute
+    to: object_storage
+    severity: fail
+    why: Large files belong in object storage; a database is the wrong place for 200 MB blobs.
+  - id: metadata-db
+    type: edge
+    mode: required
+    from: compute
+    to: database
+    severity: fail
+    why: Submission records (who, which assignment, when, which file) need a queryable database.
+  - id: cdn-for-downloads
+    type: edge
+    mode: required
+    from: cdn
+    to: object_storage
+    severity: warn
+    why: Serving downloads from a CDN in front of object storage keeps marking-day spikes off your servers.
+  - id: no-client-to-db
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - Should uploads pass through your servers, or go straight to object storage with a signed URL? What changes?
+  - How do you enforce the deadline fairly for an upload that starts at 11:59 and finishes at 12:01?
+  - How do you stop one student downloading another student's submission through the CDN?

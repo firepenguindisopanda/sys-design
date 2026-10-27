@@ -1,0 +1,24 @@
+description: >-
+  Good design without the cache. Every redirect hits the database, which cannot
+  keep up with announcement spikes.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Link API 1 }
+    - { id: api-2, kind: paas, label: Link API 2 }
+    - { id: db, kind: database, label: Links DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - lab-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    create-link: api-1
+    redirect: api-2
+expect:
+  fails: [cache-on-read-path, nfr-throughput]
+  warns: [topo-cache]
