@@ -1,7 +1,7 @@
 # Spec: recalibrate the briefs' latency targets
 
 Status: **implemented** (2026-10-28); approved with all three proposals: the 2× rule, the 3× guard
-test, and a combined plan and task list. Plan: [tasks/plan.md](tasks/plan.md). Follows the finding 12 fix (`request-latency`,
+test, and a combined plan and task list. Plan: [tasks/latency-targets/plan.md](tasks/latency-targets/plan.md). Follows the finding 12 fix (`request-latency`,
 `063d6db`), whose open question 1 left the targets alone. Module id `latency-targets`.
 Branch: `chore/latency-targets`, from `main` (`063d6db`).
 

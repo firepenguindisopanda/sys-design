@@ -1,0 +1,27 @@
+description: >-
+  Good design without static hosting or a CDN. The API servers send the site's
+  HTML, CSS and JavaScript as well as the data, so every page load uses them.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Guide API 1 }
+    - { id: api-2, kind: paas, label: Guide API 2 }
+    - { id: cache, kind: cache, label: Menu cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Vendors DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    browse-vendors: api-1
+    view-vendor: api-2
+    post-review: api-2
+expect:
+  fails: [pages-on-cdn, clients-use-cdn]

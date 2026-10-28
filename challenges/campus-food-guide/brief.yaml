@@ -1,0 +1,90 @@
+id: campus-food-guide
+title: Campus food guide
+tagline: Menus and ratings for campus food vendors, busiest at lunch
+source: >-
+  Adapted from the "yelp" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten at course scale.
+summary: >-
+  A web app that lists the food vendors on campus with their menus, prices, opening
+  hours and student ratings. The app is a single-page site: HTML, CSS and JavaScript
+  files that run in the browser and call an API for the data. Journeys: a student
+  opens the guide and browses vendors; opens one vendor to see its menu and reviews;
+  leaves a rating and a short review. The hard part: almost everyone opens it between
+  11:30 and 1:00, so the site's files and the menu data are read far more often than
+  anything is written.
+outOfScope:
+  - ordering and payment
+  - vendor accounts and menu editing
+  - photos
+  - review moderation
+
+functionalRequirements:
+  - id: browse-vendors
+    text: A student browses the list of vendors with what's open now and their average rating.
+    feature:
+      name: Browse vendors
+      description: List vendors with opening hours and average rating.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 800
+      computeMsPerRequest: 15
+  - id: view-vendor
+    text: A student opens a vendor to see its menu, prices and recent reviews.
+    feature:
+      name: View vendor
+      description: Return one vendor's menu and its latest reviews.
+      resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 450
+      computeMsPerRequest: 20
+  - id: post-review
+    text: A student rates a vendor from 1 to 5 stars and may add a short review.
+    feature:
+      name: Post review
+      description: Store the review and update the vendor's average rating.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 40
+      computeMsPerRequest: 30
+
+nfr:
+  maxLatencyMs: 70
+  minThroughputRpm: 1300
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 290
+
+rules:
+  - id: pages-on-cdn
+    title: Site files served by a CDN
+    type: edge
+    mode: required
+    from: cdn
+    to: static_hosting
+    severity: fail
+    why: The site's HTML, CSS and JavaScript are the same for everyone; host them as static files behind a CDN instead of on your API servers.
+  - id: clients-use-cdn
+    title: Browsers load the site from the CDN
+    type: edge
+    mode: required
+    from: client
+    to: cdn
+    severity: fail
+    why: Students' browsers should fetch the site's files from the CDN, which keeps copies close to them and takes the lunchtime load.
+  - id: menu-cache
+    title: Menus served from a cache
+    type: edge
+    mode: required
+    from: compute
+    to: cache
+    severity: fail
+    why: The same menus and ratings are read thousands of times at lunch; keep them in a cache so the database only handles changes.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - When you change the site's JavaScript, how do students get the new version if the CDN still holds the old one?
+  - A student posts a review, but the cached vendor page still shows the old average. How long is that acceptable, and how would you shorten it?
+  - How would you stop one student from posting fifty 1-star reviews for the same vendor?

@@ -1,0 +1,30 @@
+description: >-
+  Good design without the cache. Every lunchtime menu read goes to the database,
+  which cannot keep up.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: cdn, kind: cdn, label: Site CDN }
+    - { id: site, kind: static_hosting, label: Guide site files }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Guide API 1 }
+    - { id: api-2, kind: paas, label: Guide API 2 }
+    - { id: db, kind: database, label: Vendors DB, config: { replicas: 2 } }
+  edges:
+    - phone -> cdn : http
+    - laptop -> cdn : http
+    - cdn -> site : http
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    browse-vendors: api-1
+    view-vendor: api-2
+    post-review: api-2
+expect:
+  fails: [menu-cache, nfr-throughput]
+  warns: [topo-cache]

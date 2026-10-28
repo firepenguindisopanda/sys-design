@@ -1,0 +1,33 @@
+description: >-
+  Good design, plus the browser reading ratings straight from the database.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: cdn, kind: cdn, label: Site CDN }
+    - { id: site, kind: static_hosting, label: Guide site files }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Guide API 1 }
+    - { id: api-2, kind: paas, label: Guide API 2 }
+    - { id: cache, kind: cache, label: Menu cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Vendors DB, config: { replicas: 2 } }
+  edges:
+    - phone -> cdn : http
+    - laptop -> cdn : http
+    - cdn -> site : http
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - laptop -> db : db
+  placements:
+    browse-vendors: api-1
+    view-vendor: api-2
+    post-review: api-2
+expect:
+  fails: [no-client-to-db]
+  warns: [topo-client-data-laptop->db]
