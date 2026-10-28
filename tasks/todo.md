@@ -50,8 +50,8 @@ and the API calls compute back (a webhook): no `topo-intermediate-<api>` warning
 first. Then add `external_api` to the `hopOk` set in `simulation.ts`, with a one-line comment.
 
 **Acceptance criteria:**
-- [ ] The new test fails before the change and passes after
-- [ ] Every existing test passes unchanged (no existing design has an external API with
+- [x] The new test fails before the change and passes after
+- [x] Every existing test passes unchanged (no existing design has an external API with
   edges both ways)
 
 **Dependencies:** Checkpoint A
@@ -69,13 +69,13 @@ external API), `webhook-to-server` (external API → compute or load balancer),
 `ledger-replicas` (database `replicas ≥ 2`), `no-client-to-db`.
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `start-payment`, `payment-confirmed`, `view-balance`
-- [ ] Reflection covers what the checks can't: the hosted payment page, crediting exactly
+- [x] Brief validates; requirements `start-payment`, `payment-confirmed`, `view-balance`
+- [x] Reflection covers what the checks can't: the hosted payment page, crediting exactly
   once when the webhook is retried, checking the webhook really came from the provider
-- [ ] `good` passes with no warnings (needs Task 2)
-- [ ] `bad-client-calls-provider`, `bad-no-webhook`, `bad-single-db-replica`,
+- [x] `good` passes with no warnings (needs Task 2)
+- [x] `bad-client-calls-provider`, `bad-no-webhook`, `bad-single-db-replica`,
   `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
-- [ ] How the webhook edge affects latency is recorded
+- [x] How the webhook edge affects latency is recorded
 
 **Dependencies:** Task 2
 
@@ -92,9 +92,9 @@ external API), `webhook-to-server` (external API → compute or load balancer),
 worker → object storage), `playback-via-cdn` (CDN → object storage).
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `upload-recording`, `browse-lectures`, `watch-lecture`
-- [ ] `good` passes with headroom
-- [ ] `bad-sync-transcode`, `bad-video-in-db`, `bad-no-cdn`, `bad-client-to-db` fail their
+- [x] Brief validates; requirements `upload-recording`, `browse-lectures`, `watch-lecture`
+- [x] `good` passes with headroom
+- [x] `bad-sync-transcode`, `bad-video-in-db`, `bad-no-cdn`, `bad-client-to-db` fail their
   intended ids (or carry a `knownGap`)
 
 **Dependencies:** Checkpoint A
@@ -112,10 +112,10 @@ worker → object storage), `playback-via-cdn` (CDN → object storage).
 `no-client-to-db`.
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `start-check`, `view-report`; the summary says the
+- [x] Brief validates; requirements `start-check`, `view-report`; the summary says the
   nightly run is drawn as a request from the lecturer's machine
-- [ ] `good` passes with headroom
-- [ ] `bad-single-stage`, `bad-sync-crawl`, `bad-results-not-stored`, `bad-client-to-db`
+- [x] `good` passes with headroom
+- [x] `bad-single-stage`, `bad-sync-crawl`, `bad-results-not-stored`, `bad-client-to-db`
   fail their intended ids (or carry a `knownGap`)
 
 **Dependencies:** Checkpoint A
@@ -125,7 +125,7 @@ worker → object storage), `playback-via-cdn` (CDN → object storage).
 **Estimated scope:** M
 
 ### Checkpoint B
-- [ ] All twelve briefs' tests pass; existing fixtures, demos and calibration unchanged
+- [x] All twelve briefs' tests pass; existing fixtures, demos and calibration unchanged
 
 ---
 
@@ -138,9 +138,9 @@ tally, starters left (19). In the browser, each new brief opens from the picker;
 `good.yaml` passes and one bad fixture fails its rule.
 
 **Acceptance criteria:**
-- [ ] Findings and HANDOVER updated
-- [ ] Browser checks done; no console errors
-- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
+- [x] Findings and HANDOVER updated
+- [x] Browser checks done; no console errors
+- [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
 
 **Dependencies:** Checkpoint B
 
@@ -150,4 +150,4 @@ tally, starters left (19). In the browser, each new brief opens from the picker;
 **Estimated scope:** S
 
 ### Checkpoint C
-- [ ] All four spec success criteria met; ready for review
+- [x] All four spec success criteria met; ready for review

@@ -1,0 +1,35 @@
+description: >-
+  Good design with one set of workers that fetch each page and then check all its
+  links themselves. A page full of links to a slow website holds up a fetcher, and
+  the pages queued behind it, until every link has answered.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Checker API 1 }
+    - { id: api-2, kind: paas, label: Checker API 2 }
+    - { id: cache, kind: cache, label: Report cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Results DB, config: { replicas: 2 } }
+    - { id: pages, kind: message_queue, label: Pages to fetch }
+    - { id: fetchers, kind: task_worker, label: Page fetchers }
+    - { id: learning-site, kind: external_api, label: Learning site }
+    - { id: websites, kind: external_api, label: Linked websites }
+  edges:
+    - lecturer-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> pages : http
+    - api-2 -> pages : http
+    - pages -> fetchers : http
+    - fetchers -> learning-site : http
+    - fetchers -> websites : http
+    - fetchers -> db : db
+  placements:
+    start-check: api-1
+    view-report: api-2
+expect:
+  fails: [stage-handoff]

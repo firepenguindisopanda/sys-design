@@ -1,0 +1,31 @@
+description: >-
+  Good design without the queues and workers. The API servers fetch every page and
+  check every link while the lecturer's request waits, and a whole course can take
+  minutes.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Checker API 1 }
+    - { id: api-2, kind: paas, label: Checker API 2 }
+    - { id: cache, kind: cache, label: Report cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Results DB, config: { replicas: 2 } }
+    - { id: learning-site, kind: external_api, label: Learning site }
+    - { id: websites, kind: external_api, label: Linked websites }
+  edges:
+    - lecturer-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> learning-site : http
+    - api-2 -> learning-site : http
+    - api-1 -> websites : http
+    - api-2 -> websites : http
+  placements:
+    start-check: api-1
+    view-report: api-2
+expect:
+  fails: [crawl-queued, stage-handoff, workers-fetch, report-stored, nfr-latency]

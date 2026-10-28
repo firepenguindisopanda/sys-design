@@ -1,6 +1,6 @@
 # Spec: Phase 5, more briefs
 
-Status: **approved** (2026-10-28) with all three proposals: these four briefs, the external
+Status: **implemented** (2026-10-28); approved with all three proposals: these four briefs, the external
 API hop fix in this branch, and the phase 4 process with a review stop after
 `campus-food-guide`. Plan: [tasks/plan.md](tasks/plan.md). Content only (briefs and fixtures in `challenges/`, plus
 docs), except one possible engine fix (open question 2). Branch: `feat/phase5-briefs`, from

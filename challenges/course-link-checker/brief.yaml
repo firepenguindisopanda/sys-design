@@ -1,0 +1,93 @@
+id: course-link-checker
+title: Course page link checker
+tagline: Find the broken links on every course page, every night
+source: >-
+  Adapted from the "web-crawler" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a link checker for one university's course pages.
+summary: >-
+  Every night a service goes through every course page on the university's learning
+  site, checks each link on it, and reports the broken ones to the course's lecturer.
+  A lecturer can also start a check of one course at any time. Getting a page and
+  checking its links are separate steps, and some linked websites are slow or down,
+  so a slow site must only hold up its own links, not the rest of the check. Results
+  are kept for the semester. Journeys: a lecturer starts a check of a course; a
+  lecturer reads the report of broken links. There is no scheduler component, so draw
+  the nightly run as a request from the lecturer's machine, like a manual check. The
+  hard part: thousands of pages and tens of thousands of links, with outside websites
+  you don't control.
+outOfScope:
+  - fixing links automatically
+  - checking what a page says
+  - pages behind a login other than the learning site's
+  - drawing the nightly scheduler
+
+functionalRequirements:
+  - id: start-check
+    text: A lecturer, or the nightly run, starts a link check of a course.
+    feature:
+      name: Start check
+      description: Record the check and queue the course's pages to be fetched.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 30
+      computeMsPerRequest: 20
+  - id: view-report
+    text: A lecturer reads the latest report of broken links for a course.
+    feature:
+      name: View report
+      description: Return each broken link with the page it is on and what went wrong.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 200
+      computeMsPerRequest: 15
+
+nfr:
+  maxLatencyMs: 50
+  minThroughputRpm: 600
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 340
+
+rules:
+  - id: crawl-queued
+    title: Checks go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: A check of a course takes minutes; the API queues its pages and answers the lecturer straight away.
+  - id: stage-handoff
+    title: Fetchers hand links to a second queue
+    type: edge
+    mode: required
+    from: task_worker
+    to: message_queue
+    severity: fail
+    why: Workers that fetch pages put each link they find on a second queue, so checking a slow link never holds up fetching the next page.
+  - id: workers-fetch
+    title: Workers fetch the pages and links
+    type: edge
+    mode: required
+    from: task_worker
+    to: external_api
+    severity: fail
+    why: Background workers, not the API servers, wait on the learning site and the outside websites.
+  - id: report-stored
+    title: Results stored in a database
+    type: edge
+    mode: required
+    from: task_worker
+    to: database
+    severity: fail
+    why: The workers record each link's result in the database, where the report is read from and kept for the semester.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A linked website doesn't answer for 30 seconds. How long should a checker wait, and should it try again later before calling the link broken?
+  - Fifty course pages link to the same website. How do you avoid sending it a burst of requests that looks like an attack?
+  - A link was broken last night but works tonight. What should the lecturer's report show?

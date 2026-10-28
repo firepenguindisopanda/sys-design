@@ -1,0 +1,38 @@
+description: >-
+  Good design where the link checkers keep their results to themselves. Nothing
+  reaches the database, so the report has nothing to show and the semester's
+  history is lost.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Checker API 1 }
+    - { id: api-2, kind: paas, label: Checker API 2 }
+    - { id: cache, kind: cache, label: Report cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Results DB, config: { replicas: 2 } }
+    - { id: pages, kind: message_queue, label: Pages to fetch }
+    - { id: fetchers, kind: task_worker, label: Page fetchers }
+    - { id: links, kind: message_queue, label: Links to check }
+    - { id: checkers, kind: task_worker, label: Link checkers }
+    - { id: learning-site, kind: external_api, label: Learning site }
+    - { id: websites, kind: external_api, label: Linked websites }
+  edges:
+    - lecturer-pc -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> pages : http
+    - api-2 -> pages : http
+    - pages -> fetchers : http
+    - fetchers -> learning-site : http
+    - fetchers -> links : http
+    - links -> checkers : http
+    - checkers -> websites : http
+  placements:
+    start-check: api-1
+    view-report: api-2
+expect:
+  fails: [report-stored]

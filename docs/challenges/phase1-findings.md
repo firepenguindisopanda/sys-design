@@ -138,6 +138,69 @@ Latency targets weren't changed, so they are now looser than when they were set 
 example the alerts brief: 200 ms target, 31 ms good design). *Since recalibrated:* see
 "Calibration done" below and [SPEC-latency-targets.md](../../SPEC-latency-targets.md).
 
+## Update: phase 5 (four new briefs)
+
+([SPEC-phase5-briefs.md](../../SPEC-phase5-briefs.md); estimates per fixture in
+`tasks/plan.md`.) Four briefs added: `campus-food-guide`, `printing-credits`,
+`lecture-video-library` and `course-link-checker`, each with four single-flaw bad
+designs. They add static hosting behind a CDN, a webhook from an outside service, a media
+pipeline and work split into stages. The engine changed once (finding 13).
+
+| Brief | Bad designs | Caught by the engine | Caught only by brief rules |
+|---|---|---|---|
+| campus-food-guide | 4 | 3 (no CDN: `topo-cdn` warn; no cache; client → DB) | 1 (`bad-pages-from-api`) |
+| printing-credits | 4 | 3 (client calls the provider, single replica, client → DB) | 1 (`bad-no-webhook`) |
+| lecture-video-library | 4 | 2 (video in a database, client → DB) | 2 (`bad-sync-transcode`, `bad-no-cdn`) |
+| course-link-checker | 4 | 2 (synchronous crawl, client → DB) | 2 (`bad-single-stage`, `bad-results-not-stored`) |
+| **Total** | **16** | **10** | **6** |
+
+Every bad design is caught by its intended check, so no `knownGap` was needed. Of the 10,
+3 are engine **fails**: no cache on throughput, a single replica on availability, and
+`course-link-checker/bad-sync-crawl` on latency (60 ms against 50, because the API waits on
+the outside websites). That is the first synchronous shortcut the engine catches on latency
+since the finding 12 fix. The other 7 are warnings. `lecture-video-library/bad-video-in-db`
+counts, but for a side reason: the engine warns that the CDN reaches a database, while
+scoring the design better than the good one on latency, throughput and cost (finding 5).
+`campus-food-guide/bad-no-cdn` also misses its 70 ms target by 1 ms; that comes from
+rounding the target, so it isn't in its expected results.
+
+**Finding 13 (fixed in this phase): an external API that calls back is flagged as a hop.**
+The good printing-credits design has the server call the payment provider and the
+provider call the server back (a webhook), so `topo-intermediate` warned that the provider
+was "used as a hop". External APIs are now exempt, as clients and task workers are since
+finding 9; a unit test covers it, and no other result moved.
+
+**Finding 14: a callback is counted as part of the request.** The webhook edge (provider →
+load balancer) is walked as if the student's request waited for it, so the callback's
+load balancer, API and database hops are added to the student's latency.
+`printing-credits/bad-no-webhook` scores 66 ms against 111 for the good design. *Fix:*
+treat an edge out of an external API as the start of a separate request (like the edges
+finding 12 left out), or don't follow edges out of an external API in the latency walk.
+
+**Finding 15: a CDN earns no latency or throughput credit.** Dropping the CDN costs a design
+nothing on those scores, and saves the CDN's cost:
+
+| Fixture | Latency | Throughput | Cost | Good design |
+|---|---|---|---|---|
+| `campus-food-guide/bad-pages-from-api` | 31 ms | 1660 | $224 | 31 ms, 1660, $236 |
+| `lecture-video-library/bad-no-cdn` | 49 ms | 1678 | $345 | 49 ms, 1678, $357 |
+
+The CDN only shows up in availability, and only when the score isn't already at the
+99.95 % cap (finding 11): the food guide drops to 99.9 % without it, the video library
+doesn't move. The engine's one CDN-specific check, `topo-cdn`, fires for static hosting
+without a CDN, so a design that serves its pages from the API avoids it entirely. *Fix:*
+give requirements a "static" or "media" share of their requests, and charge compute or
+object storage for serving that share when no CDN sits in front.
+
+The six rule-only designs map to findings 15 (`bad-pages-from-api`, `bad-no-cdn`), 14
+(`bad-no-webhook`, which also scores faster) and 10 (`bad-sync-transcode`, and
+`bad-single-stage`: one slow stage holding up the next isn't modelled). The last,
+`bad-results-not-stored`, is like `lab-autograder/bad-results-not-stored`: the engine
+doesn't notice a worker whose results go nowhere.
+
+So across the twelve briefs, the engine alone catches 37 of 53 bad designs; the other 16
+rely on brief rules.
+
 The rest of this note is the original phase 1 analysis, kept as written.
 
 ## Short answer
