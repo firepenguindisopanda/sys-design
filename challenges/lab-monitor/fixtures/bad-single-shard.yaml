@@ -32,4 +32,4 @@ design:
     view-dashboard: api-2
     disk-alert: api-2
 expect:
-  fails: [sharded-db, nfr-throughput]
+  fails: [sharded-db, nfr-throughput, nfr-write-throughput]

@@ -55,6 +55,7 @@ export type BriefFeature = {
   backgroundWorkMs?: number;
   pollingRpm?: number;
   fileRpm?: number;
+  writeRpm?: number;
 };
 
 export type BriefRequirement = {

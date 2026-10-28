@@ -611,6 +611,12 @@ describe("file serving", () => {
     });
   });
 
+  it("charges fileRpm when clients only reach object storage directly, as for an upload", () => {
+    expect(target([node("photos", "object_storage")], [edge("phone", "photos")], [files()])).toBe(
+      "≥ 3100 req/min",
+    );
+  });
+
   describe("the servers serve the files", () => {
     it("charges fileRpm when there's no store", () => {
       expect(target([], [], [files()])).toBe("≥ 3100 req/min");
@@ -649,8 +655,89 @@ describe("file serving", () => {
     expect(failing.status).toBe("fail");
     expect(passing.status).toBe("pass");
     expect(failing.detail).toContain(
-      "The files for Watch lecture don't come from static hosting or object storage, so your servers serve them too: +10000000 req/min. Put them in a store behind a CDN.",
+      "The files for Watch lecture don't reach clients through a CDN or from static hosting, so your servers serve them too: +10000000 req/min. Put them in a store behind a CDN.",
     );
-    expect(passing.detail).toContain("The files for Watch lecture don't come from static hosting or object storage");
+    expect(passing.detail).toContain(
+      "The files for Watch lecture don't reach clients through a CDN or from static hosting",
+    );
+  });
+});
+
+describe("write capacity", () => {
+  const writes = (writeRpm = 1500, on = "api-1", id = "f"): FeatureBlock => ({
+    ...feature(on),
+    id,
+    name: "Report metrics",
+    writeRpm,
+  });
+  /** base() with the database's config replaced, plus extra nodes and edges. */
+  const run = (
+    db: object,
+    features: FeatureBlock[],
+    extraNodes: Node<DesignNodeData>[] = [],
+    extraEdges: Edge[] = [],
+  ) => {
+    const { nodes, edges } = base();
+    nodes[4] = node("db", "database", db);
+    return runVerification([...nodes, ...extraNodes], [...edges, ...extraEdges], features, NFR);
+  };
+  const check = (...args: Parameters<typeof run>) =>
+    run(...args).checks.find((c) => c.id === "nfr-write-throughput");
+
+  it("is not reported when no feature has writeRpm", () => {
+    expect(check({ shards: 1 }, [feature("api-1")])).toBeUndefined();
+  });
+
+  it("is in the throughput category, next to overall throughput", () => {
+    const ids = run({ shards: 1 }, [writes()]).checks.map((c) => c.id);
+    expect(ids.indexOf("nfr-write-throughput")).toBe(ids.indexOf("nfr-throughput") + 1);
+    expect(check({ shards: 1 }, [writes()])).toMatchObject({ category: "throughput", title: "Write capacity" });
+  });
+
+  it("takes about 400 writes a minute per shard", () => {
+    expect(check({ shards: 1 }, [writes()])?.actual).toBe("400 req/min");
+    expect(check({ shards: 3 }, [writes()])?.actual).toBe("1200 req/min");
+  });
+
+  it("adds every feature's writeRpm", () => {
+    expect(check({ shards: 1 }, [writes(1500), writes(300, "api-2", "g")])?.target).toBe("≥ 1800 req/min");
+  });
+
+  it("gets nothing from replicas or a cache", () => {
+    const cache = [node("cache", "cache", { memoryGb: 8 })];
+    const cacheEdges = [edge("api-1", "cache"), edge("api-2", "cache")];
+    const result = run({ shards: 1, replicas: 3 }, [writes()], cache, cacheEdges);
+    expect(result.estimatedThroughputRpm).toBeGreaterThan(400);
+    expect(result.checks.find((c) => c.id === "nfr-write-throughput")?.actual).toBe("400 req/min");
+  });
+
+  it("gets 15 % more with a queue and a task worker, rounded (one shard: 460)", () => {
+    const extra = [node("jobs", "message_queue"), node("worker", "task_worker")];
+    const extraEdges = [edge("api-1", "jobs"), edge("jobs", "worker"), edge("worker", "db", "db")];
+    expect(check({ shards: 1 }, [writes()], extra, extraEdges)?.actual).toBe("460 req/min");
+  });
+
+  it("counts every database on a request path, and none off it", () => {
+    const reached = [node("db2", "database", { shards: 2 })];
+    expect(check({ shards: 1 }, [writes()], reached, [edge("api-1", "db2", "db")])?.actual).toBe(
+      "1200 req/min",
+    );
+    expect(check({ shards: 1 }, [writes()], reached, [])?.actual).toBe("400 req/min");
+  });
+
+  it("explains the result, passing or failing", () => {
+    const failing = check({ shards: 1 }, [writes(1500)]);
+    const passing = check({ shards: 4 }, [writes(1500)]);
+    expect(failing).toMatchObject({
+      status: "fail",
+      target: "≥ 1500 req/min",
+      detail:
+        "The database can't take the writes: each shard takes about 400 writes a minute, and caches and replicas only help reads. Add shards, or batch writes through a queue and workers.",
+    });
+    expect(passing).toMatchObject({
+      status: "pass",
+      actual: "1600 req/min",
+      detail: "The database's shards can take the writes.",
+    });
   });
 });

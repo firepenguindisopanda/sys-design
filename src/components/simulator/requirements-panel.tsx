@@ -64,7 +64,8 @@ export function RequirementsPanel() {
           {locked ? null : (
             <p className="text-[11px] leading-snug text-slate-500">
               Optional workload: slow work waits unless a worker takes it; if polled counts when
-              nothing pushes; files count unless they come from a store.
+              nothing pushes; files count unless they come through a CDN or from static hosting;
+              writes need enough database shards.
             </p>
           )}
           {locked ? (

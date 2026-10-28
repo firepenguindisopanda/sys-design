@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { FeatureBlock } from "@/lib/types";
 
-type WorkloadKey = "backgroundWorkMs" | "pollingRpm" | "fileRpm";
+type WorkloadKey = "backgroundWorkMs" | "pollingRpm" | "fileRpm" | "writeRpm";
 export type WorkloadPatch = Partial<Pick<FeatureBlock, WorkloadKey>>;
 
 const FIELDS: { key: WorkloadKey; label: string; unit: string; help: string }[] = [
@@ -25,7 +25,13 @@ const FIELDS: { key: WorkloadKey; label: string; unit: string; help: string }[] 
     key: "fileRpm",
     label: "Files",
     unit: "req/min",
-    help: "File requests per minute (pages, scripts, video). Your servers serve them unless they come from a store: static hosting or object storage.",
+    help: "File requests per minute (pages, scripts, video). Your servers serve them unless clients get them from static hosting or through a CDN in front of a store.",
+  },
+  {
+    key: "writeRpm",
+    label: "Writes",
+    unit: "req/min",
+    help: "Requests per minute that write to the database. Only shards take writes, about 400 a minute each; caches and replicas only help reads.",
   },
 ];
 

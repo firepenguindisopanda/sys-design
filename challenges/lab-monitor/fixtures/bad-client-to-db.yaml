@@ -12,7 +12,7 @@ design:
     - { id: readings, kind: message_queue, label: Readings }
     - { id: writers, kind: task_worker, label: Batch writers }
     - { id: cache, kind: cache, label: Dashboard cache, config: { memoryGb: 2 } }
-    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 3 } }
+    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 4 } }
   edges:
     - lab-pc -> lb : http
     - laptop -> lb : http

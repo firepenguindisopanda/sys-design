@@ -346,13 +346,15 @@ checks added since phase 5 (inline work, polling, file serving) or from cost and
   `course-registration/bad-direct-enrol`.
 - **`bad-upload-through-api`:** a CDN still serves the wall, so nothing is charged.
 
-**Finding 16: cache memory counts as write capacity.** The engine adds 200 req/min per GB
+**Finding 16: cache memory counts as write capacity.** *(Fixed: see "Update: findings 16
+and 17 fixed" below.)* The engine adds 200 req/min per GB
 of cache to the database tier, whatever the requests are. In `lab-monitor`, one shard with
 a 6 GB cache scores 1908 req/min, which passes the 1700 target, at $263. That's cheaper than
 the good design's three shards ($289). Only the `sharded-db` rule catches it. *Fix:* give
 requirements a write share, and let the cache raise only read capacity.
 
-**Finding 17: an upload edge looks like a download.** The file-serving check (finding 15)
+**Finding 17: an upload edge looks like a download.** *(Fixed: see "Update: findings 16
+and 17 fixed" below.)* The file-serving check (finding 15)
 treats any client edge to static hosting or object storage as clients fetching files from
 a store. In `club-photo-wall/bad-no-cdn`, the phone's direct-upload edge to storage hides
 that the wall's images come through the API, so `browse-wall`'s `fileRpm` isn't charged.
@@ -362,6 +364,48 @@ static hosting, or mark upload edges.
 
 Across the sixteen briefs, the engine alone now catches **57 of 69** bad designs, and the
 other 12 rely on brief rules. The new brief rules catch everything they were written for.
+
+## Update: findings 16 and 17 fixed
+
+([SPEC-write-capacity.md](../../SPEC-write-capacity.md).)
+
+**Finding 16.** Briefs can now give a feature a `writeRpm`: the requests per minute that
+write to the database. When a placed feature has one, a new check, `nfr-write-throughput`
+("Write capacity"), compares the total with about 400 req/min per shard of each database
+on a request path, 15 % more with a connected queue and task worker. Caches and replicas
+don't count. Overall `nfr-throughput` is unchanged. Only `lab-monitor` marks writes
+(`report-metrics`: 1500), so it was recalibrated: the good design and three bad designs
+move from 3 to 4 shards, the throughput target from 1700 to 2200, the budget from $350 to
+$380, and the `sharded-db` rule from `shards ≥ 3` to `shards ≥ 2`, leaving the write check
+to say how many.
+
+| `lab-monitor` fixture | Throughput (target 2200) | Write capacity (target 1500) | Result |
+|---|---|---|---|
+| `good` (4 shards) | 2576 ($314) | 1840 | passes |
+| `bad-single-shard` | 988 | 460 | fails both, plus `sharded-db` |
+| `bad-direct-writes` (no queue) | 2240 | 1600 | passes both; rules only, as before |
+| `bad-no-cache` | 2115 | 1840 | fails `nfr-throughput` |
+| `bad-cache-for-shards` (new: 1 shard, 8 GB cache) | 2369 | 460 | fails `nfr-write-throughput`, plus `sharded-db` |
+
+**Finding 17.** A client edge straight to object storage no longer counts as clients
+fetching files from a store; it's how a direct upload is drawn. Static hosting, and a CDN
+in front of static hosting or object storage, still count. The file note now says the
+files "don't reach clients through a CDN or from static hosting". The only fixture that
+moves is `club-photo-wall/bad-no-cdn`: its throughput target rises from 1300 to 4340
+against 1678 capacity, so it fails `nfr-throughput`, and its `knownGap` is removed.
+
+Every other brief keeps its numbers, apart from the new wording in four file notes, and
+both demos are unchanged. Two designs move to the engine: `club-photo-wall/bad-no-cdn`
+and the new `lab-monitor/bad-cache-for-shards`. Across the sixteen briefs, the engine
+alone now catches **59 of 70** bad designs. The 11 that still rely on brief rules:
+- `course-registration/bad-direct-enrol`, `lab-monitor/bad-direct-writes` and
+  `club-auction/bad-direct-bids` (ordering and batching aren't modelled);
+- `chat-app/bad-no-pubsub` and `course-assistant/bad-no-streaming`;
+- `course-link-checker/bad-single-stage`;
+- `file-storage/bad-no-metadata-db` (finding 6);
+- `printing-credits/bad-no-webhook`;
+- `club-photo-wall/bad-upload-through-api`;
+- the two `bad-results-not-stored` designs.
 
 The rest of this note is the original phase 1 analysis, kept as written.
 

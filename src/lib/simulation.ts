@@ -222,7 +222,9 @@ function handsOffWork(nodeId: string, edges: Edge[], byId: Map<string, SimNode>)
 
 /**
  * True when clients fetch files from a store rather than the servers: an edge from a
- * client to static hosting or object storage, or to a CDN in front of one.
+ * client to static hosting, or to a CDN in front of static hosting or object storage.
+ * A client edge straight to object storage is how a direct upload is drawn, so it
+ * doesn't count (SPEC-write-capacity.md).
  */
 function filesFromStore(edges: Edge[], byId: Map<string, SimNode>): boolean {
   const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
@@ -230,7 +232,7 @@ function filesFromStore(edges: Edge[], byId: Map<string, SimNode>): boolean {
   return edges.some(
     (e) =>
       isClientKind(kind(e.source)) &&
-      (isStore(e.target) ||
+      (kind(e.target) === "static_hosting" ||
         (kind(e.target) === "cdn" && edges.some((o) => o.source === e.target && isStore(o.target)))),
   );
 }
@@ -330,6 +332,22 @@ function estimateThroughputRpm(
   }
 
   return totalCapacity;
+}
+
+/**
+ * Writes a minute the databases on a request path can take: about 400 per shard.
+ * Replicas and caches only help reads (SPEC-write-capacity.md).
+ */
+function estimateWriteCapacityRpm(nodes: SimNode[], reach: Set<string>, credited: Credited): number {
+  let capacity = 0;
+  for (const n of nodes) {
+    const cfg = n.data.config;
+    if (cfg.kind === "database" && reach.has(n.id)) capacity += 400 * cfg.shards;
+  }
+  if (hasCredited(nodes, credited, "message_queue") && hasCredited(nodes, credited, "task_worker")) {
+    capacity *= 1.15;
+  }
+  return Math.round(capacity);
 }
 
 function estimateAvailability(nodes: SimNode[], credited: Credited): number {
@@ -734,6 +752,7 @@ export function runVerification(
     0,
   );
   const throughputTarget = Math.max(nfr.minThroughputRpm, demandedRpm);
+  const writeDemand = placedFeatures.reduce((s, f) => s + (f.writeRpm ?? 0), 0);
 
   const inlineNotes = inline.map(
     (f) =>
@@ -745,7 +764,7 @@ export function runVerification(
   );
   const fileNotes = fileServed.map(
     (f) =>
-      ` The files for ${f.name} don't come from static hosting or object storage, so your servers serve them too: +${f.fileRpm} req/min. Put them in a store behind a CDN.`,
+      ` The files for ${f.name} don't reach clients through a CDN or from static hosting, so your servers serve them too: +${f.fileRpm} req/min. Put them in a store behind a CDN.`,
   );
   const latencyOk = latency <= nfr.maxLatencyMs;
   // Once inline work counts, "background work isn't included" would no longer be true.
@@ -791,6 +810,23 @@ export function runVerification(
     actual: `${Math.round(throughput)} req/min`,
     target: `≥ ${throughputTarget} req/min`,
   });
+
+  // Only briefs that mark writes get this check, so other results are unchanged.
+  if (writeDemand > 0) {
+    const writeCapacity = estimateWriteCapacityRpm(nodes, reach, credited);
+    const writesOk = writeCapacity >= writeDemand;
+    checks.push({
+      id: "nfr-write-throughput",
+      category: "throughput",
+      title: "Write capacity",
+      status: writesOk ? "pass" : "fail",
+      detail: writesOk
+        ? "The database's shards can take the writes."
+        : "The database can't take the writes: each shard takes about 400 writes a minute, and caches and replicas only help reads. Add shards, or batch writes through a queue and workers.",
+      actual: `${writeCapacity} req/min`,
+      target: `≥ ${writeDemand} req/min`,
+    });
+  }
 
   checks.push({
     id: "nfr-availability",

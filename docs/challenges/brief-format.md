@@ -53,7 +53,7 @@ functionalRequirements:
       computeMsPerRequest: 10    # CPU time per request; drives the throughput estimate
 ```
 
-Three optional fields describe what the scenario needs, so the engine can charge for a
+Four optional fields describe what the scenario needs, so the engine can charge for a
 shortcut:
 
 ```yaml
@@ -65,6 +65,8 @@ shortcut:
                                  # of being pushed to
       fileRpm: 3000              # file requests per minute this feature has clients make
                                  # (pages, scripts, video segments)
+      writeRpm: 1500             # requests per minute of this feature that write to the
+                                 # database
 ```
 
 - **`backgroundWorkMs`:** the work is **inline** unless the compute node the feature is
@@ -80,16 +82,25 @@ shortcut:
   example, 300 phones asking every 5 seconds is 3600 req/min. Check that the polling
   design's capacity falls short of the new target.
 - **`fileRpm`:** the servers serve the files unless some client has an edge to static
-  hosting or object storage, or to a CDN that has an edge to one of them. This is checked
-  once for the whole design. A CDN in front of the API or a database doesn't count. When
-  the servers serve the files, each feature's `fileRpm` is added to the throughput target
-  on top of its `targetRpm`, and `nfr-throughput` names it. Work it out from the scenario:
-  for example, 300 students each fetching a video segment every 6 seconds is 3000 req/min.
-  Clients fetching straight from a store, with no CDN, aren't charged. Leave that to the
+  hosting, or to a CDN that has an edge to static hosting or object storage. This is
+  checked once for the whole design. A CDN in front of the API or a database doesn't
+  count, and neither does a client edge straight to object storage: that's how a direct
+  upload is drawn, so draw downloads from storage through a CDN. When the servers serve
+  the files, each feature's `fileRpm` is added to the throughput target on top of its
+  `targetRpm`, and `nfr-throughput` names it. Work it out from the scenario: for example,
+  300 students each fetching a video segment every 6 seconds is 3000 req/min. Clients
+  fetching straight from static hosting, with no CDN, aren't charged. Leave that to the
   `topo-cdn` warning and brief rules.
+- **`writeRpm`:** adds the `nfr-write-throughput` check, which compares the sum of placed
+  features' `writeRpm` with what the databases on a request path can write: about 400
+  req/min per shard, 15 % more with a connected queue and task worker. Replicas and caches
+  don't help, because they only serve reads; overall `nfr-throughput` is unchanged. Only
+  mark writes when they are the load the brief is about (every reading, every bid), and
+  give the good design enough shards.
 
 Students see the fields a brief sets on the feature card, read-only, as "Slow work", "If
-polled" and "Files"; in the sandbox anyone can set them there. All three are numbers ≥ 1;
+polled", "Files" and "Writes"; in the sandbox anyone can set them there. All four are
+numbers ≥ 1;
 leave them out when they don't apply. Brief rules should still
 require the queue, worker, push or CDN edge, because the engine only checks timing and
 load.
@@ -236,6 +247,7 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
 | `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues, workers and external APIs and SSE/Web Push edges (background work, callbacks and server push), plus any inline `backgroundWorkMs` |
 | `nfr-throughput` | pass/fail | Estimated capacity against the throughput target: max(`minThroughputRpm`, the sum of features' `targetRpm`, using `pollingRpm` for polled features, plus `fileRpm` when the servers serve the files) |
+| `nfr-write-throughput` | pass/fail | Only when a placed feature has `writeRpm`: 400 req/min per shard of each database on a request path (× 1.15 with a connected queue and task worker) against the sum of `writeRpm` |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |
 

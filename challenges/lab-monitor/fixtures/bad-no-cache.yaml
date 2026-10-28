@@ -10,7 +10,7 @@ design:
     - { id: api-2, kind: paas, label: Monitor API 2 }
     - { id: readings, kind: message_queue, label: Readings }
     - { id: writers, kind: task_worker, label: Batch writers }
-    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 3 } }
+    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 4 } }
   edges:
     - lab-pc -> lb : http
     - laptop -> lb : http

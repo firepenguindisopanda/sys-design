@@ -36,7 +36,3 @@ design:
     view-photo: api-2
 expect:
   fails: [wall-via-cdn, nfr-throughput]
-knownGap: >-
-  The engine treats any client edge to object storage as clients fetching files from
-  a store, so the phone's upload edge hides that the wall's images come through the
-  API, and browse-wall's fileRpm isn't charged.

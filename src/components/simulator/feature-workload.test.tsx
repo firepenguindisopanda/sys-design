@@ -23,14 +23,15 @@ function inputs(html: string): string[] {
 }
 
 describe("FeatureWorkload", () => {
-  it("shows all three boxes in the sandbox, set or empty, and editable", () => {
+  it("shows all four boxes in the sandbox, set or empty, and editable", () => {
     const html = render({ ...feature, pollingRpm: 3600 }, false);
-    for (const label of ["Slow work", "If polled", "Files"]) expect(html).toContain(label);
+    for (const label of ["Slow work", "If polled", "Files", "Writes"]) expect(html).toContain(label);
     const boxes = inputs(html);
-    expect(boxes).toHaveLength(3);
+    expect(boxes).toHaveLength(4);
     expect(boxes[0]).toContain('value=""');
     expect(boxes[1]).toContain('value="3600"');
     expect(boxes[2]).toContain('value=""');
+    expect(boxes[3]).toContain('value=""');
     expect(boxes.some((b) => b.includes('disabled=""'))).toBe(false);
   });
 
@@ -48,6 +49,16 @@ describe("FeatureWorkload", () => {
 
   it("explains slow work in a challenge", () => {
     expect(render({ ...feature, backgroundWorkMs: 3000 }, true)).toMatch(/title="[^"]*task worker/);
+  });
+
+  it("shows writes alone in a challenge, with what limits them", () => {
+    const html = render({ ...feature, writeRpm: 1500 }, true);
+    expect(html).toContain("Writes");
+    expect(html).not.toContain("Files");
+    const boxes = inputs(html);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toContain('value="1500"');
+    expect(html).toMatch(/title="[^"]*shard/);
   });
 
   it("renders nothing in a challenge when the brief sets none of them", () => {

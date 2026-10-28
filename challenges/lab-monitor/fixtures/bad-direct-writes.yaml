@@ -10,7 +10,7 @@ design:
     - { id: api-1, kind: paas, label: Monitor API 1 }
     - { id: api-2, kind: paas, label: Monitor API 2 }
     - { id: cache, kind: cache, label: Dashboard cache, config: { memoryGb: 2 } }
-    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 3 } }
+    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 4 } }
   edges:
     - lab-pc -> lb : http
     - laptop -> lb : http

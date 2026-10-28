@@ -119,22 +119,29 @@ describe("buildDesign", () => {
     expect(built.nfr).toEqual(brief.nfr);
   });
 
-  it("copies background work, polling and files only when the brief sets them", () => {
+  it("copies background work, polling, files and writes only when the brief sets them", () => {
     const marked: Brief = {
       ...brief,
       functionalRequirements: [
         {
           ...brief.functionalRequirements[0],
-          feature: { ...brief.functionalRequirements[0].feature, backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 },
+          feature: {
+            ...brief.functionalRequirements[0].feature,
+            backgroundWorkMs: 3000,
+            pollingRpm: 2400,
+            fileRpm: 1200,
+            writeRpm: 1500,
+          },
         },
         brief.functionalRequirements[1],
       ],
     };
     const [read, write] = buildDesign(marked, fixture).features;
-    expect(read).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 });
+    expect(read).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200, writeRpm: 1500 });
     expect(write).not.toHaveProperty("backgroundWorkMs");
     expect(write).not.toHaveProperty("pollingRpm");
     expect(write).not.toHaveProperty("fileRpm");
+    expect(write).not.toHaveProperty("writeRpm");
   });
 });
 

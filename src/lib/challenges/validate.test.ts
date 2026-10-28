@@ -144,15 +144,21 @@ describe("validateBrief", () => {
     expect(validateBrief(b, FILE).rules[0]).toMatchObject({ to: ["cache", "load_balancer"] });
   });
 
-  it("reads the optional background work, polling and file fields", () => {
+  it("reads the optional background work, polling, file and write fields", () => {
     const b = rawBrief();
-    Object.assign(b.functionalRequirements[1].feature, { backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 });
+    Object.assign(b.functionalRequirements[1].feature, {
+      backgroundWorkMs: 3000,
+      pollingRpm: 2400,
+      fileRpm: 1200,
+      writeRpm: 1500,
+    });
     const [plain, marked] = validateBrief(b, FILE).functionalRequirements;
-    expect(marked.feature).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 });
+    expect(marked.feature).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200, writeRpm: 1500 });
     expect(plain.feature).not.toHaveProperty("backgroundWorkMs");
     expect(plain.feature).not.toHaveProperty("pollingRpm");
     expect(plain.feature).not.toHaveProperty("fileRpm");
-    for (const field of ["backgroundWorkMs", "pollingRpm", "fileRpm"]) {
+    expect(plain.feature).not.toHaveProperty("writeRpm");
+    for (const field of ["backgroundWorkMs", "pollingRpm", "fileRpm", "writeRpm"]) {
       for (const bad of [0, -5, "fast"]) {
         expect(briefError((x) => (x.functionalRequirements[0].feature[field] = bad))).toBe(
           `${FILE}: functionalRequirements[0].feature.${field}: expected a number >= 1`,

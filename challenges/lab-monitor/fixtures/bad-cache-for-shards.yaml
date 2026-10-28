@@ -1,0 +1,35 @@
+description: >-
+  Good design with one database shard and a big cache instead of more shards. The cache
+  answers dashboard reads, but every reading is still written to the one shard.
+design:
+  nodes:
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: laptop, kind: desktop, label: Technician laptop }
+    - { id: phone, kind: mobile, label: Technician phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Monitor API 1 }
+    - { id: api-2, kind: paas, label: Monitor API 2 }
+    - { id: readings, kind: message_queue, label: Readings }
+    - { id: writers, kind: task_worker, label: Batch writers }
+    - { id: cache, kind: cache, label: Dashboard cache, config: { memoryGb: 8 } }
+    - { id: db, kind: database, label: Readings DB, config: { replicas: 2 } }
+  edges:
+    - lab-pc -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> readings : http
+    - api-2 -> readings : http
+    - readings -> writers : http
+    - writers -> db : db
+    - writers -> phone : web_push
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    report-metrics: api-1
+    view-dashboard: api-2
+    disk-alert: api-2
+expect:
+  fails: [sharded-db, nfr-write-throughput]

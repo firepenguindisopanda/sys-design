@@ -28,6 +28,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
       targetRpm: 1500
       computeMsPerRequest: 5
+      writeRpm: 1500
   - id: view-dashboard
     text: A technician views the last hour of readings for one lab.
     feature:
@@ -47,9 +48,9 @@ functionalRequirements:
 
 nfr:
   maxLatencyMs: 50
-  minThroughputRpm: 1700
+  minThroughputRpm: 2200
   minAvailabilityPct: 99.9
-  maxMonthlyCostUsd: 350
+  maxMonthlyCostUsd: 380
 
 rules:
   - id: ingest-queued
@@ -72,9 +73,9 @@ rules:
     title: Sharded database
     type: component
     kind: database
-    minConfig: { shards: 3 }
+    minConfig: { shards: 2 }
     severity: fail
-    why: All the writes can't go to one database server; split the readings across shards, for example by lab.
+    why: All the writes can't go to one database server; split the readings across shards, for example by lab. The Write capacity check shows how many shards the readings need.
   - id: dashboard-cache
     title: Dashboard reads from a cache
     type: edge

@@ -134,6 +134,7 @@ export type FeatureBlock = {
   pollingRpm?: number;
   /** File requests per minute (pages, scripts, video segments) the servers handle unless the files come from a store */
   fileRpm?: number;
+  writeRpm?: number;
   /** Assigned compute node id, or null if unplaced */
   placedOnNodeId: string | null;
 };
