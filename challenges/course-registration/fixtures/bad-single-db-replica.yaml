@@ -1,0 +1,33 @@
+description: >-
+  Good design with a single database copy. If it fails at 8:00, nobody can
+  register.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Registration API 1 }
+    - { id: api-2, kind: paas, label: Registration API 2 }
+    - { id: cache, kind: cache, label: Section cache, config: { memoryGb: 8 } }
+    - { id: db, kind: database, label: Registration DB }
+    - { id: claims, kind: message_queue, label: Seat claims }
+    - { id: allocator, kind: task_worker, label: Seat allocator }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> claims : http
+    - api-2 -> claims : http
+    - claims -> allocator : http
+    - allocator -> db : db
+  placements:
+    browse-sections: api-1
+    view-timetable: api-1
+    enrol: api-2
+expect:
+  fails: [db-replicas, nfr-availability]

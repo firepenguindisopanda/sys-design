@@ -1,0 +1,28 @@
+description: >-
+  Good design without the seat-claim queue and allocator. Each API instance
+  writes seats straight to the database, so two claims for the last seat can both
+  succeed.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Registration API 1 }
+    - { id: api-2, kind: paas, label: Registration API 2 }
+    - { id: cache, kind: cache, label: Section cache, config: { memoryGb: 8 } }
+    - { id: db, kind: database, label: Registration DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    browse-sections: api-1
+    view-timetable: api-1
+    enrol: api-2
+expect:
+  fails: [enrol-queued, seat-worker]

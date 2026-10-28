@@ -1,0 +1,96 @@
+id: course-registration
+title: Course registration rush
+tagline: Thousands of students, a few popular sections, one opening minute
+source: >-
+  Adapted from the "ticketmaster" and "flash-sale" starters in
+  nvidia_genai/architect-it/src/shared/starters.ts (own work), rewritten as semester
+  course registration.
+summary: >-
+  Registration for next semester opens at 8:00. Students refresh the list of sections
+  to see how many seats are left, then try to add the sections they want; a few
+  popular sections fill in minutes. Journeys: browse sections with their seats left;
+  enrol in a section; view your timetable. The hard part: at 8:00 the whole faculty
+  arrives at once, reading the section list over and over, and two students must
+  never both get the last seat in a section.
+outOfScope:
+  - fees and payment
+  - waitlists
+  - checking prerequisites and timetable clashes
+
+functionalRequirements:
+  - id: browse-sections
+    text: A student lists the sections for a course with their times and seats left.
+    feature:
+      name: Browse sections
+      description: Return sections with schedule and remaining seats.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 1200
+      computeMsPerRequest: 10
+  - id: enrol
+    text: A student enrols in a section, getting a seat only if one is left.
+    feature:
+      name: Enrol
+      description: Accept the request and queue it for the seat allocator.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 240
+      computeMsPerRequest: 30
+  - id: view-timetable
+    text: A student views the sections they are enrolled in for the semester.
+    feature:
+      name: View timetable
+      description: List the student's enrolments with times and rooms.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0.5 }
+      targetRpm: 160
+      computeMsPerRequest: 15
+
+nfr:
+  maxLatencyMs: 100
+  minThroughputRpm: 1850
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 350
+
+rules:
+  - id: catalog-cache
+    title: Section list served from a cache
+    type: edge
+    mode: required
+    from: compute
+    to: cache
+    severity: fail
+    why: Everyone reads the section list at 8:00; serve it from a cache so the database is free for enrolments.
+  - id: enrol-queued
+    title: Enrolments go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Putting every seat claim on one queue means they are handled one at a time, so two cannot race for the last seat.
+  - id: seat-worker
+    title: A worker allocates seats
+    type: edge
+    mode: required
+    from: message_queue
+    to: task_worker
+    severity: fail
+    why: A worker takes claims off the queue in order and decides who gets each seat.
+  - id: db-replicas
+    title: Replicated database
+    type: component
+    kind: database
+    minConfig: { replicas: 2 }
+    severity: fail
+    why: If the only database copy fails at 8:00, nobody can register; keep a replica.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - Two claims for the last seat reach the seat allocator back to back. What must it do so that only one succeeds, even if you later run two allocators?
+  - With a queue, a student waits a few seconds to learn whether they got the seat. What do they see in the meantime, and how do they find out?
+  - The cached section list says 3 seats left for a section that has just filled. Is that acceptable, and where is the real count checked?
