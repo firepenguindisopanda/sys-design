@@ -24,8 +24,21 @@ function latency(briefId: string, fixtureName: string): number {
   return runFixture(c.brief, fixture).verification.estimatedLatencyMs;
 }
 
+// Finding 10: doing slow work inline makes the request wait for it.
+const INLINE_PAIRS: [brief: string, shortcut: string][] = [
+  ["lab-autograder", "bad-sync-grading"],
+  ["notification-system", "bad-sync-delivery"],
+  ["lecture-video-library", "bad-sync-transcode"],
+];
+
 describe("good designs are no slower than their shortcuts", () => {
   it.each(PAIRS)("%s: good vs %s", (brief, shortcut) => {
     expect(latency(brief, "good")).toBeLessThanOrEqual(latency(brief, shortcut));
+  });
+});
+
+describe("good designs are faster than doing slow work inline", () => {
+  it.each(INLINE_PAIRS)("%s: good vs %s", (brief, shortcut) => {
+    expect(latency(brief, "good")).toBeLessThan(latency(brief, shortcut));
   });
 });

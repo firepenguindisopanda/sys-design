@@ -53,12 +53,40 @@ functionalRequirements:
       computeMsPerRequest: 10    # CPU time per request; drives the throughput estimate
 ```
 
+Two optional fields describe what the scenario needs, so the engine can charge for a
+shortcut:
+
+```yaml
+    feature:
+      ...
+      backgroundWorkMs: 3000     # slow work this request starts (running tests, transcoding,
+                                 # sending to thousands of phones)
+      pollingRpm: 2400           # requests per minute if clients poll for updates instead
+                                 # of being pushed to
+```
+
+- **`backgroundWorkMs`:** the work is **inline** unless the compute node the feature is
+  placed on has an edge to a message queue, and that queue has an edge to a task worker.
+  Inline work is added to the latency estimate (the largest one, if several features have
+  it), and `nfr-latency` names the feature. Pick a value that matches the brief's story
+  ("takes seconds" → 3000, "takes minutes" → 60000). It only needs to be well above the
+  latency target.
+- **`pollingRpm`:** the feature is **polled** unless its compute node has an SSE or Web Push
+  edge to a client, or a WebSocket edge with a client, directly or through a load balancer
+  that has one. A polled feature counts `pollingRpm` instead of `targetRpm` in the
+  throughput target, and `nfr-throughput` names it. Work it out from the scenario: for
+  example, 300 phones asking every 5 seconds is 3600 req/min. Check that the polling
+  design's capacity falls short of the new target.
+
+Both are numbers ≥ 1; leave them out when they don't apply. Brief rules should still
+require the queue, worker or push edge, because the engine only checks timing and load.
+
 ### nfr
 
 ```yaml
 nfr:
   maxLatencyMs: 70          # time to answer a request must be at most this
-  minThroughputRpm: 1300    # capacity must reach max(this, sum of targetRpm)
+  minThroughputRpm: 1300    # capacity must reach max(this, sum of targetRpm; pollingRpm if polled)
   minAvailabilityPct: 99.9  # 0 to 100
   maxMonthlyCostUsd: 275    # optional; leave out for no budget
 ```
@@ -190,8 +218,8 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-api-keys-<edge>` | warn | A client-like node talks to an external API |
 | `topo-client-data-<edge>` | warn | A client-side node (mobile, desktop, IoT, static hosting, CDN) is wired straight to a database or cache, either direction |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
-| `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues and workers and SSE/Web Push edges (background work and server push) |
-| `nfr-throughput` | pass/fail | Estimated capacity against the throughput target |
+| `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues and workers and SSE/Web Push edges (background work and server push), plus any inline `backgroundWorkMs` |
+| `nfr-throughput` | pass/fail | Estimated capacity against the throughput target: max(`minThroughputRpm`, the sum of features' `targetRpm`, using `pollingRpm` for polled features) |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |
 

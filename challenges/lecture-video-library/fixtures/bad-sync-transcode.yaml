@@ -34,4 +34,4 @@ design:
     browse-lectures: api-1
     watch-lecture: api-2
 expect:
-  fails: [transcode-queued, workers-transcode, renditions-stored]
+  fails: [transcode-queued, workers-transcode, renditions-stored, nfr-latency]

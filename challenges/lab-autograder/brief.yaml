@@ -34,6 +34,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 2 }
       targetRpm: 200
       computeMsPerRequest: 40
+      backgroundWorkMs: 3000
   - id: view-result
     text: A student checks whether their submission has been graded, and its score.
     feature:

@@ -34,6 +34,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
       targetRpm: 1500
       computeMsPerRequest: 15
+      backgroundWorkMs: 2000
   - id: preferences
     text: A student views and changes which alerts they receive.
     feature:

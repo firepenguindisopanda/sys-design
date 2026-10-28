@@ -201,6 +201,65 @@ doesn't notice a worker whose results go nowhere.
 So across the twelve briefs, the engine alone catches 37 of 53 bad designs; the other 16
 rely on brief rules.
 
+## Update: findings 10 and 7 addressed
+
+([SPEC-sync-and-polling.md](../../SPEC-sync-and-polling.md).) Briefs can now mark a
+feature's slow work (`backgroundWorkMs`) and its polling rate (`pollingRpm`).
+- **Inline work:** if the feature's compute node doesn't put the work on a queue read by a
+  task worker, the request waits for it, so it's added to latency.
+- **Polling:** if that node doesn't push to clients (SSE or Web Push to a client, or a
+  WebSocket with one, directly or through a load balancer), clients poll, and the
+  throughput target uses the polling rate.
+- **Messages:** the latency or throughput detail names the feature and what to change.
+
+Six briefs carry the fields:
+
+| Brief | Feature | Field |
+|---|---|---|
+| lab-autograder | submit-solution | `backgroundWorkMs: 3000` |
+| notification-system | fan-out | `backgroundWorkMs: 2000` |
+| lecture-video-library | upload-recording | `backgroundWorkMs: 60000` |
+| course-link-checker | start-check | `backgroundWorkMs: 60000` |
+| chat-app | send-message | `pollingRpm: 2400` |
+| shuttle-tracker | live-map | `pollingRpm: 3600` |
+
+| Fixture | Before | After | New engine fail |
+|---|---|---|---|
+| `lab-autograder/bad-sync-grading` | 25 ms | 3025 ms | `nfr-latency` (≤ 50) |
+| `lab-autograder/bad-no-worker` | 25 ms | 3025 ms | `nfr-latency` |
+| `notification-system/bad-sync-delivery` | 31 ms | 2031 ms | `nfr-latency` (≤ 70) |
+| `notification-system/bad-no-worker` | 31 ms | 2031 ms | `nfr-latency` |
+| `lecture-video-library/bad-sync-transcode` | 49 ms | 60049 ms | `nfr-latency` (≤ 100) |
+| `course-link-checker/bad-sync-crawl` | 60 ms | 60060 ms | already failed latency |
+| `chat-app/bad-http-polling` | target 1300 | target 2700 | `nfr-throughput` (1660) |
+| `shuttle-tracker/bad-polling` | target 1400 | target 4020 | `nfr-throughput` (1660) |
+| `shuttle-tracker/bad-sse-wrong-direction` | target 1400 | target 4020 | `nfr-throughput` (1660) |
+
+Unchanged: every good design, every other fixture, and both demos. The expectations of
+the eight fixtures that newly fail were strengthened. `tests/latency.test.ts` now also
+requires the good design to be strictly faster than `bad-sync-grading`,
+`bad-sync-delivery` and `bad-sync-transcode`.
+
+A prototype also charged inline work to the API's CPU. That moved no throughput figure,
+because the database tier already caps throughput in all of these designs, so it was
+left out.
+
+Five designs move from rule-only to engine-caught: `bad-sync-grading`,
+`bad-sync-delivery`, `bad-sync-transcode`, `bad-http-polling` and
+`shuttle-tracker/bad-polling`. So across the twelve briefs, the engine alone now catches
+**42 of 53** bad designs. The 11 that still rely on brief rules:
+- **Not about slow work or polling:**
+  - `course-registration/bad-direct-enrol`: the queue is there for ordering, not speed.
+  - `chat-app/bad-no-pubsub`.
+  - `course-assistant/bad-no-streaming`: the answer arrives late, but nothing polls.
+- **Stages inside the background work aren't modelled:**
+  `course-link-checker/bad-single-stage`.
+- **Findings 5, 6, 14 and 15:**
+  - `file-storage/bad-files-in-db` and `bad-no-metadata-db`;
+  - `printing-credits/bad-no-webhook`;
+  - `campus-food-guide/bad-pages-from-api` and `lecture-video-library/bad-no-cdn`.
+- **A worker whose results go nowhere:** the two `bad-results-not-stored` designs.
+
 The rest of this note is the original phase 1 analysis, kept as written.
 
 ## Short answer
@@ -262,8 +321,9 @@ them or because they are about the scoring model rather than one fixture.
    tier only when a database exists (line 195). It fails availability only because it
    loses the replica bonus. *Fix:* when any feature needs storage (`storageGb > 0`) and
    there is no database or object storage, fail with a clear reason.
-7. **Protocols don't affect the score.** *(Partly addressed by the finding 12 fix: SSE and
-   Web Push no longer add latency. Polling still costs nothing.)* `chat-app/bad-http-polling` scores 51 ms against
+7. **Protocols don't affect the score.** *(Addressed: the finding 12 fix stopped SSE and
+   Web Push adding latency, and a brief's `pollingRpm` now raises the throughput target
+   when nothing pushes; see "Update: findings 10 and 7 addressed".)* `chat-app/bad-http-polling` scores 51 ms against
    50 ms for WebSockets. Polling cost isn't modelled. *Fix:* in briefs, keep this as a
    rule; in the engine, optionally add a request-rate multiplier for real-time
    requirements served over HTTP.
@@ -276,7 +336,9 @@ them or because they are about the scoring model rather than one fixture.
    push and sends requests counts, and so does a worker that consumes a queue and pushes.
    *Fix:* exempt clients and task workers, or count a node as a hop only on a
    request path.
-10. **Synchronous fan-out isn't penalised.** `notification-system/bad-sync-delivery`
+10. **Synchronous fan-out isn't penalised.** *(Addressed: a brief's `backgroundWorkMs` is
+    added to latency when the work isn't handed to a task worker through a queue; see
+    "Update: findings 10 and 7 addressed".)* `notification-system/bad-sync-delivery`
     passes throughput at 1660 against 1650. A queue plus worker only adds 15 % capacity
     (line 218). *Fix:* model fan-out features (one request becoming N deliveries) so
     that serving them inline costs N times the compute.

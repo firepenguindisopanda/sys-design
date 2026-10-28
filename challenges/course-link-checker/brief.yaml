@@ -30,6 +30,7 @@ functionalRequirements:
       resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
       targetRpm: 30
       computeMsPerRequest: 20
+      backgroundWorkMs: 60000
   - id: view-report
     text: A lecturer reads the latest report of broken links for a course.
     feature:

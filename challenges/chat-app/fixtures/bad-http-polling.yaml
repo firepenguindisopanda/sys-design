@@ -28,4 +28,4 @@ design:
     send-message: chat-1
     load-history: chat-2
 expect:
-  fails: [realtime-websocket]
+  fails: [realtime-websocket, nfr-throughput]

@@ -24,4 +24,4 @@ design:
     stop-eta: api-1
     live-map: api-2
 expect:
-  fails: [live-positions]
+  fails: [live-positions, nfr-throughput]

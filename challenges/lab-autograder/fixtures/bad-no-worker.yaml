@@ -27,5 +27,5 @@ design:
     submit-solution: api-2
     view-result: api-1
 expect:
-  fails: [workers-run-tests, results-stored]
+  fails: [workers-run-tests, results-stored, nfr-latency]
   warns: [topo-queue]

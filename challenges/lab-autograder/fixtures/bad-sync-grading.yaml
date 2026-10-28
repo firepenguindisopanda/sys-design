@@ -24,4 +24,4 @@ design:
     submit-solution: api-2
     view-result: api-1
 expect:
-  fails: [grading-queued, workers-run-tests, results-stored]
+  fails: [grading-queued, workers-run-tests, results-stored, nfr-latency]

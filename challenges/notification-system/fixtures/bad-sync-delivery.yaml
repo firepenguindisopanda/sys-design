@@ -25,4 +25,4 @@ design:
     preferences: api-1
     fan-out: api-2
 expect:
-  fails: [enqueue-delivery, worker-consumes-queue]
+  fails: [enqueue-delivery, worker-consumes-queue, nfr-latency]

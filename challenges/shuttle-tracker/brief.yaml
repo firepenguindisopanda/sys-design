@@ -34,6 +34,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
       targetRpm: 900
       computeMsPerRequest: 5
+      pollingRpm: 3600
   - id: stop-eta
     text: A student picks a stop and sees when the next shuttle should arrive.
     feature:

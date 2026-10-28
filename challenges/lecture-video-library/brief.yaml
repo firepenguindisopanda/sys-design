@@ -27,6 +27,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 2 }
       targetRpm: 10
       computeMsPerRequest: 120
+      backgroundWorkMs: 60000
   - id: browse-lectures
     text: A student lists a course's lectures with title, date and length.
     feature:

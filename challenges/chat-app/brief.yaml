@@ -26,6 +26,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
       targetRpm: 900
       computeMsPerRequest: 20
+      pollingRpm: 2400
   - id: load-history
     text: A member opens a room and loads earlier messages, newest first.
     feature:

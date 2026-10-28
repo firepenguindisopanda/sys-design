@@ -28,4 +28,4 @@ design:
     preferences: api-1
     fan-out: api-2
 expect:
-  fails: [worker-consumes-queue]
+  fails: [worker-consumes-queue, nfr-latency]
