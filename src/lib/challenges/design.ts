@@ -63,6 +63,16 @@ function buildNode(node: CompactNode, index: number): SimNode {
   };
 }
 
+/** The optional slow-work and polling fields, only when set, so other features gain no keys. */
+export function optionalWorkload(
+  f: Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm">,
+): Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm"> {
+  return {
+    ...(f.backgroundWorkMs === undefined ? {} : { backgroundWorkMs: f.backgroundWorkMs }),
+    ...(f.pollingRpm === undefined ? {} : { pollingRpm: f.pollingRpm }),
+  };
+}
+
 /** Turn a validated fixture into the inputs runVerification takes. */
 export function buildDesign(brief: Brief, fixture: Fixture): BuiltDesign {
   return buildCompactDesign(brief.functionalRequirements, brief.nfr, fixture.design);
@@ -86,6 +96,7 @@ export function buildCompactDesign(
       resources: { ...fr.feature.resources },
       targetRpm: fr.feature.targetRpm,
       computeMsPerRequest: fr.feature.computeMsPerRequest,
+      ...optionalWorkload(fr.feature),
       placedOnNodeId: design.placements[fr.id] ?? null,
     })),
     nfr: { ...nfr },

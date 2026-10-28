@@ -144,6 +144,22 @@ describe("validateBrief", () => {
     expect(validateBrief(b, FILE).rules[0]).toMatchObject({ to: ["cache", "load_balancer"] });
   });
 
+  it("reads the optional background work and polling fields", () => {
+    const b = rawBrief();
+    Object.assign(b.functionalRequirements[1].feature, { backgroundWorkMs: 3000, pollingRpm: 2400 });
+    const [plain, marked] = validateBrief(b, FILE).functionalRequirements;
+    expect(marked.feature).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400 });
+    expect(plain.feature).not.toHaveProperty("backgroundWorkMs");
+    expect(plain.feature).not.toHaveProperty("pollingRpm");
+    for (const field of ["backgroundWorkMs", "pollingRpm"]) {
+      for (const bad of [0, -5, "fast"]) {
+        expect(briefError((x) => (x.functionalRequirements[0].feature[field] = bad))).toBe(
+          `${FILE}: functionalRequirements[0].feature.${field}: expected a number >= 1`,
+        );
+      }
+    }
+  });
+
   it("treats a missing cost budget as null", () => {
     const brief = validateBrief(
       { ...rawBrief(), nfr: { maxLatencyMs: 100, minThroughputRpm: 0, minAvailabilityPct: 99 } },

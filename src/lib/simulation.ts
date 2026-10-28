@@ -207,6 +207,45 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited
   return Math.max(max, 20);
 }
 
+/** True when the node puts work on a queue that a task worker consumes. */
+function handsOffWork(nodeId: string, edges: Edge[], byId: Map<string, SimNode>): boolean {
+  const kind = (id: string) => byId.get(id)?.data.componentKind;
+  return edges.some(
+    (e) =>
+      e.source === nodeId &&
+      kind(e.target) === "message_queue" &&
+      edges.some((w) => w.source === e.target && kind(w.target) === "task_worker"),
+  );
+}
+
+/**
+ * True when the node pushes to a client: SSE or Web Push to it, or a WebSocket with it,
+ * directly or through a load balancer.
+ */
+function pushesToClients(nodeId: string, edges: Edge[], byId: Map<string, SimNode>): boolean {
+  const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
+  const socketPeers = (id: string) =>
+    edges
+      .filter((e) => getEdgeData(e).protocol === "websocket" && (e.source === id || e.target === id))
+      .map((e) => (e.source === id ? e.target : e.source));
+  const pushes = edges.some((e) => {
+    const { protocol } = getEdgeData(e);
+    return (
+      (protocol === "sse" || protocol === "web_push") &&
+      e.source === nodeId &&
+      isClientKind(kind(e.target))
+    );
+  });
+  return (
+    pushes ||
+    socketPeers(nodeId).some(
+      (peer) =>
+        isClientKind(kind(peer)) ||
+        (kind(peer) === "load_balancer" && socketPeers(peer).some((c) => isClientKind(kind(c)))),
+    )
+  );
+}
+
 function estimateThroughputRpm(
   nodes: SimNode[],
   features: FeatureBlock[],
@@ -655,23 +694,55 @@ export function runVerification(
     }
   }
 
-  const latency = estimatePathLatency(nodes, edges, credited);
+  // Slow work not handed to a worker makes the request wait; features nobody pushes
+  // to are polled, at their polling rate (SPEC-sync-and-polling.md).
+  const inline = placedFeatures.filter(
+    (f) => f.backgroundWorkMs && !handsOffWork(f.placedOnNodeId!, edges, byId),
+  );
+  const polled = placedFeatures.filter(
+    (f) => f.pollingRpm && !pushesToClients(f.placedOnNodeId!, edges, byId),
+  );
+  const inlineMs = Math.max(0, ...inline.map((f) => f.backgroundWorkMs!));
+
+  const latency = estimatePathLatency(nodes, edges, credited) + inlineMs;
   const throughput = estimateThroughputRpm(nodes, features, credited);
   const availability = estimateAvailability(nodes, credited);
   const cost = estimateMonthlyCost(nodes, features);
 
-  const demandedRpm = features.reduce((s, f) => s + f.targetRpm, 0);
+  const demandedRpm = features.reduce(
+    (s, f) => s + (polled.includes(f) ? f.pollingRpm! : f.targetRpm),
+    0,
+  );
   const throughputTarget = Math.max(nfr.minThroughputRpm, demandedRpm);
+
+  const inlineNotes = inline.map(
+    (f) =>
+      ` ${f.name} waits for ${f.backgroundWorkMs} ms of slow work. Put it on a queue that a task worker consumes.`,
+  );
+  const pollNotes = polled.map(
+    (f) =>
+      ` ${f.name} isn't pushed to clients, so they poll: ${f.pollingRpm} req/min instead of ${f.targetRpm}. Push updates over SSE or a WebSocket.`,
+  );
+  const latencyOk = latency <= nfr.maxLatencyMs;
+  // Once inline work counts, "background work isn't included" would no longer be true.
+  const latencyScope =
+    inline.length > 0
+      ? ""
+      : latencyOk
+        ? " Background work (queue consumers, workers) and server push aren't included."
+        : " Background work and server push aren't included.";
 
   checks.push({
     id: "nfr-latency",
     category: "latency",
     title: "Latency budget",
-    status: latency <= nfr.maxLatencyMs ? "pass" : "fail",
+    status: latencyOk ? "pass" : "fail",
     detail:
-      latency <= nfr.maxLatencyMs
-        ? "Estimated time to answer a request meets the NFR. Background work (queue consumers, workers) and server push aren't included."
-        : "Requests take too long to answer. Add CDN/cache, shorten hops, or add DB replicas. Background work and server push aren't included.",
+      (latencyOk
+        ? "Estimated time to answer a request meets the NFR."
+        : "Requests take too long to answer. Add CDN/cache, shorten hops, or add DB replicas.") +
+      latencyScope +
+      inlineNotes.join(""),
     actual: `${Math.round(latency)} ms`,
     target: `≤ ${nfr.maxLatencyMs} ms`,
   });
@@ -688,9 +759,10 @@ export function runVerification(
     title: "Throughput capacity",
     status: thrStatus,
     detail:
-      thrStatus === "pass"
+      (thrStatus === "pass"
         ? "Compute + data tier capacity covers target usage across features."
-        : "Insufficient capacity. Scale compute, shard DB, add cache, or use queue load-levelling.",
+        : "Insufficient capacity. Scale compute, shard DB, add cache, or use queue load-levelling.") +
+      pollNotes.join(""),
     actual: `${Math.round(throughput)} req/min`,
     target: `≥ ${throughputTarget} req/min`,
   });

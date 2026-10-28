@@ -418,3 +418,154 @@ describe("request latency", () => {
     expect(latency(nodes, [edge("api-1", "phone", "sse"), edge("api-1", "db", "db")])).toBe(20);
   });
 });
+
+describe("inline work and polling", () => {
+  // base(): phone → lb → api-1 → db is 28 + 8 + 10 = 46 ms.
+  const PATH_MS = 28 + 8 + 10;
+  const slow = (ms: number, id = "f", name = "Grade"): FeatureBlock => ({
+    ...feature("api-1"),
+    id,
+    name,
+    backgroundWorkMs: ms,
+  });
+  const live = (pollingRpm: number, on = "api-1"): FeatureBlock => ({
+    ...feature(on),
+    name: "Live map",
+    pollingRpm,
+  });
+  const run = (nodes: Node<DesignNodeData>[], edges: Edge[], features: FeatureBlock[], nfr = NFR) =>
+    runVerification(nodes, edges, features, nfr);
+  const check = (r: ReturnType<typeof run>, id: string) => r.checks.find((c) => c.id === id)!;
+
+  /** base() plus a queue fed by `from`, read by `consumer` (added if it's new). */
+  const withQueue = (consumer: [string, ComponentKind] | null, from = "api-1") => {
+    const { nodes, edges } = base();
+    nodes.push(node("jobs", "message_queue"));
+    edges.push(edge(from, "jobs"));
+    if (consumer) {
+      const [id, kind] = consumer;
+      if (!nodes.some((n) => n.id === id)) nodes.push(node(id, kind));
+      edges.push(edge("jobs", id));
+    }
+    return { nodes, edges };
+  };
+
+  describe("slow work", () => {
+    it("adds nothing when the hosting node queues it for a task worker", () => {
+      const { nodes, edges } = withQueue(["worker", "task_worker"]);
+      expect(run(nodes, edges, [slow(3000)]).estimatedLatencyMs).toBe(PATH_MS);
+    });
+
+    it("adds the work when the queue has no consumer", () => {
+      const { nodes, edges } = withQueue(null);
+      expect(run(nodes, edges, [slow(3000)]).estimatedLatencyMs).toBe(PATH_MS + 3000);
+    });
+
+    it("adds the work when only compute reads the queue", () => {
+      const { nodes, edges } = withQueue(["api-2", "paas"]);
+      expect(run(nodes, edges, [slow(3000)]).estimatedLatencyMs).toBe(PATH_MS + 3000);
+    });
+
+    it("adds the work when another compute node feeds the queue", () => {
+      const { nodes, edges } = withQueue(["worker", "task_worker"], "api-2");
+      expect(run(nodes, edges, [slow(3000)]).estimatedLatencyMs).toBe(PATH_MS + 3000);
+    });
+
+    it("adds only the largest of several inline features", () => {
+      const { nodes, edges } = base();
+      const r = run(nodes, edges, [slow(3000), slow(2000, "g", "Fan out")]);
+      expect(r.estimatedLatencyMs).toBe(PATH_MS + 3000);
+    });
+
+    it("changes nothing for a feature without background work", () => {
+      const { nodes, edges } = base();
+      expect(run(nodes, edges, [feature("api-1")]).estimatedLatencyMs).toBe(PATH_MS);
+    });
+  });
+
+  describe("polling", () => {
+    const target = (edges: Edge[], features: FeatureBlock[], nodes = base().nodes) =>
+      check(run(nodes, edges, features), "nfr-throughput").target;
+
+    it("uses targetRpm when the hosting node sends SSE to a client", () => {
+      expect(target([...base().edges, edge("api-1", "phone", "sse")], [live(2400)])).toBe("≥ 100 req/min");
+    });
+
+    it("uses targetRpm for a WebSocket from the client through the load balancer", () => {
+      const edges = [
+        edge("phone", "lb", "websocket"),
+        edge("lb", "api-1", "websocket"),
+        edge("api-1", "db", "db"),
+      ];
+      expect(target(edges, [live(2400)])).toBe("≥ 100 req/min");
+    });
+
+    it("uses targetRpm for a WebSocket drawn from the server to the client", () => {
+      const nodes = [node("phone", "mobile"), node("api-1", "paas"), node("db", "database", { replicas: 2 })];
+      const edges = [edge("api-1", "phone", "websocket"), edge("api-1", "db", "db")];
+      expect(target(edges, [live(2400)], nodes)).toBe("≥ 100 req/min");
+    });
+
+    it("uses pollingRpm when the SSE edge is drawn client to server", () => {
+      expect(target([...base().edges, edge("phone", "api-1", "sse")], [live(2400)])).toBe("≥ 2400 req/min");
+    });
+
+    it("uses pollingRpm when only a worker pushes", () => {
+      const { nodes, edges } = withQueue(["worker", "task_worker"]);
+      expect(target([...edges, edge("worker", "phone", "web_push")], [live(2400)], nodes)).toBe(
+        "≥ 2400 req/min",
+      );
+    });
+
+    it("uses pollingRpm when another compute node pushes", () => {
+      expect(target([...base().edges, edge("api-2", "phone", "sse")], [live(2400)])).toBe("≥ 2400 req/min");
+    });
+
+    it("adds the polled rate to the other features' targets", () => {
+      expect(target(base().edges, [live(2400, "api-1"), { ...feature("api-2"), id: "g" }])).toBe(
+        "≥ 2500 req/min",
+      );
+    });
+
+    it("changes nothing for a feature without a polling rate", () => {
+      expect(target(base().edges, [feature("api-1")])).toBe("≥ 100 req/min");
+    });
+  });
+
+  describe("messages", () => {
+    const { nodes, edges } = base();
+
+    it("names the inline feature in the latency detail, passing or failing", () => {
+      const sentence = "Grade waits for 3000 ms of slow work. Put it on a queue that a task worker consumes.";
+      const failing = check(run(nodes, edges, [slow(3000)]), "nfr-latency");
+      const passing = check(run(nodes, edges, [slow(3000)], { ...NFR, maxLatencyMs: 5000 }), "nfr-latency");
+      expect(failing.status).toBe("fail");
+      expect(passing.status).toBe("pass");
+      for (const c of [failing, passing]) {
+        expect(c.detail).toContain(sentence);
+        expect(c.detail).not.toContain("Background work");
+      }
+    });
+
+    it("names the polled feature in the throughput detail, passing or failing", () => {
+      const failing = check(run(nodes, edges, [live(10_000_000)]), "nfr-throughput");
+      const passing = check(run(nodes, edges, [live(150)]), "nfr-throughput");
+      expect(failing.status).toBe("fail");
+      expect(passing.status).toBe("pass");
+      expect(failing.detail).toContain(
+        "Live map isn't pushed to clients, so they poll: 10000000 req/min instead of 100. Push updates over SSE or a WebSocket.",
+      );
+      expect(passing.detail).toContain(
+        "Live map isn't pushed to clients, so they poll: 150 req/min instead of 100.",
+      );
+    });
+
+    it("leaves the details as they were when nothing is inline or polled", () => {
+      const r = run(nodes, edges, [feature("api-1")]);
+      expect(check(r, "nfr-latency").detail).toBe(
+        "Estimated time to answer a request meets the NFR. Background work (queue consumers, workers) and server push aren't included.",
+      );
+      expect(check(r, "nfr-throughput").detail).toBe("Compute + data tier capacity covers target usage across features.");
+    });
+  });
+});

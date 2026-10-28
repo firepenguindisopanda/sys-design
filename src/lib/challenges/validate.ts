@@ -119,6 +119,8 @@ function readRequirement(r: Reader, raw: unknown, path: string): BriefRequiremen
     "resources",
     "targetRpm",
     "computeMsPerRequest",
+    "backgroundWorkMs",
+    "pollingRpm",
   ]);
   const rp = r.at(fp, "resources");
   const res = r.obj(f.resources, rp, ["memoryGb", "vcpus", "storageGb"]);
@@ -135,6 +137,10 @@ function readRequirement(r: Reader, raw: unknown, path: string): BriefRequiremen
       },
       targetRpm: r.num(f.targetRpm, r.at(fp, "targetRpm")),
       computeMsPerRequest: r.num(f.computeMsPerRequest, r.at(fp, "computeMsPerRequest"), 1),
+      ...(f.backgroundWorkMs === undefined
+        ? {}
+        : { backgroundWorkMs: r.num(f.backgroundWorkMs, r.at(fp, "backgroundWorkMs"), 1) }),
+      ...(f.pollingRpm === undefined ? {} : { pollingRpm: r.num(f.pollingRpm, r.at(fp, "pollingRpm"), 1) }),
     },
   };
 }

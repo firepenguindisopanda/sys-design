@@ -2,7 +2,7 @@ import type { Edge } from "@xyflow/react";
 import { Document, isMap, isSeq, parse } from "yaml";
 import type { SimNode } from "@/lib/store";
 import type { FeatureBlock, FunctionalRequirement, NonFunctionalRequirements } from "@/lib/types";
-import { buildCompactDesign, compactDesign, type BuiltDesign } from "./design";
+import { buildCompactDesign, compactDesign, optionalWorkload, type BuiltDesign } from "./design";
 import type { Brief, BriefRequirement, CompactDesign } from "./types";
 import { validateDesignFile } from "./validate";
 
@@ -38,6 +38,7 @@ function sandboxRequirements(state: DesignState): BriefRequirement[] {
           resources: { ...f.resources },
           targetRpm: f.targetRpm,
           computeMsPerRequest: f.computeMsPerRequest,
+          ...optionalWorkload(f),
         },
       },
     ];
@@ -69,6 +70,7 @@ function toYamlObject(state: DesignState, design: CompactDesign) {
         resources: fr.feature.resources,
         targetRpm: fr.feature.targetRpm,
         computeMsPerRequest: fr.feature.computeMsPerRequest,
+        ...optionalWorkload(fr.feature),
       },
     })),
     nfr: state.nfr,

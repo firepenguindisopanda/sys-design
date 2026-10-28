@@ -139,6 +139,32 @@ describe.each([
   });
 });
 
+describe("sandbox round trip: background work and polling", () => {
+  useSimulatorStore.getState().loadDemo();
+  const s = useSimulatorStore.getState();
+  const [first, ...rest] = s.features;
+  const marked: DesignState = {
+    ...s,
+    challenge: null,
+    features: [{ ...first, backgroundWorkMs: 3000, pollingRpm: 2400 }, ...rest],
+  };
+
+  it("keeps both fields through export and import", () => {
+    const { text } = exportOrThrow(marked);
+    expect(text).toContain("backgroundWorkMs: 3000");
+    expect(text).toContain("pollingRpm: 2400");
+    const loaded = importOrThrow(text);
+    expect(loaded.features[0]).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400 });
+    expect(loaded.features.slice(1).some((f) => "backgroundWorkMs" in f || "pollingRpm" in f)).toBe(false);
+  });
+
+  it("writes neither field when no feature has them", () => {
+    const { text } = exportOrThrow({ ...s, challenge: null });
+    expect(text).not.toContain("backgroundWorkMs");
+    expect(text).not.toContain("pollingRpm");
+  });
+});
+
 describe("importing fixture files", () => {
   it.each(all.map((x) => [`${x.brief.id}/${x.fixture.name}`, x] as const))(
     "%s imports into its own challenge as buildDesign builds it",

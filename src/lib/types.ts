@@ -128,6 +128,10 @@ export type FeatureBlock = {
   targetRpm: number;
   /** Milliseconds of compute work assumed per request */
   computeMsPerRequest: number;
+  /** Slow work a request starts; the request waits for it unless a background worker takes it */
+  backgroundWorkMs?: number;
+  /** Requests per minute when clients poll for updates instead of being pushed to (replaces targetRpm) */
+  pollingRpm?: number;
   /** Assigned compute node id, or null if unplaced */
   placedOnNodeId: string | null;
 };
