@@ -1,0 +1,27 @@
+description: >-
+  Good design without the position cache. Every map update and arrival
+  estimate reads the latest positions from the database.
+design:
+  nodes:
+    - { id: gps, kind: iot, label: Shuttle GPS unit }
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Tracker API 1 }
+    - { id: api-2, kind: paas, label: Tracker API 2 }
+    - { id: db, kind: database, label: Routes DB, config: { replicas: 2 } }
+  edges:
+    - gps -> lb : http
+    - phone -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> phone : sse
+    - api-2 -> phone : sse
+  placements:
+    report-location: api-1
+    stop-eta: api-1
+    live-map: api-2
+expect:
+  fails: [latest-in-cache, nfr-throughput]
+  warns: [topo-cache]

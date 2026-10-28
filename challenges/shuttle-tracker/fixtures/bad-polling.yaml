@@ -1,0 +1,27 @@
+description: >-
+  Good design without the SSE connections. Phones can only ask for positions
+  over plain HTTP, so every open map asks again every few seconds.
+design:
+  nodes:
+    - { id: gps, kind: iot, label: Shuttle GPS unit }
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Tracker API 1 }
+    - { id: api-2, kind: paas, label: Tracker API 2 }
+    - { id: cache, kind: cache, label: Latest positions, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Routes DB, config: { replicas: 2 } }
+  edges:
+    - gps -> lb : http
+    - phone -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    report-location: api-1
+    stop-eta: api-1
+    live-map: api-2
+expect:
+  fails: [live-positions]

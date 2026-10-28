@@ -1,0 +1,31 @@
+description: >-
+  Reference design. Shuttle GPS units and students' phones reach two API instances
+  through a load balancer. The APIs keep each shuttle's latest position in a cache,
+  store routes and stops in a replicated database, and push position changes to
+  the phones over SSE.
+design:
+  nodes:
+    - { id: gps, kind: iot, label: Shuttle GPS unit }
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Tracker API 1 }
+    - { id: api-2, kind: paas, label: Tracker API 2 }
+    - { id: cache, kind: cache, label: Latest positions, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Routes DB, config: { replicas: 2 } }
+  edges:
+    - gps -> lb : http
+    - phone -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> phone : sse
+    - api-2 -> phone : sse
+  placements:
+    report-location: api-1
+    stop-eta: api-1
+    live-map: api-2
+expect:
+  pass: true

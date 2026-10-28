@@ -1,0 +1,90 @@
+id: shuttle-tracker
+title: Campus shuttle tracker
+tagline: See the campus shuttles move live and know when yours arrives
+source: >-
+  Adapted from the "uber" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a campus shuttle tracker without matching or payments.
+summary: >-
+  Every campus shuttle carries a GPS unit that reports its position every few
+  seconds. Students waiting at a stop open a map on their phone and watch the
+  shuttles move, with an estimate of when the next one reaches their stop.
+  Journeys: a shuttle's GPS unit reports where it is; a student watches the live
+  map; a student checks the arrival estimate for a stop. The hard part: positions
+  change constantly, so the map must update without every phone asking the server
+  over and over, and the latest position must be quick to read.
+outOfScope:
+  - ticketing and fares
+  - a driver app
+  - planning or changing routes
+
+functionalRequirements:
+  - id: report-location
+    text: A shuttle's GPS unit sends its current position every few seconds.
+    feature:
+      name: Report location
+      description: Accept a position update and keep the shuttle's latest position.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0.5 }
+      targetRpm: 120
+      computeMsPerRequest: 5
+  - id: live-map
+    text: A student sees the shuttles move on a map as their positions change.
+    feature:
+      name: Live map
+      description: Send each position change to the students watching the map.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
+      targetRpm: 900
+      computeMsPerRequest: 5
+  - id: stop-eta
+    text: A student picks a stop and sees when the next shuttle should arrive.
+    feature:
+      name: Stop arrival estimate
+      description: Estimate arrival from the shuttles' latest positions and the route.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 20
+
+nfr:
+  maxLatencyMs: 100
+  minThroughputRpm: 1400
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 275
+
+rules:
+  - id: shuttles-report
+    title: Shuttles report to the server
+    type: edge
+    mode: required
+    from: iot
+    to: [compute, load_balancer]
+    severity: fail
+    why: The GPS units are clients too; their position updates come in through the server like any other request.
+  - id: live-positions
+    title: Positions pushed to students
+    type: edge
+    mode: required
+    from: [compute, load_balancer]
+    to: [mobile, desktop]
+    protocols: [sse, websocket]
+    severity: fail
+    why: The server should push each new position to the map (SSE or WebSocket) instead of every phone asking again and again.
+  - id: latest-in-cache
+    title: Latest positions kept in a cache
+    type: edge
+    mode: required
+    from: compute
+    to: cache
+    severity: fail
+    why: Only the newest position of each shuttle matters for the map; keep it in memory instead of querying the database each time.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A shuttle drives through a dead zone and its updates stop for a minute. What should the map show, and how does the server notice?
+  - Two hundred students watch the map at once. With SSE, how many connections does the server hold, and what happens to them when a server restarts?
+  - Which positions, if any, would you keep in the database, and for how long?
