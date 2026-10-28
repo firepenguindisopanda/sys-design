@@ -1,0 +1,40 @@
+description: >-
+  Good design without the CDN. Students stream every lecture through the API
+  servers from object storage, so in exam week the same files are sent hundreds of
+  times from one place.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Library API 1 }
+    - { id: api-2, kind: paas, label: Library API 2 }
+    - { id: cache, kind: cache, label: Lecture list cache, config: { memoryGb: 5 } }
+    - { id: db, kind: database, label: Lectures DB, config: { replicas: 2 } }
+    - { id: videos, kind: object_storage, label: Recordings, config: { storageGb: 2000 } }
+    - { id: jobs, kind: message_queue, label: Conversion jobs }
+    - { id: converters, kind: task_worker, label: Video converters }
+  edges:
+    - lecturer-pc -> lb : http
+    - laptop -> lb : http
+    - phone -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> videos : http
+    - api-2 -> videos : http
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - jobs -> converters : http
+    - converters -> videos : http
+    - converters -> db : db
+  placements:
+    upload-recording: api-1
+    browse-lectures: api-1
+    watch-lecture: api-2
+expect:
+  fails: [playback-via-cdn]

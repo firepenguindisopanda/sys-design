@@ -1,0 +1,37 @@
+description: >-
+  Good design without the queue and workers. The API servers convert each
+  recording themselves while the lecturer waits, and are busy for minutes at a
+  time.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: cdn, kind: cdn, label: Video CDN }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Library API 1 }
+    - { id: api-2, kind: paas, label: Library API 2 }
+    - { id: cache, kind: cache, label: Lecture list cache, config: { memoryGb: 5 } }
+    - { id: db, kind: database, label: Lectures DB, config: { replicas: 2 } }
+    - { id: videos, kind: object_storage, label: Recordings, config: { storageGb: 2000 } }
+  edges:
+    - lecturer-pc -> lb : http
+    - laptop -> lb : http
+    - phone -> lb : http
+    - laptop -> cdn : http
+    - phone -> cdn : http
+    - cdn -> videos : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> videos : http
+    - api-2 -> videos : http
+  placements:
+    upload-recording: api-1
+    browse-lectures: api-1
+    watch-lecture: api-2
+expect:
+  fails: [transcode-queued, workers-transcode, renditions-stored]

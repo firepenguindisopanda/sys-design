@@ -1,0 +1,106 @@
+id: lecture-video-library
+title: Lecture recording library
+tagline: Upload lecture recordings and stream them on any device
+source: >-
+  Adapted from the "youtube" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a library of recorded lectures for one university.
+summary: >-
+  Lecturers upload recordings of their lectures, 1 to 2 GB each. Every recording is
+  converted into a few qualities so it plays well on phones and laptops; converting
+  one takes several minutes. Students browse a course's lectures and stream them,
+  most of all in the week before exams. Journeys: a lecturer uploads a recording and
+  it becomes watchable once converted; a student browses a course's lectures; a
+  student watches one. The hard part: the files are huge, converting them is slow,
+  and exam week brings hundreds of students streaming at once.
+outOfScope:
+  - live streaming
+  - captions and transcripts
+  - comments and likes
+  - access control beyond enrolled students
+
+functionalRequirements:
+  - id: upload-recording
+    text: A lecturer uploads a recording, which becomes watchable once it is converted.
+    feature:
+      name: Upload recording
+      description: Store the original file, record the lecture, and start its conversion.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 2 }
+      targetRpm: 10
+      computeMsPerRequest: 120
+  - id: browse-lectures
+    text: A student lists a course's lectures with title, date and length.
+    feature:
+      name: Browse lectures
+      description: List the lectures of one course that are ready to watch.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 500
+      computeMsPerRequest: 15
+  - id: watch-lecture
+    text: A student opens a lecture and streams it in a quality that suits their device.
+    feature:
+      name: Watch lecture
+      description: Check the student may watch it and hand back where to stream it from.
+      resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 800
+      computeMsPerRequest: 20
+
+nfr:
+  maxLatencyMs: 100
+  minThroughputRpm: 1310
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 440
+
+rules:
+  - id: recordings-in-object-storage
+    title: Recordings stored in object storage
+    type: edge
+    mode: required
+    from: compute
+    to: object_storage
+    severity: fail
+    why: A 2 GB recording belongs in object storage; the database keeps only the lecture's details.
+  - id: transcode-queued
+    title: Conversions go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Converting a recording takes minutes; the API puts a job on a queue and answers the lecturer straight away.
+  - id: workers-transcode
+    title: Workers take conversion jobs
+    type: edge
+    mode: required
+    from: message_queue
+    to: task_worker
+    severity: fail
+    why: Background workers take jobs off the queue and do the slow conversion, so the API servers stay free for students.
+  - id: renditions-stored
+    title: Converted videos stored in object storage
+    type: edge
+    mode: required
+    from: task_worker
+    to: object_storage
+    severity: fail
+    why: The workers write each converted quality back to object storage, where students stream it from.
+  - id: playback-via-cdn
+    title: Videos streamed through a CDN
+    type: edge
+    mode: required
+    from: cdn
+    to: object_storage
+    severity: fail
+    why: In exam week hundreds of students stream the same lectures; a CDN in front of object storage serves them from nearby copies.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A lecturer uploads a recording and the conversion fails halfway. What does the lecturer see, and how does the job get retried?
+  - Only enrolled students may watch a course's lectures, but the CDN serves files to anyone with the address. How would you stop the links being shared?
+  - A 2 GB upload over a campus connection takes several minutes. Does it have to pass through your API servers, or could it go straight to object storage?
