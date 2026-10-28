@@ -1,165 +1,131 @@
-# Tasks: `confirm-replace`
+# Tasks: Phase 4, new briefs
 
-Spec: [SPEC-confirm-replace.md](../SPEC-confirm-replace.md). Plan: [plan.md](plan.md).
+Spec: [SPEC-phase4-briefs.md](../SPEC-phase4-briefs.md). Plan: [plan.md](plan.md).
 
-Standing verification for every task: `npm test`, `npx tsc --noEmit` and `npm run lint`
-pass; `tests/demos.test.ts` unchanged. UI tasks also run `npm run build` and a browser
-check with no console errors.
+Standing verification for every brief task: `npx vitest run -t <id>` passes; `npm test`,
+`npx tsc --noEmit`, `npm run lint` and `npm run build` pass; existing fixtures and
+`tests/demos.test.ts` unchanged.
+
+Every brief task follows the same steps (from `docs/challenges/brief-format.md`):
+
+1. `brief.yaml`: summary, out of scope, requirements with feature numbers, NFRs
+   (provisional), rules with titles, 3 reflection questions on what the checks can't
+   see, and `source` naming the starter. Text rewritten in my own words.
+2. `fixtures/good.yaml`; run the probe; set the NFRs from its estimates with 15–30 %
+   headroom on throughput and cost.
+3. The bad fixtures, each a copy of `good.yaml` with one change.
+4. Run the brief's tests; record the probe output for the findings (Task 5).
+5. Commit the brief (one commit per brief).
 
 ---
 
-## Task 1: `unsaved.ts` fingerprint and `hasUnsavedWork`
+## Task 1: `lab-autograder` (from `leetcode`)
 
-**Description:** Test first in `src/lib/unsaved.test.ts`, then add `src/lib/unsaved.ts`:
-`fingerprint(state) → { canvas: string; rest: string }` and
-`hasUnsavedWork(state, baseline): boolean`, per the plan's first decision. Start from
-the BeUWI demo state and apply one change per row.
+**Rules:** `grading-queued` (compute → queue), `workers-run-tests` (queue → task
+worker), `results-stored` (task worker → database), `no-client-to-db`.
 
 **Acceptance criteria:**
-- [x] Counts: move a node 1 px or more, rename, change purpose, change a config field
-  (nested too), add or delete a node, add or delete an edge, change a protocol or edge
-  label, place or unplace a feature, edit a requirement's text, a feature's numbers, or
-  an NFR target
-- [x] Doesn't count: select a node or edge, change the pending protocol, run
-  verification, add `measured` / `width` / `height`, a 0.4 px move, a new random id on
-  an otherwise identical edge, and an empty canvas (after Clear) when requirements and
-  targets are untouched
-- [x] Dragging a node away and back stops counting
-
-**Verification:**
-- [x] `npx vitest run src/lib/unsaved.test.ts`; standing checks
+- [x] Brief validates; requirements `browse-exercises`, `submit-solution`, `view-result`
+- [x] `good` passes the engine and every rule, with the NFR headroom above
+- [x] `bad-sync-grading`, `bad-no-worker`, `bad-results-not-stored`, `bad-client-to-db`
+  each fail their intended ids (or carry a `knownGap`)
+- [x] Probe output saved for the findings
 
 **Dependencies:** None
 
-**Files likely touched:** `src/lib/unsaved.ts`, `src/lib/unsaved.test.ts`
+**Files:** `challenges/lab-autograder/brief.yaml`, `challenges/lab-autograder/fixtures/*.yaml`
 
-**Estimated scope:** S
+**Estimated scope:** M
 
----
-
-## Task 2: Store baseline and replace requests
-
-**Description:** Test first in `store.test.ts`. Add to the store: `baseline`,
-`hasUnsavedWork()`, `markSaved()`, `pendingReplace`,
-`requestReplace(kind, description, run)`, `confirmReplace()`, `cancelReplace()`. Every
-load action (`loadDemo`, `loadFanInDemo`, `startChallenge`, `leaveChallenge`,
-`loadDesign`) and the initial state set `baseline` from what they load. `clearCanvas`
-does not touch it.
-
-**Acceptance criteria:**
-- [x] After each load action, `hasUnsavedWork()` is false (one test looping over all
-  five)
-- [x] `requestReplace` runs at once without unsaved work, and only sets
-  `pendingReplace` with it
-- [x] `confirmReplace` runs the action and clears the request; `cancelReplace` leaves
-  every other piece of state unchanged
-- [x] After `markSaved`, no unsaved work until the next change
-- [x] Clear on an untouched demo: no unsaved work; Clear after editing a sandbox
-  requirement: still unsaved
-- [x] In a challenge, placing a feature counts
-
-**Verification:**
-- [x] `npx vitest run src/lib/store.test.ts tests/demos.test.ts`; standing checks
-
-**Dependencies:** Task 1
-
-**Files likely touched:** `src/lib/store.ts`, `src/lib/store.test.ts`
-
-**Estimated scope:** S
-
-### Checkpoint A
-- [x] Tests, types and lint green; `tests/demos.test.ts` unchanged
+### Checkpoint A (review stop)
+- [ ] You've reviewed the autograder before Tasks 2–4 start
 
 ---
 
-## Task 3: Confirm dialog and `beforeunload`
+## Task 2: `course-registration` (from `ticketmaster`, `flash-sale`)
 
-**Description:** New `src/components/simulator/confirm-replace-dialog.tsx`, rendered
-once in `simulator-app.tsx`. Open while `pendingReplace` is set; title "Replace your
-design?" or "Clear the canvas?"; the request's description plus "Export first if you
-want to keep this design."; **Cancel** (initial focus) and **Replace** / **Clear**.
-Closing by Escape, outside click or the close button calls `cancelReplace()`. A
-`useEffect` adds a `beforeunload` listener that calls `preventDefault()` when
-`hasUnsavedWork()` is true.
+**Rules:** `catalog-cache` (compute → cache), `enrol-queued` (compute → queue),
+`seat-worker` (queue → task worker), `db-replicas` (database `replicas ≥ 2`),
+`no-client-to-db`.
 
 **Acceptance criteria:**
-- [x] Dialog text and buttons as above; Cancel focused on open
-- [x] Every way of closing it except Replace/Clear cancels
-- [x] Reloading with unsaved work shows the browser's leave prompt; without, it doesn't (checked in Task 5)
+- [ ] Brief validates; requirements `browse-sections`, `enrol`, `view-timetable`
+- [ ] Reflection covers what the checks can't: an atomic seat check, holds,
+  overselling
+- [ ] `good` passes with headroom
+- [ ] `bad-no-cache`, `bad-direct-enrol`, `bad-single-db-replica`, `bad-client-to-db`
+  fail their intended ids (or carry a `knownGap`)
 
-**Verification:**
-- [x] Browser: trigger a request by hand (Task 4 not needed: call it from a temporary
-  button or the console), check focus and Escape; `npm run build`; standing checks
+**Dependencies:** Checkpoint A
 
-**Dependencies:** Task 2
+**Files:** `challenges/course-registration/**`
 
-**Files likely touched:** `src/components/simulator/confirm-replace-dialog.tsx`,
-`src/components/simulator/simulator-app.tsx`
-
-**Estimated scope:** S
+**Estimated scope:** M
 
 ---
 
-## Task 4: Route the five controls through `requestReplace`
+## Task 3: `shuttle-tracker` (from `uber`)
 
-**Description:**
-- `challenge-picker.tsx`: starting a brief →
-  `requestReplace("replace", "Starting <title> replaces your design.", …)`; Sandbox →
-  "Going back to the sandbox loads the BeUWI demo in place of your design."
-- `design-canvas.tsx`: demos → "Loading the <name> demo replaces your design."; Clear →
-  `requestReplace("clear", "Every component and connection is removed. Requirements
-  and targets stay.", clearCanvas)`.
-- `design-io.tsx`: Import, after a valid parse →
-  "Importing <file name> replaces your design."; Export → `markSaved()` after the
-  download starts.
+**Rules:** `shuttles-report` (IoT → compute), `live-positions` (compute →
+mobile/desktop over SSE or WebSocket), `latest-in-cache` (compute → cache),
+`no-client-to-db`.
 
 **Acceptance criteria:**
-- [x] Each of the five controls prompts after an edit and acts at once without one
-- [x] Cancel from the picker leaves it showing the current mode
-- [x] An invalid import shows its error and never prompts
-- [x] Export then any control: no prompt
+- [ ] Brief validates; requirements `report-location`, `live-map`, `stop-eta`
+- [ ] `good` passes with headroom
+- [ ] `bad-polling`, `bad-sse-wrong-direction` (also trips `topo-sse-dir-<edge>`),
+  `bad-no-cache`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
 
-**Verification:**
-- [x] Browser, by hand, for each control; `npm run build`; standing checks
+**Dependencies:** Checkpoint A
 
-**Dependencies:** Task 2
+**Files:** `challenges/shuttle-tracker/**`
 
-**Files likely touched:** `src/components/simulator/challenge-picker.tsx`,
-`src/components/simulator/design-canvas.tsx`, `src/components/simulator/design-io.tsx`
+**Estimated scope:** M
 
-**Estimated scope:** S
+---
+
+## Task 4: `course-assistant` (from `chatgpt`)
+
+**Rules:** `llm-from-server` (compute → external API), `no-client-to-llm` (client ↛
+external API), `stream-answers` (compute → mobile/desktop over SSE), `history-db`
+(compute → database).
+
+**Acceptance criteria:**
+- [ ] Brief validates; requirements `ask-question`, `history`
+- [ ] `good` passes with headroom
+- [ ] `bad-client-calls-llm` (also trips `topo-api-keys-<edge>`), `bad-no-streaming`,
+  `bad-no-history`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
+
+**Dependencies:** Checkpoint A
+
+**Files:** `challenges/course-assistant/**`
+
+**Estimated scope:** M
 
 ### Checkpoint B
-- [x] Each control prompts after an edit and acts at once otherwise, by hand
+- [ ] All eight briefs' tests pass; existing fixtures unchanged
 
 ---
 
-## Task 5: Browser walkthrough and build
+## Task 5: Findings, HANDOVER, browser check, build
 
-**Description:** The spec's browser checklist in the Chrome DevTools browser at 1440 and
-375 wide. Notes go in [plan.md](plan.md).
+**Description:** Add a "Phase 4" section to `docs/challenges/phase1-findings.md`: per new
+brief, which bad designs the engine catches alone and which only rules catch, plus any
+new findings (numbered from 12). Update `HANDOVER.md`. In the browser, open each new
+brief from the picker, import its `good.yaml` (passes) and one bad fixture (fails the
+named rule).
 
 **Acceptance criteria:**
-- [x] Fresh app → pick a challenge: no prompt (React Flow's load-time changes don't
-  count)
-- [x] Add a node → pick another challenge: dialog; Cancel keeps the node and the picker
-  value; again → Replace switches
-- [x] Edit → Export → load a demo: no prompt
-- [x] Edit → Clear: "Clear the canvas?"
-- [x] Edit → Import a valid file: dialog names it; invalid file: error, no dialog
-- [x] Keyboard: Cancel focused, Escape cancels, Tab reaches Replace
-- [x] Reload with unsaved work: leave prompt; after Export: none
-- [x] Dialog fits at 375px; no console errors
-
-**Verification:**
-- [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`
-- [x] Notes added to [plan.md](plan.md)
+- [ ] Findings section written from the probe output
+- [ ] Each new brief opens on its Brief tab; good passes and one bad fails in the
+  browser; no console errors
+- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
 
 **Dependencies:** Tasks 1–4
 
-**Files likely touched:** `tasks/plan.md`
+**Files:** `docs/challenges/phase1-findings.md`, `HANDOVER.md`, `tasks/plan.md`
 
 **Estimated scope:** S
 
 ### Checkpoint C
-- [x] All three spec success criteria met; ready for review (nothing committed until asked)
+- [ ] All four spec success criteria met; ready for review

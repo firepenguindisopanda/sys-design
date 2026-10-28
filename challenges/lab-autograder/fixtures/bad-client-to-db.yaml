@@ -1,0 +1,35 @@
+description: >-
+  Good design plus a direct connection from the lab machines to the database, so
+  every lab machine holds the database password.
+design:
+  nodes:
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Lab API 1 }
+    - { id: api-2, kind: paas, label: Lab API 2 }
+    - { id: cache, kind: cache, label: Exercise cache, config: { memoryGb: 4 } }
+    - { id: db, kind: database, label: Submissions DB, config: { replicas: 2 } }
+    - { id: jobs, kind: message_queue, label: Grading jobs }
+    - { id: sandbox, kind: task_worker, label: Sandbox workers }
+  edges:
+    - lab-pc -> lb : http
+    - laptop -> lb : http
+    - lab-pc -> db : db
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - jobs -> sandbox : http
+    - sandbox -> db : db
+  placements:
+    browse-exercises: api-1
+    submit-solution: api-2
+    view-result: api-1
+expect:
+  fails: [no-client-to-db]
+  warns: [topo-client-data-lab-pc->db]

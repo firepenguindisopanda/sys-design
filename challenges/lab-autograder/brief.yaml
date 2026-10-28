@@ -1,0 +1,89 @@
+id: lab-autograder
+title: Programming lab autograder
+tagline: Run student code against hidden tests and report a score
+source: >-
+  Adapted from the "leetcode" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten at course scale as a lab autograder without contests.
+summary: >-
+  Students submit their code for the weekly programming labs. Each submission is
+  compiled and run against hidden test cases in an isolated sandbox, and the score
+  appears on the student's screen within seconds. Journeys: a student reads a lab
+  exercise; submits a solution; checks the result, often several times while it
+  runs. The hard part: running the tests takes seconds, not milliseconds, and
+  submissions pile up in the last hour before a lab closes, so the website must stay
+  quick while the grading catches up.
+outOfScope:
+  - plagiarism checking
+  - timed contests and leaderboards
+  - an in-browser code editor
+
+functionalRequirements:
+  - id: browse-exercises
+    text: A student opens a lab exercise and reads its instructions and sample tests.
+    feature:
+      name: Browse exercises
+      description: Return the exercise text and its public sample tests.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 15
+  - id: submit-solution
+    text: A student submits their code for an exercise before the lab closes.
+    feature:
+      name: Submit solution
+      description: Check the deadline, store the code, and queue a grading job.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 2 }
+      targetRpm: 200
+      computeMsPerRequest: 40
+  - id: view-result
+    text: A student checks whether their submission has been graded, and its score.
+    feature:
+      name: View result
+      description: Look up the submission's status and test results.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0.5 }
+      targetRpm: 600
+      computeMsPerRequest: 10
+
+nfr:
+  maxLatencyMs: 100
+  minThroughputRpm: 1150
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 300
+
+rules:
+  - id: grading-queued
+    title: Submissions queued for grading
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Running the tests takes seconds; the API should queue a grading job and answer at once.
+  - id: workers-run-tests
+    title: Workers run the tests
+    type: edge
+    mode: required
+    from: message_queue
+    to: task_worker
+    severity: fail
+    why: Sandboxed workers take grading jobs off the queue, so a deadline rush only makes the queue longer.
+  - id: results-stored
+    title: Workers store the results
+    type: edge
+    mode: required
+    from: task_worker
+    to: database
+    severity: fail
+    why: The worker that grades a submission must save the score where the result page can find it.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A submission loops forever or tries to open a network connection. What stops it, and where in this design does that happen?
+  - Three hundred students submit in the last five minutes. How long does the last one wait, and how would you show them their place in the queue?
+  - The result page asks the server every two seconds. What would pushing the result instead (SSE or WebSocket) change?

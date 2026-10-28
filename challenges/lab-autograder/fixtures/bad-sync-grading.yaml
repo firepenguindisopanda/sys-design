@@ -1,0 +1,27 @@
+description: >-
+  Good design without the grading queue and workers. The API runs every
+  submission's tests itself while the student waits for the page to load.
+design:
+  nodes:
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Lab API 1 }
+    - { id: api-2, kind: paas, label: Lab API 2 }
+    - { id: cache, kind: cache, label: Exercise cache, config: { memoryGb: 4 } }
+    - { id: db, kind: database, label: Submissions DB, config: { replicas: 2 } }
+  edges:
+    - lab-pc -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    browse-exercises: api-1
+    submit-solution: api-2
+    view-result: api-1
+expect:
+  fails: [grading-queued, workers-run-tests, results-stored]

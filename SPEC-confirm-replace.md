@@ -1,7 +1,7 @@
 # Spec: ask before replacing the canvas
 
 Status: **implemented** (2026-10-28); approved with all three proposals: Clear asks too, a `beforeunload`
-warning, and a combined plan and task list. Plan: [tasks/plan.md](tasks/plan.md).
+warning, and a combined plan and task list. Plan: [tasks/confirm-replace/plan.md](tasks/confirm-replace/plan.md).
 From HANDOVER's deferred polish (slice 1 assumption 3, design-io assumption 1). Module id
 `confirm-replace`. Branch: `feat/confirm-replace`, from `main` (`6430f71`).
 
