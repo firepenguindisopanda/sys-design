@@ -1,0 +1,39 @@
+description: >-
+  Reference design. Students reach two API instances through a load balancer. Bids go on
+  a queue that one worker drains in order, writing accepted bids to a replicated
+  database. The API reads item pages through a cache and pushes each new highest bid to
+  watchers over SSE.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Auction API 1 }
+    - { id: api-2, kind: paas, label: Auction API 2 }
+    - { id: bids, kind: message_queue, label: Bids }
+    - { id: judge, kind: task_worker, label: Bid worker }
+    - { id: cache, kind: cache, label: Item cache, config: { memoryGb: 6 } }
+    - { id: db, kind: database, label: Auction DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> bids : http
+    - api-2 -> bids : http
+    - bids -> judge : http
+    - judge -> db : db
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> phone : sse
+    - api-2 -> phone : sse
+    - api-1 -> laptop : sse
+    - api-2 -> laptop : sse
+  placements:
+    browse-items: api-1
+    place-bid: api-1
+    watch-item: api-2
+expect:
+  pass: true

@@ -1,0 +1,100 @@
+id: club-auction
+title: Society charity auction
+tagline: Bid on donated items during a fundraiser week
+source: >-
+  Adapted from the "online-auction" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a charity auction run by a student society.
+summary: >-
+  During its fundraiser week a student society auctions items that local businesses
+  donated: concert tickets, a weekend away, signed shirts. Each item's auction ends at a
+  set time. Students browse the items, place bids, and watch an item to see its highest
+  bid change as it happens. Journeys: a student browses the items; a student places a
+  bid that must beat the current highest; a student watches an item's price live. The
+  hard part: in the last minute of an auction many bids arrive at once for the same
+  item, and they must be decided one at a time so exactly one highest bid wins, while
+  everyone watching sees the new price straight away.
+outOfScope:
+  - paying for items won
+  - delivering items
+  - sellers listing their own items
+  - fraud and bid retraction
+
+functionalRequirements:
+  - id: browse-items
+    text: A student browses the items with their current highest bid and closing time.
+    feature:
+      name: Browse items
+      description: List items with their current price and when bidding closes.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 15
+  - id: place-bid
+    text: A student bids on an item; the bid counts only if it beats the current highest.
+    feature:
+      name: Place bid
+      description: Accept the bid and hand it on to be decided in order.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 20
+  - id: watch-item
+    text: A student watching an item sees each new highest bid as soon as it's accepted.
+    feature:
+      name: Watch item
+      description: Send each new highest bid to the students watching that item.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
+      targetRpm: 600
+      computeMsPerRequest: 5
+      pollingRpm: 2400
+
+nfr:
+  maxLatencyMs: 70
+  minThroughputRpm: 1500
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 320
+
+rules:
+  - id: bids-queued
+    title: Bids go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Bids for the same item can arrive in the same millisecond; putting them on one queue gives them a single order.
+  - id: bid-worker
+    title: A worker decides each bid
+    type: edge
+    mode: required
+    from: message_queue
+    to: task_worker
+    severity: fail
+    why: One worker takes bids off the queue in order and accepts a bid only if it beats the current highest, so two bids can never both win.
+  - id: live-price
+    title: Prices pushed to watchers
+    type: edge
+    mode: required
+    from: [compute, load_balancer]
+    to: client
+    protocols: [sse, websocket]
+    severity: fail
+    why: Watchers should see a new bid at once; the server pushes it over SSE or a WebSocket instead of every phone asking again and again.
+  - id: bids-replicated
+    title: Replicated database
+    type: component
+    kind: database
+    minConfig: { replicas: 2 }
+    severity: fail
+    why: Losing the database in the last minute would lose the winning bids; keep a replica.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - The bid worker crashes after accepting a bid but before saving it. What does the bidder see, and how do you recover?
+  - An auction closes at 20:00:00 and a bid arrives at 20:00:00.4. Who decides whether it counts, and by which clock?
+  - Five hundred students watch the most popular item. What does each new bid cost your servers with SSE, and what would it cost with polling?
