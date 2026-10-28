@@ -1,6 +1,6 @@
 # Spec: Phase 4, new briefs
 
-Status: **approved** (2026-10-28) with all three proposals: these four briefs, keep course
+Status: **implemented** (2026-10-28); approved with all three proposals: these four briefs, keep course
 registration, and spec → plan → tasks with a review stop after `lab-autograder`.
 Plan: [tasks/plan.md](tasks/plan.md).
 Phase 4 from HANDOVER ("new briefs"). Content only: briefs and fixtures in `challenges/`,

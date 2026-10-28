@@ -61,6 +61,55 @@ suggested at the end of this note. The five brief-rule-only fixtures map to find
 (files in the database), 6 (no metadata database), 7 (polling), and 10 (synchronous
 fan-out, and no pub/sub).
 
+## Update: phase 4 (four new briefs)
+
+([SPEC-phase4-briefs.md](../../SPEC-phase4-briefs.md); estimates per fixture in
+`tasks/plan.md`.) Four briefs added: `lab-autograder`, `course-registration`,
+`shuttle-tracker` and `course-assistant`, each with four single-flaw bad designs. The
+engine wasn't changed. "Caught by the engine" counts an engine check that fails or warns
+because of the flaw.
+
+| Brief | Bad designs | Caught by the engine | Caught only by brief rules |
+|---|---|---|---|
+| lab-autograder | 4 | 2 (no worker: `topo-queue` warn; client → DB) | 2 (`bad-sync-grading`, `bad-results-not-stored`) |
+| course-registration | 4 | 3 (no cache, single replica, client → DB) | 1 (`bad-direct-enrol`) |
+| shuttle-tracker | 4 | 3 (SSE direction, no cache, client → DB) | 1 (`bad-polling`) |
+| course-assistant | 4 | 3 (client calls the model API, no database, client → DB) | 1 (`bad-no-streaming`) |
+| **Total** | **16** | **11** | **5** |
+
+Every bad design is caught by its intended check, so no `knownGap` was needed. Of the
+11, only 4 are engine **fails** (two missing caches on throughput, a single replica and
+a missing database on availability or data store); the other 7 are warnings.
+
+**Finding 12: async and push designs score slower than the shortcuts they replace.**
+Every "do it inline" or "skip the push" design scores faster than its good design:
+
+| Fixture | Latency | Good design |
+|---|---|---|
+| `lab-autograder/bad-sync-grading` | 25 ms | 45 ms |
+| `lab-autograder/bad-results-not-stored` | 35 ms | 45 ms |
+| `course-registration/bad-direct-enrol` | 31 ms | 51 ms |
+| `shuttle-tracker/bad-polling` | 33 ms | 63 ms |
+| `course-assistant/bad-client-calls-llm` | 50 ms | 72 ms |
+| `course-assistant/bad-no-streaming` | 60 ms | 72 ms |
+
+Cause: `estimatePathLatency` reports the **longest chain of hops** from any starting node
+(`simulation.ts`, the `visit` walk near line 163), not the time of a request. A
+background chain (API → queue → worker → database), a push back to the client (SSE,
+12 ms a hop) or a server-side API call (45 ms) all lengthen that chain, while what they
+buy (a fast response, fewer requests, a hidden key) isn't modelled. This is finding 10
+seen from the other side, and finding 7 for SSE. *Fix:* measure latency along request
+paths only (client → … → the node hosting the feature and its data stores), and leave
+asynchronous chains out, or score them separately as "time to result".
+
+Finding 6 shows again: `course-assistant/bad-no-history` scores 25,200 rpm without a
+database (good design: 1060), though it now fails `topo-data-store` and availability.
+
+So across the eight briefs, the engine alone catches 27 of 37 bad designs; the other 10
+rely on brief rules. The five from phase 4 are all in the table above (every row but
+`bad-client-calls-llm`, which the engine warns on), so each also scores faster than its
+good design; the five from earlier map to findings 5, 6, 7 and 10.
+
 The rest of this note is the original phase 1 analysis, kept as written.
 
 ## Short answer

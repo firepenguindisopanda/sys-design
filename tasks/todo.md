@@ -38,7 +38,7 @@ worker), `results-stored` (task worker → database), `no-client-to-db`.
 **Estimated scope:** M
 
 ### Checkpoint A (review stop)
-- [ ] You've reviewed the autograder before Tasks 2–4 start
+- [x] You've reviewed the autograder before Tasks 2–4 start
 
 ---
 
@@ -49,11 +49,11 @@ worker), `results-stored` (task worker → database), `no-client-to-db`.
 `no-client-to-db`.
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `browse-sections`, `enrol`, `view-timetable`
-- [ ] Reflection covers what the checks can't: an atomic seat check, holds,
+- [x] Brief validates; requirements `browse-sections`, `enrol`, `view-timetable`
+- [x] Reflection covers what the checks can't: an atomic seat check, holds,
   overselling
-- [ ] `good` passes with headroom
-- [ ] `bad-no-cache`, `bad-direct-enrol`, `bad-single-db-replica`, `bad-client-to-db`
+- [x] `good` passes with headroom
+- [x] `bad-no-cache`, `bad-direct-enrol`, `bad-single-db-replica`, `bad-client-to-db`
   fail their intended ids (or carry a `knownGap`)
 
 **Dependencies:** Checkpoint A
@@ -71,9 +71,9 @@ mobile/desktop over SSE or WebSocket), `latest-in-cache` (compute → cache),
 `no-client-to-db`.
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `report-location`, `live-map`, `stop-eta`
-- [ ] `good` passes with headroom
-- [ ] `bad-polling`, `bad-sse-wrong-direction` (also trips `topo-sse-dir-<edge>`),
+- [x] Brief validates; requirements `report-location`, `live-map`, `stop-eta`
+- [x] `good` passes with headroom
+- [x] `bad-polling`, `bad-sse-wrong-direction` (also trips `topo-sse-dir-<edge>`),
   `bad-no-cache`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
 
 **Dependencies:** Checkpoint A
@@ -91,9 +91,9 @@ external API), `stream-answers` (compute → mobile/desktop over SSE), `history-
 (compute → database).
 
 **Acceptance criteria:**
-- [ ] Brief validates; requirements `ask-question`, `history`
-- [ ] `good` passes with headroom
-- [ ] `bad-client-calls-llm` (also trips `topo-api-keys-<edge>`), `bad-no-streaming`,
+- [x] Brief validates; requirements `ask-question`, `history`
+- [x] `good` passes with headroom
+- [x] `bad-client-calls-llm` (also trips `topo-api-keys-<edge>`), `bad-no-streaming`,
   `bad-no-history`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
 
 **Dependencies:** Checkpoint A
@@ -103,7 +103,7 @@ external API), `stream-answers` (compute → mobile/desktop over SSE), `history-
 **Estimated scope:** M
 
 ### Checkpoint B
-- [ ] All eight briefs' tests pass; existing fixtures unchanged
+- [x] All eight briefs' tests pass; existing fixtures unchanged
 
 ---
 
@@ -116,10 +116,10 @@ brief from the picker, import its `good.yaml` (passes) and one bad fixture (fail
 named rule).
 
 **Acceptance criteria:**
-- [ ] Findings section written from the probe output
-- [ ] Each new brief opens on its Brief tab; good passes and one bad fails in the
+- [x] Findings section written from the probe output
+- [x] Each new brief opens on its Brief tab; good passes and one bad fails in the
   browser; no console errors
-- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
+- [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
 
 **Dependencies:** Tasks 1–4
 
@@ -128,4 +128,4 @@ named rule).
 **Estimated scope:** S
 
 ### Checkpoint C
-- [ ] All four spec success criteria met; ready for review
+- [x] All four spec success criteria met; ready for review
