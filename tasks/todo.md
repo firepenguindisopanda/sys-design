@@ -1,131 +1,88 @@
-# Tasks: Phase 4, new briefs
+# Tasks: `request-latency`
 
-Spec: [SPEC-phase4-briefs.md](../SPEC-phase4-briefs.md). Plan: [plan.md](plan.md).
+Spec: [SPEC-request-latency.md](../SPEC-request-latency.md). Plan: [plan.md](plan.md).
 
-Standing verification for every brief task: `npx vitest run -t <id>` passes; `npm test`,
-`npx tsc --noEmit`, `npm run lint` and `npm run build` pass; existing fixtures and
-`tests/demos.test.ts` unchanged.
-
-Every brief task follows the same steps (from `docs/challenges/brief-format.md`):
-
-1. `brief.yaml`: summary, out of scope, requirements with feature numbers, NFRs
-   (provisional), rules with titles, 3 reflection questions on what the checks can't
-   see, and `source` naming the starter. Text rewritten in my own words.
-2. `fixtures/good.yaml`; run the probe; set the NFRs from its estimates with 15–30 %
-   headroom on throughput and cost.
-3. The bad fixtures, each a copy of `good.yaml` with one change.
-4. Run the brief's tests; record the probe output for the findings (Task 5).
-5. Commit the brief (one commit per brief).
+Standing verification: `npm test`, `npx tsc --noEmit`, `npm run lint` pass;
+`tests/demos.test.ts` and every fixture's `expect` unchanged.
 
 ---
 
-## Task 1: `lab-autograder` (from `leetcode`)
+## Task 1: Tests first
 
-**Rules:** `grading-queued` (compute → queue), `workers-run-tests` (queue → task
-worker), `results-stored` (task worker → database), `no-client-to-db`.
+**Description:** In `src/lib/simulation.test.ts` (using its `node`, `edge`, `feature`
+helpers), a `describe("request latency")` block:
+
+- API → queue → worker → database adds only the enqueue hop compared with the same
+  design without the worker chain;
+- server → client SSE and Web Push edges add nothing, and the receiving client still
+  starts requests;
+- client → load balancer → API → database gives the same number as today;
+- a design with no clients uses the nodes with no incoming edge;
+- a WebSocket edge drawn server → client still lets the client start a request.
+
+New `tests/latency.test.ts`: load the briefs; for each pair from the spec's Objective
+table, the good design's latency is ≤ the shortcut's.
 
 **Acceptance criteria:**
-- [x] Brief validates; requirements `browse-exercises`, `submit-solution`, `view-result`
-- [x] `good` passes the engine and every rule, with the NFR headroom above
-- [x] `bad-sync-grading`, `bad-no-worker`, `bad-results-not-stored`, `bad-client-to-db`
-  each fail their intended ids (or carry a `knownGap`)
-- [x] Probe output saved for the findings
+- [x] New tests fail against today's engine for the reasons the spec gives (the chains
+  and pushes are counted); the "unchanged" cases pass already
+
+**Verification:**
+- [x] `npx vitest run src/lib/simulation.test.ts tests/latency.test.ts` shows the
+  expected failures
 
 **Dependencies:** None
 
-**Files:** `challenges/lab-autograder/brief.yaml`, `challenges/lab-autograder/fixtures/*.yaml`
-
-**Estimated scope:** M
-
-### Checkpoint A (review stop)
-- [x] You've reviewed the autograder before Tasks 2–4 start
-
----
-
-## Task 2: `course-registration` (from `ticketmaster`, `flash-sale`)
-
-**Rules:** `catalog-cache` (compute → cache), `enrol-queued` (compute → queue),
-`seat-worker` (queue → task worker), `db-replicas` (database `replicas ≥ 2`),
-`no-client-to-db`.
-
-**Acceptance criteria:**
-- [x] Brief validates; requirements `browse-sections`, `enrol`, `view-timetable`
-- [x] Reflection covers what the checks can't: an atomic seat check, holds,
-  overselling
-- [x] `good` passes with headroom
-- [x] `bad-no-cache`, `bad-direct-enrol`, `bad-single-db-replica`, `bad-client-to-db`
-  fail their intended ids (or carry a `knownGap`)
-
-**Dependencies:** Checkpoint A
-
-**Files:** `challenges/course-registration/**`
-
-**Estimated scope:** M
-
----
-
-## Task 3: `shuttle-tracker` (from `uber`)
-
-**Rules:** `shuttles-report` (IoT → compute), `live-positions` (compute →
-mobile/desktop over SSE or WebSocket), `latest-in-cache` (compute → cache),
-`no-client-to-db`.
-
-**Acceptance criteria:**
-- [x] Brief validates; requirements `report-location`, `live-map`, `stop-eta`
-- [x] `good` passes with headroom
-- [x] `bad-polling`, `bad-sse-wrong-direction` (also trips `topo-sse-dir-<edge>`),
-  `bad-no-cache`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
-
-**Dependencies:** Checkpoint A
-
-**Files:** `challenges/shuttle-tracker/**`
-
-**Estimated scope:** M
-
----
-
-## Task 4: `course-assistant` (from `chatgpt`)
-
-**Rules:** `llm-from-server` (compute → external API), `no-client-to-llm` (client ↛
-external API), `stream-answers` (compute → mobile/desktop over SSE), `history-db`
-(compute → database).
-
-**Acceptance criteria:**
-- [x] Brief validates; requirements `ask-question`, `history`
-- [x] `good` passes with headroom
-- [x] `bad-client-calls-llm` (also trips `topo-api-keys-<edge>`), `bad-no-streaming`,
-  `bad-no-history`, `bad-client-to-db` fail their intended ids (or carry a `knownGap`)
-
-**Dependencies:** Checkpoint A
-
-**Files:** `challenges/course-assistant/**`
-
-**Estimated scope:** M
-
-### Checkpoint B
-- [x] All eight briefs' tests pass; existing fixtures unchanged
-
----
-
-## Task 5: Findings, HANDOVER, browser check, build
-
-**Description:** Add a "Phase 4" section to `docs/challenges/phase1-findings.md`: per new
-brief, which bad designs the engine catches alone and which only rules catch, plus any
-new findings (numbered from 12). Update `HANDOVER.md`. In the browser, open each new
-brief from the picker, import its `good.yaml` (passes) and one bad fixture (fails the
-named rule).
-
-**Acceptance criteria:**
-- [x] Findings section written from the probe output
-- [x] Each new brief opens on its Brief tab; good passes and one bad fails in the
-  browser; no console errors
-- [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
-
-**Dependencies:** Tasks 1–4
-
-**Files:** `docs/challenges/phase1-findings.md`, `HANDOVER.md`, `tasks/plan.md`
+**Files:** `src/lib/simulation.test.ts`, `tests/latency.test.ts`
 
 **Estimated scope:** S
 
-### Checkpoint C
-- [x] All four spec success criteria met; ready for review
+---
+
+## Task 2: The change
+
+**Description:** In `estimatePathLatency`: roots from `requestRoots(nodes, edges)`;
+skip edges whose source is a `message_queue` or `task_worker`, or whose protocol is
+`sse` or `web_push`. Add to the `nfr-latency` detail that background work and server
+push aren't included.
+
+**Acceptance criteria:**
+- [x] Task 1's tests pass
+- [x] The probe gives the spec's "after" latency for every fixture (compare with the
+  prototype output)
+- [x] Demos and all existing tests unchanged
+
+**Verification:**
+- [x] `npm test`; probe compared with the prototype table; standing checks
+
+**Dependencies:** Task 1
+
+**Files:** `src/lib/simulation.ts`
+
+**Estimated scope:** S
+
+---
+
+## Task 3: Docs, full checks, browser spot check
+
+**Description:** Finding 12 marked fixed in `docs/challenges/phase1-findings.md` (with
+the before/after table) and finding 7 updated; the `nfr-latency` row in
+`docs/challenges/brief-format.md`; `HANDOVER.md`. In the browser, import
+`shuttle-tracker/good.yaml` and `bad-polling.yaml`: both show 33 ms; the latency check's
+detail reads as intended.
+
+**Acceptance criteria:**
+- [x] Docs updated
+- [x] Browser shows the new figures and wording; no console errors
+- [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
+
+**Dependencies:** Task 2
+
+**Files:** `docs/challenges/phase1-findings.md`, `docs/challenges/brief-format.md`,
+`HANDOVER.md`, `tasks/plan.md`
+
+**Estimated scope:** S
+
+### Checkpoint
+- [x] All three spec success criteria met; ready for review (nothing committed until
+  asked)

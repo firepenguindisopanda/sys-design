@@ -356,3 +356,58 @@ describe("task worker credit", () => {
     expect(build(true)).toBeCloseTo(460 * 1.15, -1);
   });
 });
+
+describe("request latency", () => {
+  // Hop costs: mobile 28, load balancer 8, queue 10, replicated database 10.
+  const latency = (nodes: Node<DesignNodeData>[], edges: Edge[]) =>
+    verify(nodes, edges).result.estimatedLatencyMs;
+
+  it("is unchanged for a plain request path", () => {
+    const { nodes, edges } = base();
+    expect(latency(nodes, edges)).toBe(28 + 8 + 10);
+  });
+
+  it("counts the enqueue but not the worker behind the queue", () => {
+    const nodes = [
+      node("phone", "mobile"),
+      node("lb", "load_balancer"),
+      node("api-1", "paas"),
+      node("jobs", "message_queue"),
+      node("worker", "task_worker"),
+      node("db", "database", { replicas: 2 }),
+    ];
+    const edges = [
+      edge("phone", "lb"),
+      edge("lb", "api-1"),
+      edge("api-1", "jobs"),
+      edge("jobs", "worker"),
+      edge("worker", "db", "db"),
+    ];
+    expect(latency(nodes, edges)).toBe(28 + 8 + 10);
+  });
+
+  it.each<EdgeProtocol>(["sse", "web_push"])(
+    "adds nothing for a %s push, and the client still starts requests",
+    (protocol) => {
+      const { nodes, edges } = base();
+      expect(latency(nodes, [...edges, edge("api-1", "phone", protocol)])).toBe(28 + 8 + 10);
+    },
+  );
+
+  it("counts a WebSocket the same whichever way it was drawn", () => {
+    const nodes = [node("phone", "mobile"), node("api-1", "paas"), node("db", "database", { replicas: 2 })];
+    const drawnFromServer = latency(nodes, [edge("api-1", "phone", "websocket"), edge("api-1", "db", "db")]);
+    const drawnFromClient = latency(nodes, [edge("phone", "api-1", "websocket"), edge("api-1", "db", "db")]);
+    expect(drawnFromServer).toBe(drawnFromClient);
+  });
+
+  it("starts from nodes with no incoming edge when there are no clients", () => {
+    const nodes = [node("api-1", "paas"), node("llm", "external_api")];
+    expect(latency(nodes, [edge("api-1", "llm")])).toBe(45);
+  });
+
+  it("falls back to the floor when clients only receive pushes", () => {
+    const nodes = [node("phone", "mobile"), node("api-1", "paas"), node("db", "database", { replicas: 2 })];
+    expect(latency(nodes, [edge("api-1", "phone", "sse"), edge("api-1", "db", "db")])).toBe(20);
+  });
+});

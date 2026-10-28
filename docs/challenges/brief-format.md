@@ -190,7 +190,7 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-api-keys-<edge>` | warn | A client-like node talks to an external API |
 | `topo-client-data-<edge>` | warn | A client-side node (mobile, desktop, IoT, static hosting, CDN) is wired straight to a database or cache, either direction |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
-| `nfr-latency` | pass/fail | Estimated critical-path latency against `maxLatencyMs` |
+| `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues and workers and SSE/Web Push edges (background work and server push) |
 | `nfr-throughput` | pass/fail | Estimated capacity against the throughput target |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |

@@ -6,7 +6,7 @@ import {
   isComputeKind,
 } from "./catalog";
 import { getEdgeData } from "./edges";
-import { outgoingNeighbours, reachableNodeIds } from "./reachability";
+import { outgoingNeighbours, reachableNodeIds, requestRoots } from "./reachability";
 import type {
   CheckStatus,
   ComponentKind,
@@ -133,6 +133,22 @@ function hopLatencyMs(
   return 40;
 }
 
+/**
+ * True for edges a student's request doesn't wait for: a queue handing work to a
+ * consumer, a background worker's own calls, and the server pushing to a client.
+ */
+function isAfterResponse(e: Edge, byId: Map<string, SimNode>): boolean {
+  const kind = byId.get(e.source)?.data.componentKind;
+  const { protocol } = getEdgeData(e);
+  return (
+    kind === "message_queue" ||
+    kind === "task_worker" ||
+    protocol === "sse" ||
+    protocol === "web_push"
+  );
+}
+
+/** Time for a request: the longest chain of hops from where requests start. */
 function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited): number {
   if (edges.length === 0) {
     const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
@@ -148,6 +164,7 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const outgoing = new Map<string, Edge[]>();
   for (const e of edges) {
+    if (isAfterResponse(e, byId)) continue;
     const list = outgoing.get(e.source) ?? [];
     list.push(e);
     outgoing.set(e.source, list);
@@ -173,10 +190,9 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited
     }
   };
 
-  const targets = new Set(edges.map((e) => e.target));
-  const roots = nodes.filter((n) => !targets.has(n.id));
-  for (const r of roots.length ? roots : nodes) {
-    visit(r.id, 0, new Set());
+  const roots = requestRoots(nodes, edges);
+  for (const id of roots.length ? roots : nodes.map((n) => n.id)) {
+    visit(id, 0, new Set());
   }
 
   const hasCdn = hasCredited(nodes, credited, "cdn");
@@ -652,8 +668,8 @@ export function runVerification(
     status: latency <= nfr.maxLatencyMs ? "pass" : "fail",
     detail:
       latency <= nfr.maxLatencyMs
-        ? "Estimated critical-path latency meets the NFR."
-        : "Critical path is too slow. Add CDN/cache, shorten hops, or add DB replicas.",
+        ? "Estimated time to answer a request meets the NFR. Background work (queue consumers, workers) and server push aren't included."
+        : "Requests take too long to answer. Add CDN/cache, shorten hops, or add DB replicas. Background work and server push aren't included.",
     actual: `${Math.round(latency)} ms`,
     target: `≤ ${nfr.maxLatencyMs} ms`,
   });

@@ -64,7 +64,7 @@ fan-out, and no pub/sub).
 ## Update: phase 4 (four new briefs)
 
 ([SPEC-phase4-briefs.md](../../SPEC-phase4-briefs.md); estimates per fixture in
-`tasks/plan.md`.) Four briefs added: `lab-autograder`, `course-registration`,
+`tasks/phase4-briefs/plan.md`.) Four briefs added: `lab-autograder`, `course-registration`,
 `shuttle-tracker` and `course-assistant`, each with four single-flaw bad designs. The
 engine wasn't changed. "Caught by the engine" counts an engine check that fails or warns
 because of the flaw.
@@ -109,6 +109,33 @@ So across the eight briefs, the engine alone catches 27 of 37 bad designs; the o
 rely on brief rules. The five from phase 4 are all in the table above (every row but
 `bad-client-calls-llm`, which the engine warns on), so each also scores faster than its
 good design; the five from earlier map to findings 5, 6, 7 and 10.
+
+## Update: finding 12 fixed
+
+([SPEC-request-latency.md](../../SPEC-request-latency.md).) Latency now measures the
+time to answer a request: it starts from the clients (`requestRoots`) and leaves out
+edges a request doesn't wait for: those leaving a message queue or a task worker, and
+SSE and Web Push edges. Putting a job on a queue still counts. Credit for components
+(reachability) is unchanged.
+
+| Brief | Good design: before → after | Shortcut after |
+|---|---|---|
+| chat-app | 50 → 30 ms | `bad-no-pubsub` 30, `bad-http-polling` 31 |
+| notification-system | 75 → 31 ms | `bad-sync-delivery` 31, `bad-no-worker` 31 |
+| lab-autograder | 45 → 25 ms | `bad-sync-grading` 25, `bad-results-not-stored` 25 |
+| course-registration | 51 → 31 ms | `bad-direct-enrol` 31 |
+| shuttle-tracker | 63 → 33 ms | `bad-polling` 33 |
+| course-assistant | 72 → 60 ms | `bad-no-streaming` 60, `bad-client-calls-llm` 30 |
+
+link-shortener and file-storage are unchanged, and so are both demos and every
+fixture's expected results. Good designs now **tie** with the shortcuts rather than
+lose to them; they don't win, because synchronous work and polling still cost nothing
+extra (findings 10 and 7), so brief rules still catch those designs.
+`bad-client-calls-llm` stays faster, correctly: the browser skips a hop, and its flaw
+is the exposed key. `tests/latency.test.ts` guards the seven pairs.
+
+Latency targets weren't changed, so they are now looser than when they were set (for
+example the alerts brief: 200 ms target, 31 ms good design).
 
 The rest of this note is the original phase 1 analysis, kept as written.
 
@@ -171,7 +198,8 @@ them or because they are about the scoring model rather than one fixture.
    tier only when a database exists (line 195). It fails availability only because it
    loses the replica bonus. *Fix:* when any feature needs storage (`storageGb > 0`) and
    there is no database or object storage, fail with a clear reason.
-7. **Protocols don't affect the score.** `chat-app/bad-http-polling` scores 51 ms against
+7. **Protocols don't affect the score.** *(Partly addressed by the finding 12 fix: SSE and
+   Web Push no longer add latency. Polling still costs nothing.)* `chat-app/bad-http-polling` scores 51 ms against
    50 ms for WebSockets. Polling cost isn't modelled. *Fix:* in briefs, keep this as a
    rule; in the engine, optionally add a request-rate multiplier for real-time
    requirements served over HTTP.
