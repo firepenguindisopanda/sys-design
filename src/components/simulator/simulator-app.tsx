@@ -1,6 +1,7 @@
 "use client";
 
 import { ComponentLibrary } from "./component-library";
+import { ConfirmReplaceDialog } from "./confirm-replace-dialog";
 import { DesignCanvas } from "./design-canvas";
 import { SidePanel } from "./side-panel";
 import { VerificationPanel } from "./verification-panel";
@@ -84,6 +85,7 @@ export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
 
           <VerificationPanel />
         </div>
+        <ConfirmReplaceDialog />
     </TooltipProvider>
   );
 }

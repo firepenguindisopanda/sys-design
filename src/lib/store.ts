@@ -16,6 +16,7 @@ import { evaluateRules } from "./challenges/rules";
 import type { LoadedDesign } from "./challenges/design-file";
 import type { Brief, RuleResult } from "./challenges/types";
 import { canPlaceFeature, runVerification } from "./simulation";
+import { fingerprint, hasUnsavedWork, type Fingerprint, type ReplaceableState } from "./unsaved";
 import type {
   CheckStatus,
   ComponentKind,
@@ -28,6 +29,14 @@ import type {
 } from "./types";
 
 export type SimNode = Node<DesignNodeData>;
+
+/** A replace or clear waiting for the student to confirm it. */
+export type PendingReplace = {
+  kind: "replace" | "clear";
+  /** One sentence saying what will happen */
+  description: string;
+  run: () => void;
+};
 
 type SimulatorState = {
   nodes: SimNode[];
@@ -77,6 +86,17 @@ type SimulatorState = {
   leaveChallenge: () => void;
   /** Replace the canvas with an imported design, in its challenge or the sandbox */
   loadDesign: (loaded: LoadedDesign) => void;
+  /** The design as last loaded or exported */
+  baseline: Fingerprint;
+  /** True when replacing the canvas would lose changes made since the baseline */
+  hasUnsavedWork: () => boolean;
+  /** Take the current design as the baseline (after an export) */
+  markSaved: () => void;
+  pendingReplace: PendingReplace | null;
+  /** Run `run` now if nothing would be lost; otherwise wait for confirmReplace */
+  requestReplace: (kind: PendingReplace["kind"], description: string, run: () => void) => void;
+  confirmReplace: () => void;
+  cancelReplace: () => void;
 };
 
 let seq = 1;
@@ -366,6 +386,11 @@ function challengeSeed(brief: Brief) {
   };
 }
 
+/** A load's state plus its baseline, so freshly loaded work never counts as unsaved. */
+function withBaseline<T extends ReplaceableState>(seed: T): T & { baseline: Fingerprint } {
+  return { ...seed, baseline: fingerprint(seed) };
+}
+
 /** Features stay placed only on nodes that still exist. */
 function unplaceMissing(features: FeatureBlock[], nodes: SimNode[]): FeatureBlock[] {
   const ids = new Set(nodes.map((n) => n.id));
@@ -375,9 +400,10 @@ function unplaceMissing(features: FeatureBlock[], nodes: SimNode[]): FeatureBloc
 }
 
 export const useSimulatorStore = create<SimulatorState>((set, get) => ({
-  ...demoSeed(),
+  ...withBaseline(demoSeed()),
   challenge: null,
   ruleResults: null,
+  pendingReplace: null,
 
   onNodesChange: (changes) => {
     const nodes = applyNodeChanges(changes, get().nodes) as SimNode[];
@@ -573,9 +599,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     set({ verification: { ...verification, overall }, ruleResults });
   },
 
-  loadDemo: () => set({ ...demoSeed(), challenge: null, ruleResults: null }),
+  loadDemo: () => set({ ...withBaseline(demoSeed()), challenge: null, ruleResults: null }),
 
-  loadFanInDemo: () => set({ ...fanInSeed(), challenge: null, ruleResults: null }),
+  loadFanInDemo: () => set({ ...withBaseline(fanInSeed()), challenge: null, ruleResults: null }),
 
   clearCanvas: () =>
     set({
@@ -588,21 +614,34 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
     }),
 
-  startChallenge: (brief) => set(challengeSeed(brief)),
+  startChallenge: (brief) => set(withBaseline(challengeSeed(brief))),
 
-  leaveChallenge: () => set({ ...demoSeed(), challenge: null, ruleResults: null }),
+  leaveChallenge: () => set({ ...withBaseline(demoSeed()), challenge: null, ruleResults: null }),
 
   loadDesign: ({ brief, nodes, edges, features, functionalReqs, nfr }) =>
     set({
       challenge: brief,
       ruleResults: null,
-      nodes,
-      edges,
-      functionalReqs,
-      features,
-      nfr,
+      ...withBaseline({ nodes, edges, functionalReqs, features, nfr }),
       verification: null,
       selectedNodeId: null,
       selectedEdgeId: null,
     }),
+
+  hasUnsavedWork: () => hasUnsavedWork(get(), get().baseline),
+
+  markSaved: () => set({ baseline: fingerprint(get()) }),
+
+  requestReplace: (kind, description, run) => {
+    if (get().hasUnsavedWork()) set({ pendingReplace: { kind, description, run } });
+    else run();
+  },
+
+  confirmReplace: () => {
+    const pending = get().pendingReplace;
+    set({ pendingReplace: null });
+    pending?.run();
+  },
+
+  cancelReplace: () => set({ pendingReplace: null }),
 }));

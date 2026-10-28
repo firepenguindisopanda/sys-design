@@ -4,7 +4,7 @@ Status: **implemented** (2026-10-27); approved with all three proposals: save `a
 Module `design-io` from the approved [capability map](CAPABILITY-MAP-phase3.md); builds on
 `challenge-content` (validator and `buildDesign`) and uses the `challenge-session` store
 actions, all merged to `main`. Branch: `feat/design-io`, from `main`. Plan:
-[tasks/plan.md](tasks/plan.md).
+[tasks/design-io/plan.md](tasks/design-io/plan.md).
 
 ## Objective
 

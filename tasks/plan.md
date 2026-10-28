@@ -1,196 +1,152 @@
-# Implementation Plan: Phase 3, `design-io`
+# Implementation Plan: `confirm-replace`
 
-Spec: [SPEC-design-io.md](../SPEC-design-io.md) (approved). Map:
-[CAPABILITY-MAP-phase3.md](../CAPABILITY-MAP-phase3.md). Task checklist: [todo.md](todo.md).
-Branch: `feat/design-io`, from `main`. Earlier steps: [phase1/](phase1/plan.md),
-[reachability/](reachability/plan.md), [data-checks/](data-checks/plan.md),
-[challenge-slice1/](challenge-slice1/plan.md), [challenge-panels/](challenge-panels/plan.md).
+Spec: [SPEC-confirm-replace.md](../SPEC-confirm-replace.md) (approved). Task checklist:
+[todo.md](todo.md). Branch: `feat/confirm-replace`, from `main` (`6430f71`). Earlier
+steps: [phase1/](phase1/plan.md), [reachability/](reachability/plan.md),
+[data-checks/](data-checks/plan.md), [challenge-slice1/](challenge-slice1/plan.md),
+[challenge-panels/](challenge-panels/plan.md), [design-io/](design-io/plan.md).
 
 ## Overview
 
-Export the canvas to the fixture YAML format and import it back, in the sandbox and in a
-challenge. The library work comes first and is fully testable without the UI: two
-optional node fields (`at`, `purpose`), the inverse of `buildDesign`, a top-level file
-reader that decides sandbox or challenge, and the text export/import with round trips
-over every fixture and both demos. Then one store action, the toolbar buttons, and the
-browser walkthrough. No engine, rule or lock changes.
+Ask before any of five controls replaces a design that has unsaved changes, and warn
+when closing the tab. "Unsaved" is decided by comparing a fingerprint of the current
+state with one taken at the last load or export. The store gains the baseline and a
+replace request; one dialog renders the request; the five controls go through it. The
+load actions themselves don't change.
 
 ## Dependency graph
 
 ```
-T1 at + purpose: types, validator, buildDesign, docs
-          │
-          ├──────────────────────────┐
-          ▼                          ▼
-T2 compactDesign (canvas → compact)  T3 validateDesignFile (top level, mode)
-          │                          │
-          └────────────┬─────────────┘
-                       ▼
-T4 design-file.ts: export/import text, round trips (every fixture, both demos)
-                       │
-                       ▼
-T5 store: loadDesign, ids never reused
-                       │
-                       ▼
-T6 DesignIo toolbar buttons + error message
-                       │
-                       ▼
-T7 browser walkthrough, build, bundle size
+T1 unsaved.ts: fingerprint + hasUnsavedWork (pure)
+        │
+        ▼
+T2 store: baseline, markSaved, requestReplace / confirm / cancel
+        │
+        ├────────────────────────────┐
+        ▼                            ▼
+T3 dialog + beforeunload        T4 wire the five controls
+        │                            │
+        └────────────┬───────────────┘
+                     ▼
+T5 browser walkthrough at 1440 and 375, build
 ```
 
 ## Architecture decisions
 
-- **One format, three kinds of file.** Fixtures, challenge exports and sandbox exports
-  are the same `design:` block; the top level says which brief applies (`challenge`,
-  sandbox `functionalRequirements` + `nfr`, or neither = current challenge). Sandbox
-  requirements and NFRs reuse the brief readers, so there's no second schema to keep in
-  sync.
-- **Validate on the way out too.** `exportDesignFile` parses and validates its own
-  output before returning it. This catches any canvas state the format can't express
-  (empty requirement text, a zero `computeMsPerRequest`) as a message at Export time,
-  not a broken file found at Import time.
-- **Compare by behaviour, not by text.** Round-trip tests compare the built designs
-  (ids, kinds, labels, purposes, configs, positions, edge protocols, placements) and the
-  `runVerification` + `evaluateRules` results. Exact text equality is only asserted for
-  export → import → export, where it must hold.
-- **Ids stay stable.** `compactDesign` keeps any id that is already a unique slug and
-  only rewrites `_` to `-` (with `-2`, `-3` on clashes), so fixture ids survive export
-  unchanged and a second export renames nothing.
-- **The store gets one action.** `loadDesign` takes an already-validated, already-built
-  result and sets everything in one `set`. In a challenge it starts from the same seed as
-  `startChallenge`, so the locks are the existing ones. Parsing and validation stay in
-  `src/lib/challenges/`, out of the store and the component.
-- **Fresh ids skip what's in use.** After an import the canvas can hold `paas-3` or
-  `feat-4` that the store counter will reach later. A small `freshId(prefix, taken)` is
-  used by `addComponent` and `addFunctionalRequirement`; demo seeds keep `uid` and their
-  `seq = 1` reset, so `demoSeed` and the demo results don't change.
+- **Two fingerprints, not one.** `unsaved.ts` returns `{ canvas, rest }` as strings.
+  `canvas` covers nodes (id, kind, label, purpose, config, position rounded), edges
+  (source, target, protocol, label; not the edge id, which is random for drawn edges)
+  and placements. `rest` covers requirements, feature numbers and NFRs. Unsaved work =
+  `(nodes.length > 0 && canvas ≠ baseline.canvas) || rest ≠ baseline.rest`. This is the
+  spec's "only while it has a node" rule in one line.
+- **Baseline taken inside each load action's `set`**, from the same object it sets, so it
+  can never drift from what was loaded. The initial store state computes it from
+  `demoSeed()` the same way.
+- **The request holds a closure.** `pendingReplace.run` is the action to perform (e.g.
+  `() => startChallenge(brief)`); Zustand state can hold functions, and it keeps the
+  dialog generic: it only shows `kind` and `description` and calls `confirmReplace()`.
+- **Import validates before asking.** `design-io.tsx` parses the file, and only a valid
+  result reaches `requestReplace`. Export calls `markSaved()` after it starts the
+  download, not before, so a refused export (duplicate edges) doesn't mark anything
+  saved.
+- **`beforeunload` lives with the dialog** in `confirm-replace-dialog.tsx` (one
+  `useEffect`), reading `hasUnsavedWork()` from `getState()` at the time of the event.
+- **Focus:** `DialogContent` passes `initialFocus` (a ref to Cancel) through to Base
+  UI's popup.
 
 ## Task list
 
-### Phase A: Library (no UI)
-- [x] Task 1: Optional `at` and `purpose` on fixture nodes
-- [x] Task 2: `compactDesign`, the inverse of `buildDesign`
-- [x] Task 3: `validateDesignFile`: top level and sandbox/challenge resolution
-- [x] Task 4: `design-file.ts`: export and import text, round trips
+### Phase A: Logic
+- [x] Task 1: `unsaved.ts` fingerprint and `hasUnsavedWork`
+- [x] Task 2: Store baseline and replace requests
 
 ### Checkpoint A
-- [x] Every fixture and both demos round-trip with identical results; all existing
-  tests unchanged; tests, types, lint and build green
+- [x] Tests, types and lint green; `tests/demos.test.ts` unchanged
 
 Notes from Phase A:
-- `npm test`: 235 passed, 1 skipped (was 130 + 1). The fixture round trips run three
-  ways per fixture (`compactDesign` alone, export → import, and the fixture file's raw
-  text).
-- `buildDesign` now delegates to `buildCompactDesign(requirements, nfr, design)`, so a
-  sandbox file (no brief) builds the same way. `readDesign` takes requirement ids
-  instead of a brief for the same reason.
-- Edges are written as one-key mappings (`- phone -> lb: http`), which the validator
-  already reads like the fixture shorthand; `yaml` would otherwise quote the
-  `a -> b : http` string. Flow collections come out padded (`at: [ 0, 0 ]`), yaml's
-  default; kept, since the fixtures' braces are padded too.
-- Exported files start with a one-line comment saying how to open them.
-- Sandbox round trip of the BeUWI demo renames `static_hosting-5`, `load_balancer-6`,
-  `object_storage-10`, `message_queue-11` to kebab-case; the verification result is
-  identical apart from those ids in check ids, and a second round trip is
-  byte-identical.
-- `exportDesignFile` validates its own output: a sandbox requirement with empty text
-  gives `sandbox-design.yaml: functionalRequirements[0].text: expected a non-empty
-  string` instead of a file. (Whether the requirements panel can produce that state is
-  for Task 6's browser check.)
+- `npm test`: 276 passed, 1 skipped (was 239 + 1): 25 in `unsaved.test.ts` (15 changes
+  that count, 7 that don't, 3 edge cases), 12 in `store.test.ts`.
+- Edges are fingerprinted as sorted `source->target:protocol:label` strings, so a redrawn
+  connection (new random id, other handles) or a reordered list isn't a change.
+- Feature numbers go in `rest` with `placedOnNodeId` blanked; placements go in `canvas`.
+- `withBaseline(seed)` wraps every load action's state, including the initial store
+  state, so the baseline is always computed from exactly what was set.
+- `confirmReplace` clears the request before running it, so a load that itself checks
+  `pendingReplace` would see it cleared.
 
-### Phase B: Store and UI
-- [x] Task 5: `loadDesign` store action; ids never reused
-- [x] Task 6: Export and Import buttons with the error message
+### Phase B: UI
+- [x] Task 3: Confirm dialog and `beforeunload`
+- [x] Task 4: Route the five controls through `requestReplace`
 
 ### Checkpoint B
-- [x] Export and import work by hand in the sandbox and a challenge
+- [x] Each control prompts after an edit and acts at once otherwise, by hand
 
-Notes from Phase B:
-- `loadDesign` sets the challenge (or `null`), requirements, features, NFRs, nodes and
-  edges in one `set` rather than spreading `challengeSeed`: the locks only check
-  `challenge !== null`, and the loaded design already carries the brief's requirements
-  as `challengeSeed` builds them (`freq-<id>`), which the store tests confirm.
-- `freshId` is used by `addComponent` and `addFunctionalRequirement`; `createNode` takes
-  an optional id, so demo seeds still use `uid` and `tests/demos.test.ts` is unchanged.
-  The test loads `paas-1`…`paas-60` and `feat-1`…`feat-60` so the counter has to step
-  past ids in use.
-- Browser (Chrome DevTools, 1440 wide; downloads captured by wrapping
-  `HTMLAnchorElement.click`):
-  - **Sandbox:** BeUWI demo → Run (Warn, 96 ms, 860 RPM, 99.8%, $190) → Export gave
-    `sandbox-design.yaml`, byte-identical (SHA-256) to the Node-side export → Clear →
-    Import → same 11 nodes and edges (kebab-case ids), both features placed on
-    Programme API, Run gives the same numbers.
-  - **Plan risk 2 cleared:** edges without saved handles draw normally (from each
-    node's first handle), no console errors.
-  - **Fixture in the sandbox:** `link-shortener/fixtures/good.yaml` refused with
-    "good.yaml: This design has no requirements. Pick its challenge first, then import
-    it."; canvas unchanged.
-  - **Fixture in its challenge:** picked Campus link shortener, imported the same file
-    → Pass (31 ms, 1660 RPM, 99.9%, $224); the earlier error cleared.
-  - **Challenge file from the sandbox:** exported `link-shortener-design.yaml`,
-    switched to Sandbox, imported → back in Campus link shortener (Brief and
-    Requirements tabs), 7 nodes / 8 edges, Pass with the same numbers and all three
-    rule rows.
-  - Console: only React Flow's existing attribution warning.
-- **375 wide (mobile):** Export and Import sit on their own row under the demo buttons;
-  a broken file shows `broken-design.yaml: design.edges[0]: unknown node "cach"` under
-  the toolbar and leaves the demo on the canvas; Dismiss closes it.
-- **Found and fixed:** the toolbar row runs to the canvas edge, so the error box had no
-  right gutter at 375px. It now has `mr-3`, matching the 12px left inset. No horizontal
-  scroll before or after.
-- `npm test` 239 passed, 1 skipped; `tsc`, lint and `npm run build` pass.
-- Not covered yet (Task 7): Export refusing duplicate edges in the browser (drawing two
-  connections between one pair needs a manual drag), and the bundle-size comparison.
+Notes from Phase B (Chrome DevTools, 1440 wide; the dev server, so React Flow's
+measuring and fit-view ran as normal):
+- **Plan risk 1 cleared:** fresh app, wait 1.5 s, pick Campus link shortener: switched
+  with no prompt.
+- **Picker:** add a PaaS, pick Course group chat: "Replace your design? Starting “Course
+  group chat” replaces your design. Export first if you want to keep this design.",
+  Cancel focused, picker still on Campus link shortener. Escape: dialog closed, node
+  kept, picker unchanged. Again and Replace: Course group chat, empty canvas. Back to
+  Sandbox from that untouched challenge: no prompt.
+- **Export counts as saving:** add a VM, Export (`sandbox-design.yaml` captured), Fan-in
+  DB demo: no prompt.
+- **Clear:** add a cache, Clear: "Clear the canvas? Every component and connection is
+  removed. Requirements and targets stay. …" with a Clear button; confirmed, canvas
+  empty. Then BeUWI demo onto the cleared canvas: no prompt; Clear on the untouched demo:
+  no prompt.
+- **Import:** BeUWI demo plus a database, then `broken-design.yaml`: error under the
+  toolbar, no dialog, canvas unchanged. `link-shortener-design.yaml`: "Importing
+  link-shortener-design.yaml replaces your design."; Replace opened Campus link
+  shortener with its 7 nodes.
+- Console: only React Flow's attribution warning.
+- **Seen, not changed:** after the dialog closes, focus goes to `<body>` when the
+  request came from the picker (its popup is gone by then); from a button, Base UI
+  returns it to that button. Left as is: Escape and Tab still work from there.
+- `npm test` 276 passed, 1 skipped; `tsc`, lint and `npm run build` pass.
+- Still for Task 5: the `beforeunload` prompt, 375 wide, and keyboard Tab order.
 
 ### Phase C: Verification
-- [x] Task 7: Browser walkthrough of the spec's checklist; build; bundle size
+- [x] Task 5: Browser walkthrough of the spec's checklist; build
 
 ### Checkpoint C
-- [x] All five spec success criteria met; ready for review (nothing committed until asked)
+- [x] All three spec success criteria met; ready for review (nothing committed until asked)
 
-Notes from Task 7:
-- **Duplicate connections (browser):** drew a second Mobile app → CDN connection on the
-  BeUWI demo (a synthetic drag between the two nodes' handles). Export showed "Two
-  connections go from Mobile app to CDN; delete one, then export." and downloaded
-  nothing. One drag attempt released off-target and React Flow snapped it to the Load
-  Balancer instead; that was the test's pointer position, not app behaviour.
-- **Bundle size:** `main` (`a3fbf84`) built in a temporary worktree against this branch,
-  both with Turbopack, summing the JS chunks the home page loads (7 on each):
-
-  | Build | Raw | Gzipped |
-  |---|---|---|
-  | `main` | 1,029,784 B | 322,230 B |
-  | `feat/design-io` | 1,144,656 B | 358,382 B |
-  | Difference | +114,872 B (+11%) | +36,152 B (+11%) |
-
-  Within the spec's 30–40 KB estimate. It covers `yaml`, the validator, the design-file
-  code and the buttons. Not worth a dynamic import at this size; it's the fallback in
-  the risks table if the page ever needs to be lighter.
-- The rest of the spec's browser checklist was done in Phase B (see its notes):
-  sandbox and challenge round trips, fixture refused in the sandbox and passing in its
-  challenge, broken file, 375px. At 375 I checked the buttons and the error message,
-  not the full round trips, which don't depend on width.
-- Console throughout: only React Flow's existing attribution warning.
-- Final: `npm test` 239 passed, 1 skipped; `tsc`, lint and `npm run build` pass;
-  `tests/demos.test.ts` and `tests/challenges.test.ts` unchanged.
+Notes from Task 5 (Chrome DevTools; real clicks through the protocol, so the page has
+the user activation Chrome requires before it shows a leave prompt):
+- **Leave warning:** after a click that changed nothing (BeUWI demo on the untouched
+  demo), reload with the prompt set to be dismissed: the page reloaded, no prompt.
+  Add a VM, reload: Chrome showed its leave prompt ("Dismissed a beforeunload dialog"),
+  and the page stayed with 12 nodes. Export, reload: no prompt, page reloaded. It also
+  fired, correctly, when switching device emulation reloaded a page with an unsaved VM.
+- **Keyboard:** add a VM, Clear: Cancel focused; Tab → Clear; Tab → back to Cancel
+  (focus stays in the dialog); Enter on Cancel closes it, the VM stays, and focus returns
+  to the Clear button. Escape was checked in Phase B.
+- **375 wide (mobile):** VM added from the Library sheet, Clear: the dialog spans
+  16–359 px, no sideways scroll, buttons stacked with Clear above Cancel (the shared
+  `DialogFooter` layout), Cancel focused; Cancel kept the VM.
+- The rest of the checklist (fresh app, picker cancel/replace, Export then demo, Clear,
+  Import valid and invalid) was done in Phase B.
+- Console throughout: only React Flow's attribution warning.
+- No code changed after Checkpoint B, whose run stands: `npm test` 276 passed,
+  1 skipped; `tsc`, lint and `npm run build` pass.
 
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| `yaml.stringify` won't write nodes as one-line flow maps or edges unquoted | Low | Build a `yaml` `Document` and set `flow = true` on node maps; edges as plain strings may come out quoted, which the validator already accepts. Test asserts the text parses back, not its exact style |
-| Imported edges have no `sourceHandle`/`targetHandle`; React Flow may draw them from the wrong side or warn | Med | Fixtures built by `buildDesign` already lack handles and run in tests, but have never been drawn. Check in the browser at the start of Task 6 before building the buttons; if React Flow errors, set the default handle ids in `buildDesign` |
-| Making `validate.ts` and `yaml` client-side pulls in something Node-only | Low | `validate.ts` imports only `catalog`, `edges` and types; `load.ts` keeps `server-only`. `npm run build` would fail on a Node import in a Client Component |
-| Bundle grows more than expected | Low | Compare `.next/static` chunk sizes before and after in Task 7; report the number. If it's large, import `yaml` dynamically on first Export/Import click |
-| Duplicate edges (A→B twice) in existing canvas states | Low | `compactDesign` reports them by node label; tested in Task 2 |
-| `freshId` changes the demos' ids | Med | Demos keep `uid` with the `seq = 1` reset; `tests/demos.test.ts` pins their results |
-| Config diff misses a nested change or emits `kind` | Med | Unit tests on capacity (nested), enum fields and unchanged nodes; the every-fixture round trip compares full configs |
+| React Flow fires `dimensions` and `position` changes on load (measuring, fit view), which would count as edits | High | Fingerprint ignores `measured`, `width`/`height`, `selected`, `dragging`; positions are rounded. Browser check: fresh app, then pick a challenge, must not prompt |
+| A sub-pixel drift in positions after load | Med | Rounding to whole pixels; a test with a 0.4 px move |
+| Base UI `Select` in the picker shows the new value before the store changes | Med | The picker is controlled by `challenge`; checked in T4 that Cancel leaves it on the old value |
+| Dialog opened from inside the Select's popup fights over focus | Med | The request is stored and the dialog renders at app level after the Select closes; checked with the keyboard in T5 |
+| The baseline goes stale if a new load action is added later | Low | Each load action sets it in its own `set`; a store test loops over all load actions |
+| Words in the spec's Markdown add Tailwind classes to the build | Low | Found in the audit step; harmless, and the CSS isn't compared here since this change adds styles anyway |
 
 ## Parallelization
 
-T2 and T3 are independent after T1 and touch different files (`design.ts` vs
-`validate.ts`), but each is S–M and T4 needs both; doing them in sequence in this
-session is cheaper than coordinating two sessions.
+T3 and T4 both depend on T2 and touch different files, but each is S-sized. Sequential
+in this session.
 
 ## Open questions
 

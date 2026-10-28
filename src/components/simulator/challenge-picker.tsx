@@ -12,6 +12,7 @@ export function ChallengePicker({ briefs }: { briefs: Brief[] }) {
   const challenge = useSimulatorStore((s) => s.challenge);
   const startChallenge = useSimulatorStore((s) => s.startChallenge);
   const leaveChallenge = useSimulatorStore((s) => s.leaveChallenge);
+  const requestReplace = useSimulatorStore((s) => s.requestReplace);
 
   // Lets <SelectValue> show titles instead of ids.
   const items: Record<string, string> = { [SANDBOX]: "Sandbox" };
@@ -27,8 +28,19 @@ export function ChallengePicker({ briefs }: { briefs: Brief[] }) {
         onValueChange={(v) => {
           if (!v || v === (challenge?.id ?? SANDBOX)) return;
           const brief = briefs.find((b) => b.id === v);
-          if (brief) startChallenge(brief);
-          else leaveChallenge();
+          // The select stays on the current mode until the store changes, so a
+          // cancelled request leaves it where it was.
+          if (brief) {
+            requestReplace("replace", `Starting “${brief.title}” replaces your design.`, () =>
+              startChallenge(brief),
+            );
+          } else {
+            requestReplace(
+              "replace",
+              "Going back to the sandbox loads the BeUWI demo in place of your design.",
+              leaveChallenge,
+            );
+          }
         }}
       >
         <SelectTrigger

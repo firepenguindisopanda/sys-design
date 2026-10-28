@@ -268,3 +268,93 @@ describe("loadDesign", () => {
     expect(new Set(reqIds).size).toBe(63);
   });
 });
+
+describe("unsaved work and replace requests", () => {
+  beforeEach(() => store().loadDemo());
+
+  const loads: [string, () => void][] = [
+    ["loadDemo", () => store().loadDemo()],
+    ["loadFanInDemo", () => store().loadFanInDemo()],
+    ["startChallenge", () => store().startChallenge(brief)],
+    ["leaveChallenge", () => store().leaveChallenge()],
+    [
+      "loadDesign",
+      () => {
+        const result = importDesignFile(`challenge: link-shortener\ndesign: { nodes: [{ id: api, kind: paas }] }`, "t.yaml", [brief], null);
+        if ("error" in result) throw new Error(result.error);
+        store().loadDesign(result.loaded);
+      },
+    ],
+  ];
+
+  it.each(loads)("nothing is unsaved straight after %s", (_, load) => {
+    store().addComponent("vm");
+    expect(store().hasUnsavedWork()).toBe(true);
+    load();
+    expect(store().hasUnsavedWork()).toBe(false);
+  });
+
+  it("runs a request at once when nothing would be lost", () => {
+    let ran = 0;
+    store().requestReplace("replace", "Test", () => ran++);
+    expect(ran).toBe(1);
+    expect(store().pendingReplace).toBeNull();
+  });
+
+  it("holds a request until it's confirmed when there's unsaved work", () => {
+    store().addComponent("vm");
+    let ran = 0;
+    store().requestReplace("clear", "Everything goes.", () => ran++);
+    expect(ran).toBe(0);
+    expect(store().pendingReplace).toMatchObject({ kind: "clear", description: "Everything goes." });
+
+    store().confirmReplace();
+    expect(ran).toBe(1);
+    expect(store().pendingReplace).toBeNull();
+  });
+
+  it("cancel drops the request and changes nothing else", () => {
+    store().addComponent("vm");
+    store().requestReplace("replace", "Test", () => store().startChallenge(brief));
+    const { nodes, edges, features, functionalReqs, nfr, challenge } = store();
+
+    store().cancelReplace();
+    const s = store();
+    expect(s.pendingReplace).toBeNull();
+    expect([s.nodes, s.edges, s.features, s.functionalReqs, s.nfr, s.challenge]).toEqual([
+      nodes,
+      edges,
+      features,
+      functionalReqs,
+      nfr,
+      challenge,
+    ]);
+  });
+
+  it("markSaved counts the current design as saved until the next change", () => {
+    store().addComponent("vm");
+    store().markSaved();
+    expect(store().hasUnsavedWork()).toBe(false);
+    store().updateNodeData(store().nodes.at(-1)!.id, { label: "Worker VM" });
+    expect(store().hasUnsavedWork()).toBe(true);
+  });
+
+  it("clearing an untouched demo leaves nothing unsaved", () => {
+    store().clearCanvas();
+    expect(store().hasUnsavedWork()).toBe(false);
+  });
+
+  it("requirements edited in the sandbox stay unsaved after Clear", () => {
+    store().addFunctionalRequirement("Export grades");
+    store().clearCanvas();
+    expect(store().hasUnsavedWork()).toBe(true);
+  });
+
+  it("placing a feature counts in a challenge", () => {
+    store().startChallenge(brief);
+    store().addComponent("paas");
+    store().markSaved();
+    expect(store().placeFeature("redirect", store().nodes[0].id).ok).toBe(true);
+    expect(store().hasUnsavedWork()).toBe(true);
+  });
+});

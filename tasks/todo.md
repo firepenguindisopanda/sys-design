@@ -1,222 +1,165 @@
-# Tasks: Phase 3, `design-io`
+# Tasks: `confirm-replace`
 
-Spec: [SPEC-design-io.md](../SPEC-design-io.md). Plan: [plan.md](plan.md).
+Spec: [SPEC-confirm-replace.md](../SPEC-confirm-replace.md). Plan: [plan.md](plan.md).
 
 Standing verification for every task: `npm test`, `npx tsc --noEmit` and `npm run lint`
-pass; `tests/demos.test.ts` and `tests/challenges.test.ts` unchanged. Tasks that touch
-content, the store or the UI also run `npm run build`; UI tasks add a browser check with
-no console errors.
+pass; `tests/demos.test.ts` unchanged. UI tasks also run `npm run build` and a browser
+check with no console errors.
 
 ---
 
-## Task 1: Optional `at` and `purpose` on fixture nodes
+## Task 1: `unsaved.ts` fingerprint and `hasUnsavedWork`
 
-**Description:** Test first in `validate.test.ts`: `at: [20, 40]` is read as a position;
-`at` that isn't a list of two finite numbers fails with the path (`design.nodes[0].at`);
-`purpose` must be a non-empty string; a node without either reads as `null` for both.
-Then add `position: { x: number; y: number } | null` and `purpose: string | null` to
-`CompactNode`, read them in `readDesign`, and make `buildNode` use them when present
-(grid position and catalog purpose otherwise). Add a `design.test.ts` case for both.
-Document `at` and `purpose` in the fixtures section of `docs/challenges/brief-format.md`.
+**Description:** Test first in `src/lib/unsaved.test.ts`, then add `src/lib/unsaved.ts`:
+`fingerprint(state) → { canvas: string; rest: string }` and
+`hasUnsavedWork(state, baseline): boolean`, per the plan's first decision. Start from
+the BeUWI demo state and apply one change per row.
 
 **Acceptance criteria:**
-- [x] `at` and `purpose` are optional, validated, and used by `buildDesign`
-- [x] Every existing fixture loads unchanged; fixture harness passing
+- [x] Counts: move a node 1 px or more, rename, change purpose, change a config field
+  (nested too), add or delete a node, add or delete an edge, change a protocol or edge
+  label, place or unplace a feature, edit a requirement's text, a feature's numbers, or
+  an NFR target
+- [x] Doesn't count: select a node or edge, change the pending protocol, run
+  verification, add `measured` / `width` / `height`, a 0.4 px move, a new random id on
+  an otherwise identical edge, and an empty canvas (after Clear) when requirements and
+  targets are untouched
+- [x] Dragging a node away and back stops counting
 
 **Verification:**
-- [x] `npx vitest run src/lib/challenges`; `npm run build`; standing checks
+- [x] `npx vitest run src/lib/unsaved.test.ts`; standing checks
 
 **Dependencies:** None
 
-**Files likely touched:** `src/lib/challenges/types.ts`, `validate.ts`,
-`validate.test.ts`, `design.ts`, `design.test.ts`, `docs/challenges/brief-format.md`
+**Files likely touched:** `src/lib/unsaved.ts`, `src/lib/unsaved.test.ts`
 
 **Estimated scope:** S
 
 ---
 
-## Task 2: `compactDesign`, the inverse of `buildDesign`
+## Task 2: Store baseline and replace requests
 
-**Description:** Test first in `design.test.ts`, then add
-`compactDesign(nodes, edges, features)` to `design.ts`, returning
-`{ design: CompactDesign } | { problems: string[] }`:
-- config reduced to fields that differ from the catalog default, nested fields
-  included, never `kind`; an unchanged node has `config: {}`;
-- `label` and `purpose` are `null` when they equal the catalog's (or are empty);
-- position rounded to whole pixels;
-- ids: kept when a unique slug; otherwise `_` → `-` and `-2`, `-3` on clashes; edges and
-  placements follow the new ids;
-- edges as `source->target` with their protocol; two edges on one pair → a problem
-  naming both nodes by label;
-- placements from features with a `placedOnNodeId`.
+**Description:** Test first in `store.test.ts`. Add to the store: `baseline`,
+`hasUnsavedWork()`, `markSaved()`, `pendingReplace`,
+`requestReplace(kind, description, run)`, `confirmReplace()`, `cancelReplace()`. Every
+load action (`loadDemo`, `loadFanInDemo`, `startChallenge`, `leaveChallenge`,
+`loadDesign`) and the initial state set `baseline` from what they load. `clearCanvas`
+does not touch it.
 
 **Acceptance criteria:**
-- [x] `compactDesign(buildDesign(f))` keeps every fixture's node ids, edges and
-  placements exactly, and `buildDesign` of it equals the original build
-- [x] `load_balancer-3` → `load-balancer-3`, with edges and placements renamed
-- [x] Duplicate edges are reported, not dropped
-
-**Verification:**
-- [x] `npx vitest run src/lib/challenges/design.test.ts`; standing checks
-
-**Dependencies:** Task 1
-
-**Files likely touched:** `src/lib/challenges/design.ts`, `design.test.ts`
-
-**Estimated scope:** M
-
----
-
-## Task 3: `validateDesignFile`: top level and sandbox/challenge resolution
-
-**Description:** Test first in `validate.test.ts`, then add
-`validateDesignFile(raw, briefs, currentBriefId, file)` to `validate.ts`. Allowed top-level
-keys: `challenge`, `functionalRequirements`, `nfr`, `design`, and the ignored
-`description`, `expect`, `knownGap`. Resolution per spec story 2:
-- `challenge: <id>` → that brief (unknown id → "No challenge called `<id>`.");
-  `functionalRequirements`/`nfr` alongside it fail;
-- `functionalRequirements` (+ required `nfr`) → sandbox, read with the brief's
-  `readRequirement` / `readNfr`, unique ids;
-- neither → the current brief; in the sandbox, the spec's "no requirements" message.
-The design is read with `readDesign` against the resolved requirements. Returns
-`{ brief: Brief | null, functionalRequirements, nfr, design }`.
-
-**Acceptance criteria:**
-- [x] Each of the three file kinds resolves as the spec says, including the two errors
-- [x] Fixture keys are ignored; other unknown keys fail with their path
-- [x] Placements in a sandbox file are checked against its own requirement ids
-
-**Verification:**
-- [x] `npx vitest run src/lib/challenges/validate.test.ts`; standing checks
-
-**Dependencies:** Task 1
-
-**Files likely touched:** `src/lib/challenges/validate.ts`, `validate.test.ts`
-
-**Estimated scope:** M
-
----
-
-## Task 4: `design-file.ts`: export and import text, round trips
-
-**Description:** Test first in the new `design-file.test.ts`, then add the browser-safe
-`src/lib/challenges/design-file.ts`:
-- `exportDesignFile({ nodes, edges, features, functionalReqs, nfr, challenge })` →
-  `{ text, fileName } | { error }`. Uses `compactDesign`; writes `challenge` or the
-  sandbox `functionalRequirements` + `nfr`; nodes as flow maps, edges as
-  `a -> b : protocol`; validates its own text with `validateDesignFile` before
-  returning.
-- `importDesignFile(text, fileName, briefs, currentBriefId)` →
-  `{ loaded } | { error }`, where `loaded` is the `BuiltDesign` plus the brief (or
-  `null`) and the sandbox requirements. YAML syntax errors become
-  `<fileName>: <message>`.
-
-**Acceptance criteria:**
-- [x] Every fixture in every brief: build → export → import gives the same built design
-  and identical `runVerification` + `evaluateRules` results
-- [x] Both demos (store state after `loadDemo` / `loadFanInDemo`) round-trip with the
-  same requirements, features, NFRs and verification result
-- [x] Export → import → export gives identical text
-- [x] YAML syntax error, unknown challenge, unknown node, placement on non-compute:
-  each returns a message with file name and path
-- [x] Every fixture file's raw text imports into its own challenge
-
-**Verification:**
-- [x] `npx vitest run src/lib/challenges`; standing checks
-
-**Dependencies:** Tasks 2, 3
-
-**Files likely touched:** `src/lib/challenges/design-file.ts`, `design-file.test.ts`
-
-**Estimated scope:** M
-
-### Checkpoint A
-- [x] All Phase A tests pass; existing tests unchanged; `npm run build` green
-
----
-
-## Task 5: `loadDesign` store action; ids never reused
-
-**Description:** Test first in `store.test.ts`. Add `loadDesign(loaded)`: with a brief,
-start from `challengeSeed(brief)` and add the nodes, edges and placements; without one,
-set `challenge: null` and the sandbox requirements (`freq-<id>` rows), features and NFRs.
-Clears verification, rule results and selection in the same `set`. Add
-`freshId(prefix, taken)` and use it in `addComponent` and `addFunctionalRequirement`;
-demo seeds keep `uid`.
-
-**Acceptance criteria:**
-- [x] After `loadDesign` into a challenge, `setNfr`, `updateFeature` and
-  `addFunctionalRequirement` are still no-ops
-- [x] A sandbox load gives editable requirements matching the file
-- [x] After loading `paas-1`…`paas-5` (and `feat-1`…), new nodes and requirements get
-  unused ids
-- [x] `tests/demos.test.ts` unchanged
+- [x] After each load action, `hasUnsavedWork()` is false (one test looping over all
+  five)
+- [x] `requestReplace` runs at once without unsaved work, and only sets
+  `pendingReplace` with it
+- [x] `confirmReplace` runs the action and clears the request; `cancelReplace` leaves
+  every other piece of state unchanged
+- [x] After `markSaved`, no unsaved work until the next change
+- [x] Clear on an untouched demo: no unsaved work; Clear after editing a sandbox
+  requirement: still unsaved
+- [x] In a challenge, placing a feature counts
 
 **Verification:**
 - [x] `npx vitest run src/lib/store.test.ts tests/demos.test.ts`; standing checks
 
-**Dependencies:** Task 4
+**Dependencies:** Task 1
 
 **Files likely touched:** `src/lib/store.ts`, `src/lib/store.test.ts`
 
 **Estimated scope:** S
 
+### Checkpoint A
+- [x] Tests, types and lint green; `tests/demos.test.ts` unchanged
+
 ---
 
-## Task 6: Export and Import buttons with the error message
+## Task 3: Confirm dialog and `beforeunload`
 
-**Description:** First, in the browser, load a fixture through a temporary dev call to
-`loadDesign` and check imported edges draw correctly without handles (plan risk 2); fix
-in `buildDesign` if not. Then add `src/components/simulator/design-io.tsx`: Export
-(`Download` icon; `Blob` + temporary `<a download>`), Import (`Upload` icon; hidden
-`<input type="file" accept=".yaml,.yml">`, `file.text()`, reset the input so the same
-file can be picked twice), and one dismissible error line under the toolbar. Render it
-in `design-canvas.tsx` next to Clear, in both modes.
+**Description:** New `src/components/simulator/confirm-replace-dialog.tsx`, rendered
+once in `simulator-app.tsx`. Open while `pendingReplace` is set; title "Replace your
+design?" or "Clear the canvas?"; the request's description plus "Export first if you
+want to keep this design."; **Cancel** (initial focus) and **Replace** / **Clear**.
+Closing by Escape, outside click or the close button calls `cancelReplace()`. A
+`useEffect` adds a `beforeunload` listener that calls `preventDefault()` when
+`hasUnsavedWork()` is true.
 
 **Acceptance criteria:**
-- [x] Export downloads `<challenge id>-design.yaml` or `sandbox-design.yaml`
-- [x] Import loads a valid file and replaces the canvas; an invalid one shows the
-  message and leaves the canvas as it was
-- [x] Both buttons reachable at 375px
+- [x] Dialog text and buttons as above; Cancel focused on open
+- [x] Every way of closing it except Replace/Clear cancels
+- [x] Reloading with unsaved work shows the browser's leave prompt; without, it doesn't (checked in Task 5)
 
 **Verification:**
-- [x] Browser: export and re-import the BeUWI demo; `npm run build`; standing checks
+- [x] Browser: trigger a request by hand (Task 4 not needed: call it from a temporary
+  button or the console), check focus and Escape; `npm run build`; standing checks
 
-**Dependencies:** Task 5
+**Dependencies:** Task 2
 
-**Files likely touched:** `src/components/simulator/design-io.tsx`,
-`src/components/simulator/design-canvas.tsx`, maybe `src/lib/challenges/design.ts`
+**Files likely touched:** `src/components/simulator/confirm-replace-dialog.tsx`,
+`src/components/simulator/simulator-app.tsx`
+
+**Estimated scope:** S
+
+---
+
+## Task 4: Route the five controls through `requestReplace`
+
+**Description:**
+- `challenge-picker.tsx`: starting a brief →
+  `requestReplace("replace", "Starting <title> replaces your design.", …)`; Sandbox →
+  "Going back to the sandbox loads the BeUWI demo in place of your design."
+- `design-canvas.tsx`: demos → "Loading the <name> demo replaces your design."; Clear →
+  `requestReplace("clear", "Every component and connection is removed. Requirements
+  and targets stay.", clearCanvas)`.
+- `design-io.tsx`: Import, after a valid parse →
+  "Importing <file name> replaces your design."; Export → `markSaved()` after the
+  download starts.
+
+**Acceptance criteria:**
+- [x] Each of the five controls prompts after an edit and acts at once without one
+- [x] Cancel from the picker leaves it showing the current mode
+- [x] An invalid import shows its error and never prompts
+- [x] Export then any control: no prompt
+
+**Verification:**
+- [x] Browser, by hand, for each control; `npm run build`; standing checks
+
+**Dependencies:** Task 2
+
+**Files likely touched:** `src/components/simulator/challenge-picker.tsx`,
+`src/components/simulator/design-canvas.tsx`, `src/components/simulator/design-io.tsx`
 
 **Estimated scope:** S
 
 ### Checkpoint B
-- [x] Export and import work by hand in the sandbox and a challenge
+- [x] Each control prompts after an edit and acts at once otherwise, by hand
 
 ---
 
-## Task 7: Browser walkthrough, build, bundle size
+## Task 5: Browser walkthrough and build
 
-**Description:** Walk through the spec's browser checklist in the Chrome DevTools
-browser at 1440 and 375 wide. Compare `.next/static` JS sizes against a `main` build
-and record the difference. Add notes to [plan.md](plan.md).
+**Description:** The spec's browser checklist in the Chrome DevTools browser at 1440 and
+375 wide. Notes go in [plan.md](plan.md).
 
 **Acceptance criteria:**
-- [x] Sandbox: BeUWI demo export → clear → import gives the same picture and result
-- [x] Challenge: export, switch to sandbox, import → back in the challenge with the design
-- [x] `link-shortener/fixtures/good.yaml` passes in its challenge; refused in the sandbox
-- [x] Broken file: message shown, canvas unchanged
-- [x] Two edges on one pair: Export refuses, naming the pair
-- [x] No console errors; bundle growth recorded
+- [x] Fresh app → pick a challenge: no prompt (React Flow's load-time changes don't
+  count)
+- [x] Add a node → pick another challenge: dialog; Cancel keeps the node and the picker
+  value; again → Replace switches
+- [x] Edit → Export → load a demo: no prompt
+- [x] Edit → Clear: "Clear the canvas?"
+- [x] Edit → Import a valid file: dialog names it; invalid file: error, no dialog
+- [x] Keyboard: Cancel focused, Escape cancels, Tab reaches Replace
+- [x] Reload with unsaved work: leave prompt; after Export: none
+- [x] Dialog fits at 375px; no console errors
 
 **Verification:**
 - [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`
-- [x] Notes from the walkthrough added to [plan.md](plan.md)
+- [x] Notes added to [plan.md](plan.md)
 
-**Dependencies:** Tasks 1–6
+**Dependencies:** Tasks 1–4
 
 **Files likely touched:** `tasks/plan.md`
 
 **Estimated scope:** S
 
 ### Checkpoint C
-- [x] All five spec success criteria met; ready for review (nothing committed until asked)
+- [x] All three spec success criteria met; ready for review (nothing committed until asked)

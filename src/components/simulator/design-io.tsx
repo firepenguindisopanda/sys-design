@@ -10,6 +10,8 @@ import { useSimulatorStore } from "@/lib/store";
 /** Export the canvas to a design file and import one back, in either mode. */
 export function DesignIo({ briefs }: { briefs: Brief[] }) {
   const loadDesign = useSimulatorStore((s) => s.loadDesign);
+  const markSaved = useSimulatorStore((s) => s.markSaved);
+  const requestReplace = useSimulatorStore((s) => s.requestReplace);
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +27,7 @@ export function DesignIo({ briefs }: { briefs: Brief[] }) {
     a.download = result.fileName;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    markSaved();
     setError(null);
   };
 
@@ -35,8 +38,10 @@ export function DesignIo({ briefs }: { briefs: Brief[] }) {
       setError(result.error);
       return;
     }
-    loadDesign(result.loaded);
     setError(null);
+    requestReplace("replace", `Importing ${file.name} replaces your design.`, () =>
+      loadDesign(result.loaded),
+    );
   };
 
   return (

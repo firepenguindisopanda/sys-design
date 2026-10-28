@@ -129,6 +129,7 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
   const loadDemo = useSimulatorStore((s) => s.loadDemo);
   const loadFanInDemo = useSimulatorStore((s) => s.loadFanInDemo);
   const clearCanvas = useSimulatorStore((s) => s.clearCanvas);
+  const requestReplace = useSimulatorStore((s) => s.requestReplace);
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
 
@@ -160,7 +161,9 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
                 size="sm"
                 variant="ghost"
                 className="h-7 gap-1.5 text-xs"
-                onClick={loadDemo}
+                onClick={() =>
+                  requestReplace("replace", "Loading the BeUWI demo replaces your design.", loadDemo)
+                }
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 Load BeUWI demo
@@ -170,7 +173,9 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
                 size="sm"
                 variant="ghost"
                 className="h-7 gap-1.5 text-xs"
-                onClick={loadFanInDemo}
+                onClick={() =>
+                  requestReplace("replace", "Loading the fan-in DB demo replaces your design.", loadFanInDemo)
+                }
               >
                 Fan-in DB demo
               </Button>
@@ -181,7 +186,13 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
             size="sm"
             variant="ghost"
             className="h-7 gap-1.5 text-xs text-slate-600"
-            onClick={clearCanvas}
+            onClick={() =>
+              requestReplace(
+                "clear",
+                "Every component and connection is removed. Requirements and targets stay.",
+                clearCanvas,
+              )
+            }
           >
             <Eraser className="h-3.5 w-3.5" />
             Clear
