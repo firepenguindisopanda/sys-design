@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useSimulatorStore } from "@/lib/store";
 import { isComputeKind } from "@/lib/catalog";
 import { remainingCapacity } from "@/lib/simulation";
@@ -20,10 +20,12 @@ import { Plus, Trash2 } from "lucide-react";
 import { NodeInspector } from "./node-inspector";
 import { EdgeInspector } from "./edge-inspector";
 import { FeatureWorkload } from "./feature-workload";
+import { SECTION_LABEL } from "./styles";
 
 export function RequirementsPanel() {
   const [reqText, setReqText] = useState("");
   const [placeError, setPlaceError] = useState<string | null>(null);
+  const id = useId();
 
   const functionalReqs = useSimulatorStore((s) => s.functionalReqs);
   const features = useSimulatorStore((s) => s.features);
@@ -58,7 +60,7 @@ export function RequirementsPanel() {
 
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
         <section className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className={SECTION_LABEL}>
             Functional → features
           </div>
           {locked ? null : (
@@ -86,9 +88,15 @@ export function RequirementsPanel() {
               value={reqText}
               onChange={(e) => setReqText(e.target.value)}
               placeholder="e.g. Real-time coupon delivery"
+              aria-label="New functional requirement"
               className="h-8 text-xs"
             />
-            <Button type="submit" size="sm" className="h-8 shrink-0 bg-teal-700 hover:bg-teal-800">
+            <Button
+              type="submit"
+              size="sm"
+              aria-label="Add requirement"
+              className="h-8 shrink-0 bg-teal-700 hover:bg-teal-800"
+            >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           </form>
@@ -110,7 +118,8 @@ export function RequirementsPanel() {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-6 w-6 shrink-0 text-slate-400"
+                        aria-label={`Remove requirement: ${req.text}`}
+                        className="h-6 w-6 shrink-0 text-slate-500"
                         onClick={() => removeFunctionalRequirement(req.id)}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -127,8 +136,14 @@ export function RequirementsPanel() {
                       ] as const
                     ).map(([key, label]) => (
                       <div key={key} className="space-y-0.5">
-                        <Label className="text-[10px] text-slate-500">{label}</Label>
+                        <Label
+                          htmlFor={`${id}-${feature.id}-${key}`}
+                          className="text-[10px] text-slate-500"
+                        >
+                          {label}
+                        </Label>
                         <Input
+                          id={`${id}-${feature.id}-${key}`}
                           type="number"
                           min={0}
                           step={0.5}
@@ -150,8 +165,14 @@ export function RequirementsPanel() {
 
                   <div className="mt-2 grid grid-cols-2 gap-1.5">
                     <div className="space-y-0.5">
-                      <Label className="text-[10px] text-slate-500">Target RPM</Label>
+                      <Label
+                        htmlFor={`${id}-${feature.id}-targetRpm`}
+                        className="text-[10px] text-slate-500"
+                      >
+                        Target RPM
+                      </Label>
                       <Input
+                        id={`${id}-${feature.id}-targetRpm`}
                         type="number"
                         min={1}
                         value={feature.targetRpm}
@@ -163,7 +184,12 @@ export function RequirementsPanel() {
                       />
                     </div>
                     <div className="min-w-0 space-y-0.5">
-                      <Label className="text-[10px] text-slate-500">Place on compute</Label>
+                      <Label
+                        htmlFor={`${id}-${feature.id}-placement`}
+                        className="text-[10px] text-slate-500"
+                      >
+                        Place on compute
+                      </Label>
                       <Select
                         items={placementItems}
                         value={feature.placedOnNodeId ?? "unplaced"}
@@ -177,6 +203,7 @@ export function RequirementsPanel() {
                       >
                         {/* Node names can be long: fill the cell and truncate. */}
                         <SelectTrigger
+                          id={`${id}-${feature.id}-placement`}
                           className="h-7 w-full min-w-0 text-[11px]"
                           title={placementItems[feature.placedOnNodeId ?? "unplaced"]}
                         >
@@ -227,13 +254,16 @@ export function RequirementsPanel() {
         <Separator />
 
         <section className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className={SECTION_LABEL}>
             Non-functional
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-[10px]">Max latency (ms)</Label>
+              <Label htmlFor={`${id}-maxLatencyMs`} className="text-[10px]">
+                Max latency (ms)
+              </Label>
               <Input
+                id={`${id}-maxLatencyMs`}
                 type="number"
                 value={nfr.maxLatencyMs}
                 onChange={(e) => setNfr({ maxLatencyMs: Number(e.target.value) })}
@@ -242,8 +272,11 @@ export function RequirementsPanel() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px]">Min throughput (RPM)</Label>
+              <Label htmlFor={`${id}-minThroughputRpm`} className="text-[10px]">
+                Min throughput (RPM)
+              </Label>
               <Input
+                id={`${id}-minThroughputRpm`}
                 type="number"
                 value={nfr.minThroughputRpm}
                 onChange={(e) => setNfr({ minThroughputRpm: Number(e.target.value) })}
@@ -252,8 +285,11 @@ export function RequirementsPanel() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px]">Min availability %</Label>
+              <Label htmlFor={`${id}-minAvailabilityPct`} className="text-[10px]">
+                Min availability %
+              </Label>
               <Input
+                id={`${id}-minAvailabilityPct`}
                 type="number"
                 step={0.01}
                 value={nfr.minAvailabilityPct}
@@ -263,8 +299,11 @@ export function RequirementsPanel() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px]">Max cost $/mo</Label>
+              <Label htmlFor={`${id}-maxMonthlyCostUsd`} className="text-[10px]">
+                Max cost $/mo
+              </Label>
               <Input
+                id={`${id}-maxMonthlyCostUsd`}
                 type="number"
                 value={nfr.maxMonthlyCostUsd ?? ""}
                 placeholder="optional"
@@ -289,7 +328,7 @@ export function RequirementsPanel() {
         <Separator />
 
         <section className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className={SECTION_LABEL}>
             Node inspector
           </div>
           <NodeInspector />
@@ -298,7 +337,7 @@ export function RequirementsPanel() {
         <Separator />
 
         <section className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className={SECTION_LABEL}>
             Connection inspector
           </div>
           <EdgeInspector />

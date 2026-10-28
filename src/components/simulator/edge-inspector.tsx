@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useSimulatorStore } from "@/lib/store";
 import { PROTOCOL_META, PROTOCOL_OPTIONS, getEdgeData } from "@/lib/edges";
 import type { EdgeProtocol } from "@/lib/types";
@@ -14,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeftRight, Trash2 } from "lucide-react";
+import { SECTION_LABEL } from "./styles";
 
 export function EdgeInspector() {
   const selectedEdgeId = useSimulatorStore((s) => s.selectedEdgeId);
@@ -22,6 +24,7 @@ export function EdgeInspector() {
   const updateEdge = useSimulatorStore((s) => s.updateEdge);
   const reverseEdge = useSimulatorStore((s) => s.reverseEdge);
   const deleteEdge = useSimulatorStore((s) => s.deleteEdge);
+  const id = useId();
 
   const edge = edges.find((e) => e.id === selectedEdgeId);
   if (!edge) {
@@ -40,7 +43,7 @@ export function EdgeInspector() {
   return (
     <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className={SECTION_LABEL}>
           Selected connection
         </div>
         <div className="mt-0.5 text-sm font-semibold text-slate-900">
@@ -54,7 +57,7 @@ export function EdgeInspector() {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Protocol</Label>
+        <Label htmlFor={`${id}-protocol`} className="text-xs">Protocol</Label>
         <Select
           value={data.protocol}
           onValueChange={(v) => {
@@ -62,7 +65,7 @@ export function EdgeInspector() {
             updateEdge(edge.id, { protocol: v as EdgeProtocol });
           }}
         >
-          <SelectTrigger className="h-8 w-full text-xs">
+          <SelectTrigger id={`${id}-protocol`} className="h-8 w-full text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -77,8 +80,9 @@ export function EdgeInspector() {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Label override</Label>
+        <Label htmlFor={`${id}-label`} className="text-xs">Label override</Label>
         <Input
+          id={`${id}-label`}
           value={data.label ?? ""}
           placeholder={meta.shortLabel}
           onChange={(e) => updateEdge(edge.id, { label: e.target.value })}
@@ -88,7 +92,7 @@ export function EdgeInspector() {
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label className="text-[10px]">From</Label>
+          <Label htmlFor={`${id}-from`} className="text-[10px]">From</Label>
           <Select
             value={edge.source}
             onValueChange={(v) => {
@@ -96,7 +100,7 @@ export function EdgeInspector() {
               updateEdge(edge.id, { source: v });
             }}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger id={`${id}-from`} className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -109,7 +113,7 @@ export function EdgeInspector() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-[10px]">To</Label>
+          <Label htmlFor={`${id}-to`} className="text-[10px]">To</Label>
           <Select
             value={edge.target}
             onValueChange={(v) => {
@@ -117,7 +121,7 @@ export function EdgeInspector() {
               updateEdge(edge.id, { target: v });
             }}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger id={`${id}-to`} className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -161,17 +165,23 @@ export function PendingProtocolPicker() {
   const pendingProtocol = useSimulatorStore((s) => s.pendingProtocol);
   const setPendingProtocol = useSimulatorStore((s) => s.setPendingProtocol);
   const meta = PROTOCOL_META[pendingProtocol];
+  // Lets <SelectValue> show "HTTP" instead of the raw value.
+  const protocolItems = Object.fromEntries(PROTOCOL_OPTIONS.map((p) => [p.protocol, p.shortLabel]));
 
   return (
     <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2 py-1 shadow-sm backdrop-blur">
       <span className="text-[10px] font-medium text-slate-500">New link</span>
       <Select
+        items={protocolItems}
         value={pendingProtocol}
         onValueChange={(v) => {
           if (v) setPendingProtocol(v as EdgeProtocol);
         }}
       >
-        <SelectTrigger className="h-7 w-[9.5rem] border-0 bg-transparent text-[11px] shadow-none">
+        <SelectTrigger
+          aria-label="Protocol for new connections"
+          className="h-7 w-[9.5rem] border-0 bg-transparent text-[11px] shadow-none"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -182,7 +192,7 @@ export function PendingProtocolPicker() {
           ))}
         </SelectContent>
       </Select>
-      <span className="hidden max-w-[10rem] truncate text-[10px] text-slate-400 sm:inline">
+      <span className="hidden max-w-[10rem] truncate text-[10px] text-slate-500 sm:inline">
         {meta.hint}
       </span>
     </div>

@@ -20,6 +20,7 @@ import {
   Smartphone,
   Zap,
 } from "lucide-react";
+import { SECTION_LABEL } from "./styles";
 
 const ICONS: Record<ComponentKind, typeof Server> = {
   vm: Server,
@@ -79,7 +80,7 @@ export function ComponentLibrary() {
           if (items.length === 0) return null;
           return (
             <div key={cat}>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <div className={`mb-1.5 ${SECTION_LABEL}`}>
                 {CATEGORY_LABEL[cat]}
               </div>
               <ul className="space-y-1.5">

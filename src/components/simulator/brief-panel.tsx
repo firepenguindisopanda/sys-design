@@ -1,6 +1,5 @@
 import type { Brief } from "@/lib/challenges/types";
-
-const SECTION_LABEL = "text-[10px] font-semibold uppercase tracking-wider text-slate-400";
+import { SECTION_LABEL } from "./styles";
 
 /**
  * The scenario text of a challenge. Rules are left out on purpose: they read like

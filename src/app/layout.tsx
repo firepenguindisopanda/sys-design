@@ -9,7 +9,7 @@ const display = DM_Sans({
 });
 
 const sans = IBM_Plex_Sans({
-  variable: "--font-sans",
+  variable: "--font-plex",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
 });
@@ -26,8 +26,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${display.variable} ${sans.variable} antialiased`}>
+    // The variables go on <html> so the html { font-family } rule in globals.css can resolve them.
+    <html lang="en" className={`${display.variable} ${sans.variable}`}>
+      <body className="antialiased">
         {children}
       </body>
     </html>

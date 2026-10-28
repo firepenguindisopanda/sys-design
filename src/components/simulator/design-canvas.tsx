@@ -14,10 +14,11 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChallengePicker } from "./challenge-picker";
 import { DesignIo } from "./design-io";
 import { DesignNode } from "./design-node";
+import { edgeAriaLabel, nodeAriaLabel } from "./flow-labels";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -52,8 +53,15 @@ function FlowCanvas() {
   const selectNode = useSimulatorStore((s) => s.selectNode);
   const selectEdge = useSimulatorStore((s) => s.selectEdge);
 
+  // Screen-reader names are added here only, never written to the store.
+  const namedNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, ariaLabel: nodeAriaLabel(n) })),
+    [nodes],
+  );
+
   const styledEdges: Edge[] = edges.map((e) => ({
     ...e,
+    ariaLabel: edgeAriaLabel(e, nodes),
     selected: e.id === selectedEdgeId,
     style: {
       stroke: e.id === selectedEdgeId ? "#0f766e" : "#64748b",
@@ -84,7 +92,7 @@ function FlowCanvas() {
 
   return (
     <ReactFlow
-      nodes={nodes}
+      nodes={namedNodes}
       edges={styledEdges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
@@ -105,6 +113,8 @@ function FlowCanvas() {
       edgesFocusable
       elementsSelectable
       edgesReconnectable
+      // React Flow's screen-reader text says "press delete"; its default is Backspace only.
+      deleteKeyCode={["Backspace", "Delete"]}
     >
       <FitViewOnReady nodeCount={nodes.length} />
       <Background
@@ -206,7 +216,7 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
           <FlowCanvas />
         </ReactFlowProvider>
       ) : (
-        <div className="flex h-full items-center justify-center text-xs text-slate-400">
+        <div className="flex h-full items-center justify-center text-xs text-slate-500">
           Preparing canvas…
         </div>
       )}

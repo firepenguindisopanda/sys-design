@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { FeatureBlock } from "@/lib/types";
@@ -58,6 +58,7 @@ export function FeatureWorkload({
   // While a box is being edited it shows what was typed, even text that parses to
   // "not set" (like "0.5" on the way to "05"); on blur it shows the stored value again.
   const [drafts, setDrafts] = useState<Partial<Record<WorkloadKey, string>>>({});
+  const id = useId();
 
   const fields = locked ? FIELDS.filter((f) => feature[f.key] !== undefined) : FIELDS;
   if (fields.length === 0) return null;
@@ -66,8 +67,11 @@ export function FeatureWorkload({
     <div className="mt-2 grid grid-cols-3 gap-1.5">
       {fields.map(({ key, label, unit, help }) => (
         <div key={key} className="space-y-0.5" title={help}>
-          <Label className="text-[10px] text-slate-500">{label}</Label>
+          <Label htmlFor={`${id}-${feature.id}-${key}`} className="text-[10px] text-slate-500">
+            {label}
+          </Label>
           <Input
+            id={`${id}-${feature.id}-${key}`}
             type="number"
             min={1}
             placeholder={unit}
@@ -84,7 +88,8 @@ export function FeatureWorkload({
               })
             }
             disabled={locked}
-            className="h-7 text-[11px]"
+            // Narrower padding so "req/min" fits beside the number spinner.
+            className="h-7 px-1.5 text-[11px]"
           />
         </div>
       ))}

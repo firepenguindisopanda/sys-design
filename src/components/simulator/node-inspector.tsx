@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useSimulatorStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SECTION_LABEL } from "./styles";
 
 export function NodeInspector() {
   const selectedNodeId = useSimulatorStore((s) => s.selectedNodeId);
@@ -17,6 +19,7 @@ export function NodeInspector() {
   const updateNodeData = useSimulatorStore((s) => s.updateNodeData);
   const updateNodeConfig = useSimulatorStore((s) => s.updateNodeConfig);
   const node = nodes.find((n) => n.id === selectedNodeId);
+  const id = useId();
 
   if (!node) {
     return (
@@ -31,15 +34,16 @@ export function NodeInspector() {
   return (
     <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className={SECTION_LABEL}>
           Selected node
         </div>
         <div className="mt-0.5 text-sm font-semibold text-slate-900">{node.data.label}</div>
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Name / purpose</Label>
+        <Label htmlFor={`${id}-name`} className="text-xs">Name</Label>
         <Input
+          id={`${id}-name`}
           value={node.data.label}
           onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
           className="h-8 text-xs"
@@ -47,8 +51,9 @@ export function NodeInspector() {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Purpose note</Label>
+        <Label htmlFor={`${id}-purpose-note`} className="text-xs">Purpose note</Label>
         <Input
+          id={`${id}-purpose-note`}
           value={node.data.purpose}
           onChange={(e) => updateNodeData(node.id, { purpose: e.target.value })}
           className="h-8 text-xs"
@@ -69,8 +74,11 @@ export function NodeInspector() {
               ] as const
             ).map(([key, label]) => (
               <div key={key} className="space-y-1">
-                <Label className="text-[10px]">{label}</Label>
+                <Label htmlFor={`${id}-${key}`} className="text-[10px]">
+                  {label}
+                </Label>
                 <Input
+                  id={`${id}-${key}`}
                   type="number"
                   min={0}
                   step={key === "vcpus" ? 0.5 : 1}
@@ -90,16 +98,18 @@ export function NodeInspector() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-[10px]">App type</Label>
+              <Label htmlFor={`${id}-app-type`} className="text-[10px]">App type</Label>
               <Input
+                id={`${id}-app-type`}
                 value={cfg.appType}
                 onChange={(e) => updateNodeConfig(node.id, { appType: e.target.value })}
                 className="h-8 text-xs"
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px]">Hosting</Label>
+              <Label htmlFor={`${id}-hosting`} className="text-[10px]">Hosting</Label>
               <Input
+                id={`${id}-hosting`}
                 value={cfg.hosting}
                 onChange={(e) => updateNodeConfig(node.id, { hosting: e.target.value })}
                 className="h-8 text-xs"
@@ -112,14 +122,14 @@ export function NodeInspector() {
       {cfg.kind === "database" && (
         <>
           <div className="space-y-1.5">
-            <Label className="text-xs">Engine</Label>
+            <Label htmlFor={`${id}-engine`} className="text-xs">Engine</Label>
             <Select
               value={cfg.engine}
               onValueChange={(v) => {
                 if (v) updateNodeConfig(node.id, { engine: v });
               }}
             >
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger id={`${id}-engine`} className="h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -132,8 +142,9 @@ export function NodeInspector() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-[10px]">Replicas</Label>
+              <Label htmlFor={`${id}-replicas`} className="text-[10px]">Replicas</Label>
               <Input
+                id={`${id}-replicas`}
                 type="number"
                 min={1}
                 max={8}
@@ -145,8 +156,9 @@ export function NodeInspector() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-[10px]">Shards</Label>
+              <Label htmlFor={`${id}-shards`} className="text-[10px]">Shards</Label>
               <Input
+                id={`${id}-shards`}
                 type="number"
                 min={1}
                 max={16}
@@ -164,14 +176,14 @@ export function NodeInspector() {
       {cfg.kind === "cache" && (
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px]">Engine</Label>
+            <Label htmlFor={`${id}-engine`} className="text-[10px]">Engine</Label>
             <Select
               value={cfg.engine}
               onValueChange={(v) => {
                 if (v) updateNodeConfig(node.id, { engine: v });
               }}
             >
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger id={`${id}-engine`} className="h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -181,8 +193,9 @@ export function NodeInspector() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px]">Memory GB</Label>
+            <Label htmlFor={`${id}-memory-gb`} className="text-[10px]">Memory GB</Label>
             <Input
+              id={`${id}-memory-gb`}
               type="number"
               min={0.5}
               step={0.5}
@@ -198,8 +211,9 @@ export function NodeInspector() {
 
       {cfg.kind === "object_storage" && (
         <div className="space-y-1">
-          <Label className="text-[10px]">Storage GB</Label>
+          <Label htmlFor={`${id}-storage-gb`} className="text-[10px]">Storage GB</Label>
           <Input
+            id={`${id}-storage-gb`}
             type="number"
             min={1}
             value={cfg.storageGb}
@@ -213,14 +227,14 @@ export function NodeInspector() {
 
       {cfg.kind === "message_queue" && (
         <div className="space-y-1">
-          <Label className="text-[10px]">Mode</Label>
+          <Label htmlFor={`${id}-mode`} className="text-[10px]">Mode</Label>
           <Select
             value={cfg.mode}
             onValueChange={(v) => {
               if (v) updateNodeConfig(node.id, { mode: v });
             }}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger id={`${id}-mode`} className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -233,8 +247,9 @@ export function NodeInspector() {
 
       {cfg.kind === "task_worker" && (
         <div className="space-y-1">
-          <Label className="text-[10px]">Concurrency</Label>
+          <Label htmlFor={`${id}-concurrency`} className="text-[10px]">Concurrency</Label>
           <Input
+            id={`${id}-concurrency`}
             type="number"
             min={1}
             max={64}
@@ -249,8 +264,9 @@ export function NodeInspector() {
 
       {cfg.kind === "external_api" && (
         <div className="space-y-1">
-          <Label className="text-[10px]">Provider</Label>
+          <Label htmlFor={`${id}-provider`} className="text-[10px]">Provider</Label>
           <Input
+            id={`${id}-provider`}
             value={cfg.provider}
             onChange={(e) => updateNodeConfig(node.id, { provider: e.target.value })}
             className="h-8 text-xs"
@@ -260,8 +276,9 @@ export function NodeInspector() {
 
       {(cfg.kind === "mobile" || cfg.kind === "desktop" || cfg.kind === "iot") && (
         <div className="space-y-1">
-          <Label className="text-[10px]">Platform / device</Label>
+          <Label htmlFor={`${id}-platform-device`} className="text-[10px]">Platform / device</Label>
           <Input
+            id={`${id}-platform-device`}
             value={cfg.platform}
             onChange={(e) => updateNodeConfig(node.id, { platform: e.target.value })}
             className="h-8 text-xs"
