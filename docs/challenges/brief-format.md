@@ -53,7 +53,7 @@ functionalRequirements:
       computeMsPerRequest: 10    # CPU time per request; drives the throughput estimate
 ```
 
-Two optional fields describe what the scenario needs, so the engine can charge for a
+Three optional fields describe what the scenario needs, so the engine can charge for a
 shortcut:
 
 ```yaml
@@ -63,6 +63,8 @@ shortcut:
                                  # sending to thousands of phones)
       pollingRpm: 2400           # requests per minute if clients poll for updates instead
                                  # of being pushed to
+      fileRpm: 3000              # file requests per minute this feature has clients make
+                                 # (pages, scripts, video segments)
 ```
 
 - **`backgroundWorkMs`:** the work is **inline** unless the compute node the feature is
@@ -77,16 +79,25 @@ shortcut:
   throughput target, and `nfr-throughput` names it. Work it out from the scenario: for
   example, 300 phones asking every 5 seconds is 3600 req/min. Check that the polling
   design's capacity falls short of the new target.
+- **`fileRpm`:** the servers serve the files unless some client has an edge to static
+  hosting or object storage, or to a CDN that has an edge to one of them. This is checked
+  once for the whole design. A CDN in front of the API or a database doesn't count. When
+  the servers serve the files, each feature's `fileRpm` is added to the throughput target
+  on top of its `targetRpm`, and `nfr-throughput` names it. Work it out from the scenario:
+  for example, 300 students each fetching a video segment every 6 seconds is 3000 req/min.
+  Clients fetching straight from a store, with no CDN, aren't charged. Leave that to the
+  `topo-cdn` warning and brief rules.
 
-Both are numbers ≥ 1; leave them out when they don't apply. Brief rules should still
-require the queue, worker or push edge, because the engine only checks timing and load.
+All three are numbers ≥ 1; leave them out when they don't apply. Brief rules should still
+require the queue, worker, push or CDN edge, because the engine only checks timing and
+load.
 
 ### nfr
 
 ```yaml
 nfr:
   maxLatencyMs: 70          # time to answer a request must be at most this
-  minThroughputRpm: 1300    # capacity must reach max(this, sum of targetRpm; pollingRpm if polled)
+  minThroughputRpm: 1300    # capacity must reach max(this, sum of targetRpm; see pollingRpm and fileRpm)
   minAvailabilityPct: 99.9  # 0 to 100
   maxMonthlyCostUsd: 275    # optional; leave out for no budget
 ```
@@ -222,7 +233,7 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-client-data-<edge>` | warn | A client-side node (mobile, desktop, IoT, static hosting, CDN) is wired straight to a database or cache, either direction |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
 | `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues, workers and external APIs and SSE/Web Push edges (background work, callbacks and server push), plus any inline `backgroundWorkMs` |
-| `nfr-throughput` | pass/fail | Estimated capacity against the throughput target: max(`minThroughputRpm`, the sum of features' `targetRpm`, using `pollingRpm` for polled features) |
+| `nfr-throughput` | pass/fail | Estimated capacity against the throughput target: max(`minThroughputRpm`, the sum of features' `targetRpm`, using `pollingRpm` for polled features, plus `fileRpm` when the servers serve the files) |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |
 

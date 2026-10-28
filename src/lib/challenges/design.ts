@@ -63,13 +63,14 @@ function buildNode(node: CompactNode, index: number): SimNode {
   };
 }
 
-/** The optional slow-work and polling fields, only when set, so other features gain no keys. */
+/** The optional slow-work, polling and file fields, only when set, so other features gain no keys. */
 export function optionalWorkload(
-  f: Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm">,
-): Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm"> {
+  f: Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm" | "fileRpm">,
+): Pick<FeatureBlock, "backgroundWorkMs" | "pollingRpm" | "fileRpm"> {
   return {
     ...(f.backgroundWorkMs === undefined ? {} : { backgroundWorkMs: f.backgroundWorkMs }),
     ...(f.pollingRpm === undefined ? {} : { pollingRpm: f.pollingRpm }),
+    ...(f.fileRpm === undefined ? {} : { fileRpm: f.fileRpm }),
   };
 }
 

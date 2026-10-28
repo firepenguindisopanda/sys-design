@@ -54,6 +54,7 @@ export type BriefFeature = {
   computeMsPerRequest: number;
   backgroundWorkMs?: number;
   pollingRpm?: number;
+  fileRpm?: number;
 };
 
 export type BriefRequirement = {

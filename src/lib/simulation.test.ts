@@ -578,3 +578,79 @@ describe("inline work and polling", () => {
     });
   });
 });
+
+describe("file serving", () => {
+  const files = (fileRpm = 3000, on = "api-1", id = "f"): FeatureBlock => ({
+    ...feature(on),
+    id,
+    name: "Watch lecture",
+    fileRpm,
+  });
+  /** base() plus extra nodes and edges, run with the given features. */
+  const run = (extraNodes: Node<DesignNodeData>[], extraEdges: Edge[], features: FeatureBlock[]) => {
+    const { nodes, edges } = base();
+    return runVerification([...nodes, ...extraNodes], [...edges, ...extraEdges], features, NFR);
+  };
+  const throughput = (...args: Parameters<typeof run>) =>
+    run(...args).checks.find((c) => c.id === "nfr-throughput")!;
+  const target = (...args: Parameters<typeof run>) => throughput(...args).target;
+
+  describe("files come from a store", () => {
+    it.each<ComponentKind>(["static_hosting", "object_storage"])(
+      "doesn't charge the servers when clients go through a CDN to %s",
+      (kind) => {
+        const extra = [node("cdn", "cdn"), node("store", kind)];
+        expect(target(extra, [edge("phone", "cdn"), edge("cdn", "store")], [files()])).toBe("≥ 100 req/min");
+      },
+    );
+
+    it("doesn't charge the servers when clients fetch from static hosting directly", () => {
+      expect(target([node("site", "static_hosting")], [edge("phone", "site")], [files()])).toBe(
+        "≥ 100 req/min",
+      );
+    });
+  });
+
+  describe("the servers serve the files", () => {
+    it("charges fileRpm when there's no store", () => {
+      expect(target([], [], [files()])).toBe("≥ 3100 req/min");
+    });
+
+    it("charges fileRpm when the CDN sits in front of the load balancer", () => {
+      expect(target([node("cdn", "cdn")], [edge("phone", "cdn"), edge("cdn", "lb")], [files()])).toBe(
+        "≥ 3100 req/min",
+      );
+    });
+
+    it("charges fileRpm when the CDN's origin is a database", () => {
+      expect(target([node("cdn", "cdn")], [edge("phone", "cdn"), edge("cdn", "db")], [files()])).toBe(
+        "≥ 3100 req/min",
+      );
+    });
+
+    it("charges fileRpm when only compute reaches object storage", () => {
+      expect(target([node("videos", "object_storage")], [edge("api-1", "videos")], [files()])).toBe(
+        "≥ 3100 req/min",
+      );
+    });
+
+    it("adds every feature's fileRpm", () => {
+      expect(target([], [], [files(3000), files(1200, "api-2", "g")])).toBe("≥ 4400 req/min");
+    });
+  });
+
+  it("changes nothing for a feature without fileRpm", () => {
+    expect(target([], [], [feature("api-1")])).toBe("≥ 100 req/min");
+  });
+
+  it("names the feature in the throughput detail, passing or failing", () => {
+    const failing = throughput([], [], [files(10_000_000)]);
+    const passing = throughput([], [], [files(50)]);
+    expect(failing.status).toBe("fail");
+    expect(passing.status).toBe("pass");
+    expect(failing.detail).toContain(
+      "The files for Watch lecture don't come from static hosting or object storage, so your servers serve them too: +10000000 req/min. Put them in a store behind a CDN.",
+    );
+    expect(passing.detail).toContain("The files for Watch lecture don't come from static hosting or object storage");
+  });
+});

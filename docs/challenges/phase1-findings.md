@@ -178,7 +178,8 @@ load balancer, API and database hops are added to the student's latency.
 treat an edge out of an external API as the start of a separate request (like the edges
 finding 12 left out), or don't follow edges out of an external API in the latency walk.
 
-**Finding 15: a CDN earns no latency or throughput credit.** Dropping the CDN costs a design
+**Finding 15: a CDN earns no latency or throughput credit.** *(Addressed for throughput:
+see "Update: finding 15 addressed" below.)* Dropping the CDN costs a design
 nothing on those scores, and saves the CDN's cost:
 
 | Fixture | Latency | Throughput | Cost | Good design |
@@ -284,6 +285,44 @@ browser skips the server hop. Its flaw is the exposed key, which the engine warn
 The engine count stays at 42 of 53: `bad-no-webhook` is still caught only by its brief
 rule, but the engine no longer rewards it.
 
+## Update: finding 15 addressed
+
+([SPEC-file-serving.md](../../SPEC-file-serving.md).) Briefs can now give a feature a
+`fileRpm`: the file requests (pages, scripts, video segments) it has clients make. Unless
+some client fetches files from static hosting or object storage, directly or through a CDN
+in front of one, the servers serve them, and each `fileRpm` is added to the throughput
+target. The throughput detail names the feature. Three briefs carry the field:
+
+| Brief | Feature | `fileRpm` |
+|---|---|---|
+| campus-food-guide | browse-vendors | 2400 |
+| lecture-video-library | watch-lecture | 3000 |
+| file-storage | download-file | 1200 |
+
+| Fixture | Throughput target: before → after | Capacity | New engine fail |
+|---|---|---|---|
+| `campus-food-guide/bad-pages-from-api` | 1300 → 3690 | 1660 | `nfr-throughput` |
+| `lecture-video-library/bad-no-cdn` | 1310 → 4310 | 1678 | `nfr-throughput` |
+| `lecture-video-library/bad-video-in-db` | 1310 → 4310 | 2208 | `nfr-throughput` |
+| `file-storage/bad-files-in-db` | 1020 → 2220 | 1260 | `nfr-throughput` |
+
+Unchanged: every good design, every other fixture, and both demos. The four fixtures'
+expectations were strengthened. `campus-food-guide/bad-no-cdn` doesn't move, because
+students fetch the files straight from static hosting. The `topo-cdn` warning and the
+brief rules catch it. A CDN still earns no latency credit, apart from the existing
+40 ms charge for static hosting without one.
+
+Three designs move from rule-only to engine-caught: `bad-pages-from-api`,
+`lecture-video-library/bad-no-cdn` and `file-storage/bad-files-in-db` (half of finding 5).
+`bad-video-in-db` was already counted through a warning. Across the twelve briefs, the
+engine alone now catches **45 of 53** bad designs. The 8 that still rely on brief rules:
+- `course-registration/bad-direct-enrol`, `chat-app/bad-no-pubsub` and
+  `course-assistant/bad-no-streaming`;
+- `course-link-checker/bad-single-stage`;
+- `file-storage/bad-no-metadata-db` (finding 6);
+- `printing-credits/bad-no-webhook`;
+- the two `bad-results-not-stored` designs.
+
 The rest of this note is the original phase 1 analysis, kept as written.
 
 ## Short answer
@@ -339,7 +378,9 @@ them or because they are about the scoring model rather than one fixture.
    31 ms and $224 against 43 ms and $252 for the correct design. `hopLatencyMs` charges
    28 ms for any object storage hop (line 87) and about 10 ms for a database hop, and
    blob size isn't modelled. *Fix:* give features a payload size, or make large-blob
-   requirements add a heavy latency and cost penalty to database hops.
+   requirements add a heavy latency and cost penalty to database hops. *(Partly addressed
+   by the finding 15 fix: with no store for its files, `bad-files-in-db` now fails
+   throughput. It still scores better on latency and cost.)*
 6. **Removing the database raises throughput.** `file-storage/bad-no-metadata-db` jumps
    from 1260 to 6996 rpm, because `estimateThroughputRpm` caps capacity by the data
    tier only when a database exists (line 195). It fails availability only because it

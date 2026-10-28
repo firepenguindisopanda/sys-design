@@ -37,4 +37,4 @@ design:
     browse-lectures: api-1
     watch-lecture: api-2
 expect:
-  fails: [playback-via-cdn]
+  fails: [playback-via-cdn, nfr-throughput]

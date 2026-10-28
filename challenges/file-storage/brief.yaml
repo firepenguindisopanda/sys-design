@@ -33,6 +33,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
       targetRpm: 600
       computeMsPerRequest: 60
+      fileRpm: 1200
   - id: list-submissions
     text: A TA lists the submissions for an assignment with name, time and size.
     feature:

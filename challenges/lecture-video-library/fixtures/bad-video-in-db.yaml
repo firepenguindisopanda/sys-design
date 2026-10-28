@@ -40,5 +40,5 @@ design:
     browse-lectures: api-1
     watch-lecture: api-2
 expect:
-  fails: [recordings-in-object-storage, renditions-stored, playback-via-cdn]
+  fails: [recordings-in-object-storage, renditions-stored, playback-via-cdn, nfr-throughput]
   warns: [topo-client-data-cdn->videos]

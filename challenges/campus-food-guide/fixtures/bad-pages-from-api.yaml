@@ -24,4 +24,4 @@ design:
     view-vendor: api-2
     post-review: api-2
 expect:
-  fails: [pages-on-cdn, clients-use-cdn]
+  fails: [pages-on-cdn, clients-use-cdn, nfr-throughput]

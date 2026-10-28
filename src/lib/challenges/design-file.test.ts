@@ -139,29 +139,31 @@ describe.each([
   });
 });
 
-describe("sandbox round trip: background work and polling", () => {
+describe("sandbox round trip: background work, polling and files", () => {
   useSimulatorStore.getState().loadDemo();
   const s = useSimulatorStore.getState();
   const [first, ...rest] = s.features;
   const marked: DesignState = {
     ...s,
     challenge: null,
-    features: [{ ...first, backgroundWorkMs: 3000, pollingRpm: 2400 }, ...rest],
+    features: [{ ...first, backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 }, ...rest],
   };
 
-  it("keeps both fields through export and import", () => {
+  it("keeps all three fields through export and import", () => {
     const { text } = exportOrThrow(marked);
     expect(text).toContain("backgroundWorkMs: 3000");
     expect(text).toContain("pollingRpm: 2400");
+    expect(text).toContain("fileRpm: 1200");
     const loaded = importOrThrow(text);
-    expect(loaded.features[0]).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400 });
-    expect(loaded.features.slice(1).some((f) => "backgroundWorkMs" in f || "pollingRpm" in f)).toBe(false);
+    expect(loaded.features[0]).toMatchObject({ backgroundWorkMs: 3000, pollingRpm: 2400, fileRpm: 1200 });
+    expect(loaded.features.slice(1).some((f) => "backgroundWorkMs" in f || "pollingRpm" in f || "fileRpm" in f)).toBe(false);
   });
 
-  it("writes neither field when no feature has them", () => {
+  it("writes none of the fields when no feature has them", () => {
     const { text } = exportOrThrow({ ...s, challenge: null });
     expect(text).not.toContain("backgroundWorkMs");
     expect(text).not.toContain("pollingRpm");
+    expect(text).not.toContain("fileRpm");
   });
 });
 

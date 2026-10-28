@@ -221,6 +221,21 @@ function handsOffWork(nodeId: string, edges: Edge[], byId: Map<string, SimNode>)
 }
 
 /**
+ * True when clients fetch files from a store rather than the servers: an edge from a
+ * client to static hosting or object storage, or to a CDN in front of one.
+ */
+function filesFromStore(edges: Edge[], byId: Map<string, SimNode>): boolean {
+  const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
+  const isStore = (id: string) => kind(id) === "static_hosting" || kind(id) === "object_storage";
+  return edges.some(
+    (e) =>
+      isClientKind(kind(e.source)) &&
+      (isStore(e.target) ||
+        (kind(e.target) === "cdn" && edges.some((o) => o.source === e.target && isStore(o.target)))),
+  );
+}
+
+/**
  * True when the node pushes to a client: SSE or Web Push to it, or a WebSocket with it,
  * directly or through a load balancer.
  */
@@ -697,13 +712,15 @@ export function runVerification(
   }
 
   // Slow work not handed to a worker makes the request wait; features nobody pushes
-  // to are polled, at their polling rate (SPEC-sync-and-polling.md).
+  // to are polled, at their polling rate (SPEC-sync-and-polling.md). Files that don't
+  // come from a store are served by the servers too (SPEC-file-serving.md).
   const inline = placedFeatures.filter(
     (f) => f.backgroundWorkMs && !handsOffWork(f.placedOnNodeId!, edges, byId),
   );
   const polled = placedFeatures.filter(
     (f) => f.pollingRpm && !pushesToClients(f.placedOnNodeId!, edges, byId),
   );
+  const fileServed = filesFromStore(edges, byId) ? [] : placedFeatures.filter((f) => f.fileRpm);
   const inlineMs = Math.max(0, ...inline.map((f) => f.backgroundWorkMs!));
 
   const latency = estimatePathLatency(nodes, edges, credited) + inlineMs;
@@ -712,7 +729,8 @@ export function runVerification(
   const cost = estimateMonthlyCost(nodes, features);
 
   const demandedRpm = features.reduce(
-    (s, f) => s + (polled.includes(f) ? f.pollingRpm! : f.targetRpm),
+    (s, f) =>
+      s + (polled.includes(f) ? f.pollingRpm! : f.targetRpm) + (fileServed.includes(f) ? f.fileRpm! : 0),
     0,
   );
   const throughputTarget = Math.max(nfr.minThroughputRpm, demandedRpm);
@@ -724,6 +742,10 @@ export function runVerification(
   const pollNotes = polled.map(
     (f) =>
       ` ${f.name} isn't pushed to clients, so they poll: ${f.pollingRpm} req/min instead of ${f.targetRpm}. Push updates over SSE or a WebSocket.`,
+  );
+  const fileNotes = fileServed.map(
+    (f) =>
+      ` The files for ${f.name} don't come from static hosting or object storage, so your servers serve them too: +${f.fileRpm} req/min. Put them in a store behind a CDN.`,
   );
   const latencyOk = latency <= nfr.maxLatencyMs;
   // Once inline work counts, "background work isn't included" would no longer be true.
@@ -764,7 +786,8 @@ export function runVerification(
       (thrStatus === "pass"
         ? "Compute + data tier capacity covers target usage across features."
         : "Insufficient capacity. Scale compute, shard DB, add cache, or use queue load-levelling.") +
-      pollNotes.join(""),
+      pollNotes.join("") +
+      fileNotes.join(""),
     actual: `${Math.round(throughput)} req/min`,
     target: `≥ ${throughputTarget} req/min`,
   });

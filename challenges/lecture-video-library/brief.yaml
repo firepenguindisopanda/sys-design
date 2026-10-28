@@ -44,6 +44,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 }
       targetRpm: 800
       computeMsPerRequest: 20
+      fileRpm: 3000
 
 nfr:
   maxLatencyMs: 100

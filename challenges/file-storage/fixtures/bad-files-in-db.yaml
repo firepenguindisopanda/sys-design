@@ -27,5 +27,5 @@ design:
     list-submissions: api-1
     download-file: api-2
 expect:
-  fails: [blobs-in-object-storage]
+  fails: [blobs-in-object-storage, nfr-throughput]
   warns: [cdn-for-downloads]

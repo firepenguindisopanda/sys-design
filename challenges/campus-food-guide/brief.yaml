@@ -27,6 +27,7 @@ functionalRequirements:
       resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
       targetRpm: 800
       computeMsPerRequest: 15
+      fileRpm: 2400
   - id: view-vendor
     text: A student opens a vendor to see its menu, prices and recent reviews.
     feature:
