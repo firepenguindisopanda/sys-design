@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2 } from "lucide-react";
 import { NodeInspector } from "./node-inspector";
 import { EdgeInspector } from "./edge-inspector";
+import { FeatureWorkload } from "./feature-workload";
 
 export function RequirementsPanel() {
   const [reqText, setReqText] = useState("");
@@ -60,6 +61,12 @@ export function RequirementsPanel() {
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             Functional → features
           </div>
+          {locked ? null : (
+            <p className="text-[11px] leading-snug text-slate-500">
+              Optional workload: slow work waits unless a worker takes it; if polled counts when
+              nothing pushes; files count unless they come from a store.
+            </p>
+          )}
           {locked ? (
             <p className="text-[11px] leading-snug text-slate-500">
               Set by the challenge brief. Place each feature on compute.
@@ -185,6 +192,12 @@ export function RequirementsPanel() {
                       </Select>
                     </div>
                   </div>
+
+                  <FeatureWorkload
+                    feature={feature}
+                    locked={locked}
+                    onChange={(patch) => updateFeature(feature.id, patch)}
+                  />
 
                   {feature.placedOnNodeId ? (
                     <Badge

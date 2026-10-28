@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildDesign } from "./challenges/design";
-import { importDesignFile } from "./challenges/design-file";
+import { exportDesignFile, importDesignFile } from "./challenges/design-file";
 import { loadChallenges } from "./challenges/load";
 import { runFixture } from "./challenges/run";
 import { useSimulatorStore } from "./store";
@@ -356,5 +356,31 @@ describe("unsaved work and replace requests", () => {
     store().markSaved();
     expect(store().placeFeature("redirect", store().nodes[0].id).ok).toBe(true);
     expect(store().hasUnsavedWork()).toBe(true);
+  });
+});
+
+describe("workload fields in the sandbox", () => {
+  beforeEach(() => store().loadDemo());
+
+  const exportText = () => {
+    const result = exportDesignFile(store());
+    if ("error" in result) throw new Error(result.error);
+    return result.text;
+  };
+  const results = () => {
+    store().runVerification();
+    return { ...store().verification!, ranAt: 0 };
+  };
+
+  it("setting then clearing a field leaves Export and the results as before", () => {
+    const id = store().features[0].id;
+    const before = { text: exportText(), results: results() };
+
+    store().updateFeature(id, { fileRpm: 2400 });
+    expect(exportText()).toContain("fileRpm: 2400");
+
+    store().updateFeature(id, { fileRpm: undefined });
+    expect(exportText()).toBe(before.text);
+    expect(results()).toEqual(before.results);
   });
 });

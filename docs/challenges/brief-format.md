@@ -88,7 +88,9 @@ shortcut:
   Clients fetching straight from a store, with no CDN, aren't charged. Leave that to the
   `topo-cdn` warning and brief rules.
 
-All three are numbers ≥ 1; leave them out when they don't apply. Brief rules should still
+Students see the fields a brief sets on the feature card, read-only, as "Slow work", "If
+polled" and "Files"; in the sandbox anyone can set them there. All three are numbers ≥ 1;
+leave them out when they don't apply. Brief rules should still
 require the queue, worker, push or CDN edge, because the engine only checks timing and
 load.
 
