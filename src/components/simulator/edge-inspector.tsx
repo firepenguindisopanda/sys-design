@@ -15,9 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArrowLeftRight, Trash2 } from "lucide-react";
-import { SECTION_LABEL } from "./styles";
 
-export function EdgeInspector() {
+/** The selected connection's fields. `InspectorCard` owns the frame and the title. */
+export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
   const selectedEdgeId = useSimulatorStore((s) => s.selectedEdgeId);
   const edges = useSimulatorStore((s) => s.edges);
   const nodes = useSimulatorStore((s) => s.nodes);
@@ -27,34 +27,18 @@ export function EdgeInspector() {
   const id = useId();
 
   const edge = edges.find((e) => e.id === selectedEdgeId);
-  if (!edge) {
-    return (
-      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs text-slate-500">
-        Select a connection on the canvas to edit protocol, label, or endpoints.
-      </div>
-    );
-  }
+  if (!edge) return null;
 
   const data = getEdgeData(edge);
   const meta = PROTOCOL_META[data.protocol];
-  const sourceNode = nodes.find((n) => n.id === edge.source);
-  const targetNode = nodes.find((n) => n.id === edge.target);
 
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
-      <div>
-        <div className={SECTION_LABEL}>
-          Selected connection
-        </div>
-        <div className="mt-0.5 text-sm font-semibold text-slate-900">
-          {sourceNode?.data.label ?? edge.source} → {targetNode?.data.label ?? edge.target}
-        </div>
-        <p className="mt-1 text-[10px] leading-snug text-slate-500">
-          {meta.direction === "bidirectional"
-            ? "Rendered with arrows on both ends (two-way)."
-            : "Directed arrow: initiator / server → target per protocol rules."}
-        </p>
-      </div>
+    <div className="space-y-3">
+      <p className="text-[10px] leading-snug text-slate-500">
+        {meta.direction === "bidirectional"
+          ? "Rendered with arrows on both ends (two-way)."
+          : "Directed arrow: initiator / server → target per protocol rules."}
+      </p>
 
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-protocol`} className="text-xs">Protocol</Label>
@@ -91,7 +75,8 @@ export function EdgeInspector() {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
+        {/* The card is narrow: each select fills its column and truncates long names. */}
+        <div className="min-w-0 space-y-1">
           <Label htmlFor={`${id}-from`} className="text-[10px]">From</Label>
           <Select
             value={edge.source}
@@ -100,8 +85,8 @@ export function EdgeInspector() {
               updateEdge(edge.id, { source: v });
             }}
           >
-            <SelectTrigger id={`${id}-from`} className="h-8 text-xs">
-              <SelectValue />
+            <SelectTrigger id={`${id}-from`} className="h-8 w-full min-w-0 text-xs">
+              <SelectValue className="block! min-w-0 truncate" />
             </SelectTrigger>
             <SelectContent>
               {nodes.map((n) => (
@@ -112,7 +97,7 @@ export function EdgeInspector() {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label htmlFor={`${id}-to`} className="text-[10px]">To</Label>
           <Select
             value={edge.target}
@@ -121,8 +106,8 @@ export function EdgeInspector() {
               updateEdge(edge.id, { target: v });
             }}
           >
-            <SelectTrigger id={`${id}-to`} className="h-8 text-xs">
-              <SelectValue />
+            <SelectTrigger id={`${id}-to`} className="h-8 w-full min-w-0 text-xs">
+              <SelectValue className="block! min-w-0 truncate" />
             </SelectTrigger>
             <SelectContent>
               {nodes.map((n) => (
@@ -151,7 +136,10 @@ export function EdgeInspector() {
           size="sm"
           variant="outline"
           className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700"
-          onClick={() => deleteEdge(edge.id)}
+          onClick={() => {
+            deleteEdge(edge.id);
+            onDeleted?.();
+          }}
         >
           <Trash2 className="h-3.5 w-3.5" />
           Delete

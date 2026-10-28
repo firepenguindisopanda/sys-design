@@ -17,8 +17,6 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2 } from "lucide-react";
-import { NodeInspector } from "./node-inspector";
-import { EdgeInspector } from "./edge-inspector";
 import { FeatureWorkload } from "./feature-workload";
 import { SECTION_LABEL } from "./styles";
 
@@ -323,24 +321,6 @@ export function RequirementsPanel() {
               Defaults mirror BeUWI case study from the PDF (query &lt; 500ms, high search traffic).
             </p>
           )}
-        </section>
-
-        <Separator />
-
-        <section className="space-y-2">
-          <div className={SECTION_LABEL}>
-            Node inspector
-          </div>
-          <NodeInspector />
-        </section>
-
-        <Separator />
-
-        <section className="space-y-2">
-          <div className={SECTION_LABEL}>
-            Connection inspector
-          </div>
-          <EdgeInspector />
         </section>
       </div>
     </aside>

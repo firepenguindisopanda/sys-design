@@ -20,6 +20,7 @@ import { DesignIo } from "./design-io";
 import { DesignNode } from "./design-node";
 import { edgeAriaLabel, nodeAriaLabel } from "./flow-labels";
 import { PendingProtocolPicker } from "./edge-inspector";
+import { InspectorCard } from "./inspector-card";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Eraser, Sparkles } from "lucide-react";
@@ -52,6 +53,12 @@ function FlowCanvas() {
   const onConnect = useSimulatorStore((s) => s.onConnect);
   const selectNode = useSimulatorStore((s) => s.selectNode);
   const selectEdge = useSimulatorStore((s) => s.selectEdge);
+  // Matches when InspectorCard shows, so a tall card never covers the minimap.
+  const inspectorOpen = useSimulatorStore(
+    (s) =>
+      s.nodes.some((n) => n.id === s.selectedNodeId) ||
+      s.edges.some((e) => e.id === s.selectedEdgeId),
+  );
 
   // Screen-reader names are added here only, never written to the store.
   const namedNodes = useMemo(
@@ -84,6 +91,15 @@ function FlowCanvas() {
     selectEdge(null);
   }, [selectNode, selectEdge]);
 
+  // React Flow listens for Delete and Backspace on the whole page and only ignores text
+  // fields, so Backspace on any button (the inspector's close, Run simulation) would
+  // delete the selection. Only delete while keyboard focus is on the canvas itself.
+  const flowRef = useRef<HTMLDivElement>(null);
+  const onBeforeDelete = useCallback(
+    async () => !!flowRef.current?.contains(document.activeElement),
+    [],
+  );
+
   const isValidConnection = useCallback((connection: Connection | Edge) => {
     if (!connection.source || !connection.target) return false;
     // Allow many edges per node / handle; only block self-loops.
@@ -92,6 +108,8 @@ function FlowCanvas() {
 
   return (
     <ReactFlow
+      ref={flowRef}
+      onBeforeDelete={onBeforeDelete}
       nodes={namedNodes}
       edges={styledEdges}
       onNodesChange={onNodesChange}
@@ -125,11 +143,13 @@ function FlowCanvas() {
         className="opacity-40"
       />
       <Controls className="!shadow-sm !border-slate-200" />
-      <MiniMap
-        className="!border-slate-200 !shadow-sm"
-        maskColor="rgb(15 23 42 / 0.08)"
-        nodeColor="#0f766e"
-      />
+      {inspectorOpen ? null : (
+        <MiniMap
+          className="!border-slate-200 !shadow-sm"
+          maskColor="rgb(15 23 42 / 0.08)"
+          nodeColor="#0f766e"
+        />
+      )}
     </ReactFlow>
   );
 }
@@ -158,58 +178,64 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
     return () => ro.disconnect();
   }, []);
 
+  // The inspector card unmounts on close or delete; keep focus on the canvas.
+  const focusCanvas = useCallback(() => containerRef.current?.focus(), []);
+
   return (
-    <div ref={containerRef} className="relative h-full w-full">
-      <div className="pointer-events-none absolute left-3 top-3 z-10 flex flex-wrap gap-2">
-        <ChallengePicker briefs={briefs} />
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
-          {/* Demos belong to the sandbox; in a challenge they would replace the brief. */}
-          {inChallenge ? null : (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1.5 text-xs"
-                onClick={() =>
-                  requestReplace("replace", "Loading the BeUWI demo replaces your design.", loadDemo)
-                }
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Load BeUWI demo
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1.5 text-xs"
-                onClick={() =>
-                  requestReplace("replace", "Loading the fan-in DB demo replaces your design.", loadFanInDemo)
-                }
-              >
-                Fan-in DB demo
-              </Button>
-            </>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 text-xs text-slate-600"
-            onClick={() =>
-              requestReplace(
-                "clear",
-                "Every component and connection is removed. Requirements and targets stay.",
-                clearCanvas,
-              )
-            }
-          >
-            <Eraser className="h-3.5 w-3.5" />
-            Clear
-          </Button>
+    <div ref={containerRef} tabIndex={-1} className="relative h-full w-full outline-none">
+      <div className="pointer-events-none absolute inset-3 z-10 flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+          <ChallengePicker briefs={briefs} />
+          <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 p-1 shadow-sm backdrop-blur">
+            {/* Demos belong to the sandbox; in a challenge they would replace the brief. */}
+            {inChallenge ? null : (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() =>
+                    requestReplace("replace", "Loading the BeUWI demo replaces your design.", loadDemo)
+                  }
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Load BeUWI demo
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() =>
+                    requestReplace("replace", "Loading the fan-in DB demo replaces your design.", loadFanInDemo)
+                  }
+                >
+                  Fan-in DB demo
+                </Button>
+              </>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1.5 text-xs text-slate-600"
+              onClick={() =>
+                requestReplace(
+                  "clear",
+                  "Every component and connection is removed. Requirements and targets stay.",
+                  clearCanvas,
+                )
+              }
+            >
+              <Eraser className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          </div>
+          <DesignIo briefs={briefs} />
+          <PendingProtocolPicker />
         </div>
-        <DesignIo briefs={briefs} />
-        <PendingProtocolPicker />
+        <InspectorCard onClose={focusCanvas} />
       </div>
       {ready ? (
         <ReactFlowProvider>

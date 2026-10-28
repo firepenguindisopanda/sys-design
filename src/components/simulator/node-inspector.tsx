@@ -2,6 +2,7 @@
 
 import { useId } from "react";
 import { useSimulatorStore } from "@/lib/store";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,35 +12,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SECTION_LABEL } from "./styles";
+import { Trash2 } from "lucide-react";
 
-export function NodeInspector() {
+/** The selected node's fields. `InspectorCard` owns the frame and the title. */
+export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
   const selectedNodeId = useSimulatorStore((s) => s.selectedNodeId);
   const nodes = useSimulatorStore((s) => s.nodes);
   const updateNodeData = useSimulatorStore((s) => s.updateNodeData);
   const updateNodeConfig = useSimulatorStore((s) => s.updateNodeConfig);
+  const deleteNode = useSimulatorStore((s) => s.deleteNode);
   const node = nodes.find((n) => n.id === selectedNodeId);
   const id = useId();
 
-  if (!node) {
-    return (
-      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs text-slate-500">
-        Select a canvas node to edit name, purpose, and type-specific options.
-      </div>
-    );
-  }
+  if (!node) return null;
 
   const cfg = node.data.config;
 
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
-      <div>
-        <div className={SECTION_LABEL}>
-          Selected node
-        </div>
-        <div className="mt-0.5 text-sm font-semibold text-slate-900">{node.data.label}</div>
-      </div>
-
+    <div className="space-y-3">
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-name`} className="text-xs">Name</Label>
         <Input
@@ -285,6 +275,20 @@ export function NodeInspector() {
           />
         </div>
       )}
+
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-8 gap-1.5 text-xs text-red-600 hover:text-red-700"
+        onClick={() => {
+          deleteNode(node.id);
+          onDeleted?.();
+        }}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        Delete
+      </Button>
     </div>
   );
 }

@@ -19,7 +19,8 @@ export function ChallengePicker({ briefs }: { briefs: Brief[] }) {
   for (const b of briefs) items[b.id] = b.title;
 
   return (
-    <div className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2 py-1 shadow-sm backdrop-blur">
+    // min-w-0 and max-w-full let the tagline truncate when the inspector card narrows the toolbar.
+    <div className="pointer-events-auto flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white/95 px-2 py-1 shadow-sm backdrop-blur">
       <Target className="h-3.5 w-3.5 text-teal-700" aria-hidden />
       <span className="text-[10px] font-medium text-slate-500">Challenge</span>
       <Select
@@ -59,7 +60,7 @@ export function ChallengePicker({ briefs }: { briefs: Brief[] }) {
         </SelectContent>
       </Select>
       {challenge ? (
-        <span className="hidden max-w-[16rem] truncate text-[10px] text-slate-500 md:inline">
+        <span className="hidden max-w-[16rem] min-w-0 truncate text-[10px] text-slate-500 md:inline">
           {challenge.tagline}
         </span>
       ) : null}

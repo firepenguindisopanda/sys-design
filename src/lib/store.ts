@@ -77,6 +77,8 @@ type SimulatorState = {
   ) => void;
   reverseEdge: (edgeId: string) => void;
   deleteEdge: (edgeId: string) => void;
+  /** Remove a node and its edges, unplace its features and clear the selection. */
+  deleteNode: (id: string) => void;
   addFunctionalRequirement: (text: string) => void;
   removeFunctionalRequirement: (id: string) => void;
   updateFeature: (id: string, patch: Partial<FeatureBlock>) => void;
@@ -523,6 +525,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       edges: get().edges.filter((e) => e.id !== edgeId),
       selectedEdgeId: get().selectedEdgeId === edgeId ? null : get().selectedEdgeId,
     }),
+
+  deleteNode: (id) => {
+    if (!get().nodes.some((n) => n.id === id)) return;
+    const nodes = get().nodes.filter((n) => n.id !== id);
+    set({
+      nodes,
+      edges: get().edges.filter((e) => e.source !== id && e.target !== id),
+      features: unplaceMissing(get().features, nodes),
+      selectedNodeId: null,
+      selectedEdgeId: null,
+    });
+  },
 
   addFunctionalRequirement: (text) => {
     if (get().challenge) return; // a challenge's requirements are fixed

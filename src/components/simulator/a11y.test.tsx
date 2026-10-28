@@ -4,6 +4,7 @@ import { loadChallenges } from "@/lib/challenges/load";
 import { useSimulatorStore } from "@/lib/store";
 import { renderWithStore as render } from "@/test/render-with-store";
 import { PendingProtocolPicker } from "./edge-inspector";
+import { InspectorCard } from "./inspector-card";
 import { RequirementsPanel } from "./requirements-panel";
 
 const store = () => useSimulatorStore.getState();
@@ -66,6 +67,7 @@ describe("accessible names", () => {
   beforeEach(() => store().loadDemo());
 
   const panel = () => render(<RequirementsPanel />);
+  const card = () => render(<InspectorCard onClose={() => {}} />);
 
   it("names every control in the sandbox requirements panel", () => {
     expect(unnamedControls(panel())).toEqual([]);
@@ -74,24 +76,31 @@ describe("accessible names", () => {
   it("names every control in the node inspector", () => {
     const paas = store().nodes.find((n) => n.data.componentKind === "paas")!;
     useSimulatorStore.setState({ selectedNodeId: paas.id, selectedEdgeId: null });
-    const html = panel();
+    const html = card();
     expect(html).toContain("Selected node");
+    expect(html).toContain('aria-label="Close inspector"');
     expect(unnamedControls(html)).toEqual([]);
   });
 
   it("names every control in the database node inspector", () => {
     const db = store().nodes.find((n) => n.data.componentKind === "database")!;
     useSimulatorStore.setState({ selectedNodeId: db.id, selectedEdgeId: null });
-    const html = panel();
+    const html = card();
     expect(html).toContain("Shards");
     expect(unnamedControls(html)).toEqual([]);
   });
 
   it("names every control in the edge inspector", () => {
     useSimulatorStore.setState({ selectedNodeId: null, selectedEdgeId: store().edges[0].id });
-    const html = panel();
+    const html = card();
     expect(html).toContain("Selected connection");
     expect(unnamedControls(html)).toEqual([]);
+  });
+
+  it("leaves the inspectors out of the requirements panel", () => {
+    const paas = store().nodes.find((n) => n.data.componentKind === "paas")!;
+    useSimulatorStore.setState({ selectedNodeId: paas.id, selectedEdgeId: null });
+    expect(panel()).not.toContain("Selected node");
   });
 
   it("names every control in a challenge", () => {

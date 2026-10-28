@@ -469,3 +469,57 @@ describe("stale results", () => {
     expect(store().resultsAreStale()).toBe(false);
   });
 });
+
+describe("deleteNode", () => {
+  beforeEach(() => store().loadDemo());
+
+  const touches = (id: string) => (e: { source: string; target: string }) =>
+    e.source === id || e.target === id;
+
+  it("removes the node and only its edges", () => {
+    const apiId = demoApiNodeId();
+    const others = store().edges.filter((e) => !touches(apiId)(e));
+    expect(store().edges.some(touches(apiId))).toBe(true);
+
+    store().deleteNode(apiId);
+
+    expect(store().nodes.some((n) => n.id === apiId)).toBe(false);
+    expect(store().edges).toEqual(others);
+  });
+
+  it("unplaces only the features that were on it", () => {
+    const apiId = demoApiNodeId();
+    store().addComponent("vm");
+    const vm = store().nodes.at(-1)!;
+    const [first, second] = store().features;
+    expect(store().placeFeature(second.id, vm.id).ok).toBe(true);
+
+    store().deleteNode(apiId);
+
+    const byId = new Map(store().features.map((f) => [f.id, f.placedOnNodeId]));
+    expect(byId.get(first.id)).toBeNull();
+    expect(byId.get(second.id)).toBe(vm.id);
+  });
+
+  it("clears the selection", () => {
+    const apiId = demoApiNodeId();
+    store().selectNode(apiId);
+    store().deleteNode(apiId);
+    expect(store().selectedNodeId).toBeNull();
+    expect(store().selectedEdgeId).toBeNull();
+  });
+
+  it("marks results as stale", () => {
+    store().runVerification();
+    store().deleteNode(demoApiNodeId());
+    expect(store().resultsAreStale()).toBe(true);
+  });
+
+  it("changes nothing for an unknown id", () => {
+    const { nodes, edges, features } = store();
+    store().deleteNode("no-such-node");
+    expect(store().nodes).toEqual(nodes);
+    expect(store().edges).toEqual(edges);
+    expect(store().features).toEqual(features);
+  });
+});

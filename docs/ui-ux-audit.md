@@ -55,7 +55,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - Canvas nodes are announced as an unnamed "group". Edges are announced with internal ids ("Edge from paas-7 to database-9") instead of node names.
 - *Fix:* Use `useId()` with `htmlFor`/`id`, or wrap each input in its `<Label>`. Add `aria-label` to the three controls. Set React Flow's `ariaLabel` on nodes and edges from `data.label`.
 
-**5. In a challenge, the inspector is hidden behind a tab** (seen)
+**5. In a challenge, the inspector is hidden behind a tab** (seen) — **fixed** in `inspector-placement`: an inspector card on the canvas, at every width from 1024 px
 - Adding or clicking a node selects it. The node and edge inspectors are at the bottom of the **Requirements** tab, which is closed while the **Brief** tab is open. Nothing visible changes in the side panel. In the sandbox the inspector is below two feature cards and the NFR block, so you have to scroll to find it.
 - *Why it matters:* Visibility and mapping (Norman). The inspector should appear where the user's attention already is.
 - *Fix:* Make the inspector its own context-driven area. When something is selected, show a third "Selected" tab and switch to it, or show the inspector as a panel docked to the canvas. Return to the previous tab when nothing is selected.
@@ -65,12 +65,12 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - Section labels (`text-slate-400` on `#f8fafc`) measure **2.51:1**. WCAG AA needs 4.5:1. `text-slate-500` at 10 px is borderline.
 - *Fix:* Set a floor of 12 px for body text and 11 px for uppercase labels, and move labels to `slate-500` or darker. Do it through tokens (see finding 14), not one class at a time.
 
-**7. The camera re-fits on every add or delete** (seen, code)
+**7. The camera re-fits on every add or delete** (seen, code) — since `inspector-placement`, nodes stacked by the re-fit can also sit under the inspector card
 - `FitViewOnReady` (`design-canvas.tsx:31`) calls `fitView` whenever the node count changes. Adding one VM to an empty canvas zoomed it to 150%. On a busy canvas, every add re-frames the whole view, so the user loses their place.
 - New nodes appear at `120 + 24·n` (`store.ts:440`), which drifts off-screen once you've panned.
 - *Fix:* Fit only on load, import, challenge start and demo load. Place new nodes at the centre of the current viewport (`screenToFlowPosition`) and nudge them so they don't overlap. Allow drag-and-drop from the library; the instruction says "Click to place", but dragging is the convention users expect in diagram tools.
 
-**8. No undo, and deleting nodes is hidden** (code)
+**8. No undo, and deleting nodes is hidden** (code) — **partly fixed** in `inspector-placement`: the node inspector has a Delete button, and Backspace on a button no longer deletes the selection. Undo is still open
 - Nodes can only be deleted with Backspace (React Flow's default). The canvas's own screen-reader text says "Press delete", which is the wrong key. The node inspector has no Delete button, while the edge inspector has one, so the two are inconsistent.
 - There is no undo or redo anywhere. Accidentally deleting a node also unplaces its features, which silently undoes work in the requirements panel.
 - *Why it matters:* User control and freedom, and error recovery (Nielsen #3 and #9).
