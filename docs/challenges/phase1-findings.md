@@ -323,6 +323,46 @@ engine alone now catches **45 of 53** bad designs. The 8 that still rely on brie
 - `printing-credits/bad-no-webhook`;
 - the two `bad-results-not-stored` designs.
 
+## Update: phase 6 (four new briefs)
+
+([SPEC-phase6-briefs.md](../../SPEC-phase6-briefs.md); probe tables in
+`tasks/phase6-briefs/plan.md`.) Four briefs added: `lab-monitor`, `textbook-price-watch`,
+`club-auction` and `club-photo-wall`, each with four single-flaw bad designs. They bring
+the first uses of database shards, cloud functions as the main lesson, and a client
+uploading straight to object storage. The engine wasn't changed.
+
+| Brief | Bad designs | Caught by the engine | Caught only by brief rules |
+|---|---|---|---|
+| lab-monitor | 4 | 3 (single shard and no cache: `nfr-throughput`; client → DB) | 1 (`bad-direct-writes`) |
+| textbook-price-watch | 4 | 4 (always-on VM: `nfr-cost` and `nfr-availability`; inline price check: `nfr-latency`; phone calls the bookstore; client → DB) | 0 |
+| club-auction | 4 | 3 (polling: `nfr-throughput`; single replica; client → DB) | 1 (`bad-direct-bids`) |
+| club-photo-wall | 4 | 2 (inline thumbnails: `nfr-latency`; client → DB) | 2 (`bad-upload-through-api`; `bad-no-cdn`, a `knownGap`) |
+| **Total** | **16** | **12** | **4** |
+
+Of the 12, 7 are engine **fails** and 5 are warnings. Seven of the catches come from the
+checks added since phase 5 (inline work, polling, file serving) or from cost and shards.
+- **`bad-direct-writes` and `bad-direct-bids`:** each only loses the queue's 15 % bonus,
+  so it stays above its throughput target. Ordering and batching aren't modelled, as with
+  `course-registration/bad-direct-enrol`.
+- **`bad-upload-through-api`:** a CDN still serves the wall, so nothing is charged.
+
+**Finding 16: cache memory counts as write capacity.** The engine adds 200 req/min per GB
+of cache to the database tier, whatever the requests are. In `lab-monitor`, one shard with
+a 6 GB cache scores 1908 req/min, which passes the 1700 target, at $263. That's cheaper than
+the good design's three shards ($289). Only the `sharded-db` rule catches it. *Fix:* give
+requirements a write share, and let the cache raise only read capacity.
+
+**Finding 17: an upload edge looks like a download.** The file-serving check (finding 15)
+treats any client edge to static hosting or object storage as clients fetching files from
+a store. In `club-photo-wall/bad-no-cdn`, the phone's direct-upload edge to storage hides
+that the wall's images come through the API, so `browse-wall`'s `fileRpm` isn't charged.
+It's recorded as a `knownGap` (expected: `nfr-throughput` fails). *Fix:* count a client
+edge to a store only for files the client reads, for example only edges through a CDN or
+static hosting, or mark upload edges.
+
+Across the sixteen briefs, the engine alone now catches **57 of 69** bad designs, and the
+other 12 rely on brief rules. The new brief rules catch everything they were written for.
+
 The rest of this note is the original phase 1 analysis, kept as written.
 
 ## Short answer

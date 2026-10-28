@@ -1,0 +1,42 @@
+description: >-
+  Good design without the CDN. The wall's thumbnails and photos are loaded through the
+  API, which reads them from object storage. Phones still upload straight to storage.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Member phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Wall API 1 }
+    - { id: api-2, kind: paas, label: Wall API 2 }
+    - { id: cache, kind: cache, label: Wall cache, config: { memoryGb: 5 } }
+    - { id: db, kind: database, label: Photos DB, config: { replicas: 2 } }
+    - { id: photos, kind: object_storage, label: Photos }
+    - { id: jobs, kind: message_queue, label: Thumbnail jobs }
+    - { id: thumbnailers, kind: task_worker, label: Thumbnail workers }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - phone -> photos : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> photos : http
+    - api-2 -> photos : http
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - jobs -> thumbnailers : http
+    - thumbnailers -> photos : http
+    - thumbnailers -> db : db
+  placements:
+    post-photo: api-1
+    browse-wall: api-2
+    view-photo: api-2
+expect:
+  fails: [wall-via-cdn, nfr-throughput]
+knownGap: >-
+  The engine treats any client edge to object storage as clients fetching files from
+  a store, so the phone's upload edge hides that the wall's images come through the
+  API, and browse-wall's fileRpm isn't charged.

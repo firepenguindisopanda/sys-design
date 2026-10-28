@@ -1,0 +1,101 @@
+id: club-photo-wall
+title: Society photo wall
+tagline: Share and browse photos from society events
+source: >-
+  Adapted from the "instagram" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a photo wall for the university's student societies.
+summary: >-
+  Members of student societies post photos from their events, and everyone browses a
+  wall of the latest photos for a society or for the whole campus. A photo straight from
+  a phone is several megabytes, so the wall shows small thumbnails and opens the full
+  photo on tap. Journeys: a member posts a photo with a caption; a student browses a
+  wall; a student opens one photo. The hard part: big files going up and many small ones
+  coming down. The API should hand the phone a link to upload the photo straight to
+  storage, workers should make the thumbnails, and the wall's images should come from a
+  CDN, so the API servers only deal with captions and lists.
+outOfScope:
+  - comments and likes
+  - video
+  - moderation of what's posted
+  - following individual students
+
+functionalRequirements:
+  - id: post-photo
+    text: A society member posts a photo with a caption to their society's wall.
+    feature:
+      name: Post photo
+      description: Give the phone an upload link, record the photo, and start its thumbnails.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 40
+      computeMsPerRequest: 30
+      backgroundWorkMs: 3000
+  - id: browse-wall
+    text: A student scrolls a wall of the latest photos for one society or the whole campus.
+    feature:
+      name: Browse wall
+      description: Return the latest photos' captions and thumbnail links.
+      resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 800
+      computeMsPerRequest: 15
+      fileRpm: 3200
+  - id: view-photo
+    text: A student opens one photo at full size.
+    feature:
+      name: View photo
+      description: Return the photo's details and where to load it from.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 10
+
+nfr:
+  maxLatencyMs: 70
+  minThroughputRpm: 1300
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 340
+
+rules:
+  - id: direct-upload
+    title: Phones upload straight to storage
+    type: edge
+    mode: required
+    from: client
+    to: object_storage
+    severity: fail
+    why: Several megabytes per photo shouldn't pass through your API servers; the API hands out an upload link and the phone sends the photo straight to object storage.
+  - id: thumbnails-queued
+    title: Thumbnails go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Making thumbnails takes seconds; the API queues the job and answers the member at once.
+  - id: workers-thumbnail
+    title: Workers store the thumbnails
+    type: edge
+    mode: required
+    from: task_worker
+    to: object_storage
+    severity: fail
+    why: Workers read the original, make the small versions and write them back to storage, where the wall loads them from.
+  - id: wall-via-cdn
+    title: Wall images through a CDN
+    type: edge
+    mode: required
+    from: cdn
+    to: object_storage
+    severity: fail
+    why: Every student scrolling the wall loads dozens of thumbnails; a CDN in front of storage serves them from nearby copies.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - A phone loses signal halfway through an upload. What does the wall show, and how does the photo get finished or cleaned up?
+  - The upload link lets anyone with it write to your storage. How long should it last, and what should it allow?
+  - A photo is deleted after it was posted. How long can the CDN keep showing it, and what can you do about that?

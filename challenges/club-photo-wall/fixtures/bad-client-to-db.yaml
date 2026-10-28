@@ -1,0 +1,41 @@
+description: >-
+  Good design plus a direct connection from the laptop to the database.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Member phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: cdn, kind: cdn, label: Photo CDN }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Wall API 1 }
+    - { id: api-2, kind: paas, label: Wall API 2 }
+    - { id: cache, kind: cache, label: Wall cache, config: { memoryGb: 5 } }
+    - { id: db, kind: database, label: Photos DB, config: { replicas: 2 } }
+    - { id: photos, kind: object_storage, label: Photos }
+    - { id: jobs, kind: message_queue, label: Thumbnail jobs }
+    - { id: thumbnailers, kind: task_worker, label: Thumbnail workers }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - laptop -> db : db
+    - phone -> photos : http
+    - phone -> cdn : http
+    - laptop -> cdn : http
+    - cdn -> photos : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - jobs -> thumbnailers : http
+    - thumbnailers -> photos : http
+    - thumbnailers -> db : db
+  placements:
+    post-photo: api-1
+    browse-wall: api-2
+    view-photo: api-2
+expect:
+  fails: [no-client-to-db]
+  warns: [topo-client-data-laptop->db]
