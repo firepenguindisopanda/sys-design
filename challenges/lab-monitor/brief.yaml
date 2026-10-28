@@ -1,0 +1,98 @@
+id: lab-monitor
+title: Lab machine monitor
+tagline: Watch the health of every machine in the faculty's labs
+source: >-
+  Adapted from the "metrics-monitoring" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a monitor for one faculty's computer labs.
+summary: >-
+  The faculty has about 500 machines across its computer labs. A small agent on each
+  machine reports its CPU, memory and disk use every 20 seconds, all day. Lab
+  technicians open a dashboard that shows the last hour for one lab, and each
+  technician sets the disk level at which they want a push on their phone. Journeys: a
+  machine reports a reading; a technician views a lab's dashboard; a technician gets a
+  push when a machine's disk is nearly full. The hard part: readings arrive all the time
+  and far outnumber the dashboard views, so writing them is the load to plan for, and
+  one database can't take it alone.
+outOfScope:
+  - installing or updating the agent
+  - remote control of lab machines
+  - long-term reports beyond one semester
+  - alerts other than disk space
+
+functionalRequirements:
+  - id: report-metrics
+    text: Each lab machine reports its CPU, memory and disk use every 20 seconds.
+    feature:
+      name: Report metrics
+      description: Accept a reading and hand it on to be stored.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 0.5 }
+      targetRpm: 1500
+      computeMsPerRequest: 5
+  - id: view-dashboard
+    text: A technician views the last hour of readings for one lab.
+    feature:
+      name: View dashboard
+      description: Return the recent readings for every machine in a lab.
+      resources: { memoryGb: 1, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 120
+      computeMsPerRequest: 20
+  - id: disk-alert
+    text: A technician sets a disk level and gets a push when any machine goes over it.
+    feature:
+      name: Disk alerts
+      description: Store each technician's alert level; workers compare readings against it.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0.5 }
+      targetRpm: 20
+      computeMsPerRequest: 10
+
+nfr:
+  maxLatencyMs: 50
+  minThroughputRpm: 1700
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 350
+
+rules:
+  - id: ingest-queued
+    title: Readings go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: Readings arrive all the time; the API puts them on a queue so a burst never waits on the database.
+  - id: workers-write
+    title: Workers write readings
+    type: edge
+    mode: required
+    from: task_worker
+    to: database
+    severity: fail
+    why: Workers take readings off the queue and write them in batches, which the database handles far better than one row at a time.
+  - id: sharded-db
+    title: Sharded database
+    type: component
+    kind: database
+    minConfig: { shards: 3 }
+    severity: fail
+    why: All the writes can't go to one database server; split the readings across shards, for example by lab.
+  - id: dashboard-cache
+    title: Dashboard reads from a cache
+    type: edge
+    mode: required
+    from: compute
+    to: cache
+    severity: fail
+    why: Every technician looking at the same lab asks for the same hour of data; keep it in a cache so the shards are free for writes.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - Which key would you shard the readings by, and what happens to the dashboard if one lab is much busier than the others?
+  - Readings older than a week are rarely viewed. How would you keep them cheaply, or drop the detail?
+  - A machine stops reporting. How does your design notice, and should that be an alert too?

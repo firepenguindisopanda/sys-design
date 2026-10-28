@@ -1,0 +1,29 @@
+description: >-
+  Good design without the queue and workers. The API writes each reading to the
+  database as it arrives and sends disk alerts itself.
+design:
+  nodes:
+    - { id: lab-pc, kind: desktop, label: Lab machine }
+    - { id: laptop, kind: desktop, label: Technician laptop }
+    - { id: phone, kind: mobile, label: Technician phone }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Monitor API 1 }
+    - { id: api-2, kind: paas, label: Monitor API 2 }
+    - { id: cache, kind: cache, label: Dashboard cache, config: { memoryGb: 2 } }
+    - { id: db, kind: database, label: Readings DB, config: { replicas: 2, shards: 3 } }
+  edges:
+    - lab-pc -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-2 -> phone : web_push
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    report-metrics: api-1
+    view-dashboard: api-2
+    disk-alert: api-2
+expect:
+  fails: [ingest-queued, workers-write]
