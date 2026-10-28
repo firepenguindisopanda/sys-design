@@ -57,7 +57,7 @@ functionalRequirements:
 
 ```yaml
 nfr:
-  maxLatencyMs: 120         # critical-path latency estimate must be at most this
+  maxLatencyMs: 70          # time to answer a request must be at most this
   minThroughputRpm: 1300    # capacity must reach max(this, sum of targetRpm)
   minAvailabilityPct: 99.9  # 0 to 100
   maxMonthlyCostUsd: 275    # optional; leave out for no budget
@@ -228,7 +228,10 @@ Never use `knownGap` for a mistake in the fixture itself, and never leave it emp
    ```
 
    Set the NFRs so the good design passes with some headroom (around 15 to 30 percent
-   on throughput and cost). Change the good design or the targets, never the engine.
+   on throughput and cost). Set the latency target to twice the good design's latency,
+   rounded up to the next 10 ms, so a correct design with one extra hop still passes;
+   `tests/calibration.test.ts` fails if it is more than three times. Change the good
+   design or the targets, never the engine.
    Note that a 99.9 % availability target needs a load balancer, two compute nodes and
    a replicated database, and leaves no headroom.
 4. Write at least three `bad-<flaw>.yaml` fixtures. Start each one as a copy of
@@ -249,4 +252,5 @@ Never use `knownGap` for a mistake in the fixture itself, and never leave it emp
 | `src/lib/challenges/rules.ts` | Evaluates a brief's rules |
 | `src/lib/challenges/run.ts` | Runs one fixture and compares the outcome with `expect` |
 | `tests/challenges.test.ts` | One test per fixture, plus one structure test per brief |
+| `tests/calibration.test.ts` | Each brief's latency target is between its good design's latency and three times it |
 | `tests/probe.test.ts` | Calibration aid; skipped unless `PROBE=1` |

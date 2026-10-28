@@ -44,7 +44,7 @@ functionalRequirements:
       computeMsPerRequest: 20
 
 nfr:
-  maxLatencyMs: 200
+  maxLatencyMs: 70
   minThroughputRpm: 1650
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 300

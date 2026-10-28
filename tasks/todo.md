@@ -1,85 +1,76 @@
-# Tasks: `request-latency`
+# Tasks: `latency-targets`
 
-Spec: [SPEC-request-latency.md](../SPEC-request-latency.md). Plan: [plan.md](plan.md).
+Spec: [SPEC-latency-targets.md](../SPEC-latency-targets.md). Plan: [plan.md](plan.md).
 
 Standing verification: `npm test`, `npx tsc --noEmit`, `npm run lint` pass;
-`tests/demos.test.ts` and every fixture's `expect` unchanged.
+`tests/demos.test.ts` and every fixture's `expect` unchanged; no engine change.
 
 ---
 
-## Task 1: Tests first
+## Task 1: Guard test first
 
-**Description:** In `src/lib/simulation.test.ts` (using its `node`, `edge`, `feature`
-helpers), a `describe("request latency")` block:
+**Description:** New `tests/calibration.test.ts`: load the briefs; for each brief, run its
+`good` fixture and check
 
-- API → queue → worker → database adds only the enqueue hop compared with the same
-  design without the worker chain;
-- server → client SSE and Web Push edges add nothing, and the receiving client still
-  starts requests;
-- client → load balancer → API → database gives the same number as today;
-- a design with no clients uses the nodes with no incoming edge;
-- a WebSocket edge drawn server → client still lets the client start a request.
-
-New `tests/latency.test.ts`: load the briefs; for each pair from the spec's Objective
-table, the good design's latency is ≤ the shortcut's.
+- latency ≤ `nfr.maxLatencyMs`;
+- `nfr.maxLatencyMs` ≤ 3 × latency.
 
 **Acceptance criteria:**
-- [x] New tests fail against today's engine for the reasons the spec gives (the chains
-  and pushes are counted); the "unchanged" cases pass already
+- [x] Against today's briefs, the second check fails for exactly the seven briefs whose
+  targets change (shuttle-tracker only just: 100 ms is 3.03 × 33 ms) and passes for
+  course-assistant (2.0×); the first check passes for all eight
 
 **Verification:**
-- [x] `npx vitest run src/lib/simulation.test.ts tests/latency.test.ts` shows the
-  expected failures
+- [x] `npx vitest run tests/calibration.test.ts` shows the expected failures
 
 **Dependencies:** None
 
-**Files:** `src/lib/simulation.test.ts`, `tests/latency.test.ts`
+**Files:** `tests/calibration.test.ts`
 
 **Estimated scope:** S
 
 ---
 
-## Task 2: The change
+## Task 2: The seven targets
 
-**Description:** In `estimatePathLatency`: roots from `requestRoots(nodes, edges)`;
-skip edges whose source is a `message_queue` or `task_worker`, or whose protocol is
-`sse` or `web_push`. Add to the `nfr-latency` detail that background work and server
-push aren't included.
+**Description:** Set `maxLatencyMs` in each `challenges/<id>/brief.yaml` to the spec's
+table: link-shortener 70, file-storage 90, chat-app 60, notification-system 70,
+lab-autograder 50, course-registration 70, shuttle-tracker 70. course-assistant stays 120.
 
 **Acceptance criteria:**
 - [x] Task 1's tests pass
-- [x] The probe gives the spec's "after" latency for every fixture (compare with the
-  prototype output)
-- [x] Demos and all existing tests unchanged
+- [x] The probe shows every good design at the spec's latency and passing
+- [x] Only `link-shortener/bad-gap-no-edges` gains an `nfr-latency` fail
+- [x] All existing tests unchanged
 
 **Verification:**
-- [x] `npm test`; probe compared with the prototype table; standing checks
+- [x] `npm test`; probe compared with the spec; standing checks
 
 **Dependencies:** Task 1
 
-**Files:** `src/lib/simulation.ts`
+**Files:** seven `challenges/*/brief.yaml`
 
-**Estimated scope:** S
+**Estimated scope:** XS
 
 ---
 
 ## Task 3: Docs, full checks, browser spot check
 
-**Description:** Finding 12 marked fixed in `docs/challenges/phase1-findings.md` (with
-the before/after table) and finding 7 updated; the `nfr-latency` row in
-`docs/challenges/brief-format.md`; `HANDOVER.md`. In the browser, import
-`shuttle-tracker/good.yaml` and `bad-polling.yaml`: both show 33 ms; the latency check's
-detail reads as intended.
+**Description:** The calibrating step and `nfr` example in
+`docs/challenges/brief-format.md`; "Calibration done" and the finding 12 update in
+`docs/challenges/phase1-findings.md`; `HANDOVER.md`. In the browser, start the
+lab-autograder challenge: the Requirements tab shows 50 ms; importing `good.yaml` shows
+the latency row passing at 25 ms against ≤ 50 ms.
 
 **Acceptance criteria:**
 - [x] Docs updated
-- [x] Browser shows the new figures and wording; no console errors
+- [x] Browser shows the new target; no console errors
 - [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` pass
 
 **Dependencies:** Task 2
 
-**Files:** `docs/challenges/phase1-findings.md`, `docs/challenges/brief-format.md`,
-`HANDOVER.md`, `tasks/plan.md`
+**Files:** `docs/challenges/brief-format.md`, `docs/challenges/phase1-findings.md`,
+`HANDOVER.md`, `tasks/plan.md`, `tasks/todo.md`
 
 **Estimated scope:** S
 

@@ -135,7 +135,8 @@ extra (findings 10 and 7), so brief rules still catch those designs.
 is the exposed key. `tests/latency.test.ts` guards the seven pairs.
 
 Latency targets weren't changed, so they are now looser than when they were set (for
-example the alerts brief: 200 ms target, 31 ms good design).
+example the alerts brief: 200 ms target, 31 ms good design). *Since recalibrated:* see
+"Calibration done" below and [SPEC-latency-targets.md](../../SPEC-latency-targets.md).
 
 The rest of this note is the original phase 1 analysis, kept as written.
 
@@ -240,6 +241,13 @@ the spec's provisional numbers:
 - `link-shortener`: cost budget $250 → $275; the good design uses a 6 GB cache because
   the data tier caps throughput.
 - `notification-system`: cost budget $250 → $300.
+- **Latency targets, after the finding 12 fix** (`latency-targets`): twice the good
+  design's latency, rounded up to the next 10 ms. link-shortener 120 → 70 ms,
+  file-storage 250 → 90, chat-app 150 → 60, notification-system 200 → 70,
+  lab-autograder 100 → 50, course-registration 100 → 70, shuttle-tracker 100 → 70;
+  course-assistant stays 120. Every good design still passes; only
+  `link-shortener/bad-gap-no-edges` newly fails `nfr-latency` (92 ms).
+  `tests/calibration.test.ts` fails if a target goes above three times its good design.
 
 ## Suggested order for phase 2
 

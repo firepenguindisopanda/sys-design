@@ -1,7 +1,7 @@
 # Spec: measure latency along request paths (finding 12)
 
 Status: **implemented** (2026-10-28); approved with all three proposals: latency targets unchanged, no
-second figure for now, and a combined plan and task list. Plan: [tasks/plan.md](tasks/plan.md).
+second figure for now, and a combined plan and task list. Plan: [tasks/request-latency/plan.md](tasks/request-latency/plan.md).
 Engine change from finding 12 in `docs/challenges/phase1-findings.md`. Module id
 `request-latency`. Branch: `fix/request-latency`, from `main` (`d7dbb15`).
 
