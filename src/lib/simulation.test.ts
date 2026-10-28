@@ -417,6 +417,15 @@ describe("request latency", () => {
     const nodes = [node("phone", "mobile"), node("api-1", "paas"), node("db", "database", { replicas: 2 })];
     expect(latency(nodes, [edge("api-1", "phone", "sse"), edge("api-1", "db", "db")])).toBe(20);
   });
+
+  // Finding 14: the server calls an outside service, which calls back later (a webhook).
+  it("counts the call to an external API but not its callback", () => {
+    const { nodes, edges } = base();
+    nodes.push(node("pay", "external_api"));
+    const calls = [...edges, edge("api-1", "pay")];
+    expect(latency(nodes, calls)).toBe(28 + 8 + 45);
+    expect(latency(nodes, [...calls, edge("pay", "lb")])).toBe(28 + 8 + 45);
+  });
 });
 
 describe("inline work and polling", () => {

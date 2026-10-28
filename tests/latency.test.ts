@@ -13,6 +13,8 @@ const PAIRS: [brief: string, shortcut: string][] = [
   ["course-assistant", "bad-no-streaming"],
   ["chat-app", "bad-no-pubsub"],
   ["notification-system", "bad-sync-delivery"],
+  // Finding 14: the provider's callback is a separate request.
+  ["printing-credits", "bad-no-webhook"],
 ];
 
 const challenges = loadChallenges(path.resolve(__dirname, "../challenges"));

@@ -135,7 +135,8 @@ function hopLatencyMs(
 
 /**
  * True for edges a student's request doesn't wait for: a queue handing work to a
- * consumer, a background worker's own calls, and the server pushing to a client.
+ * consumer, a background worker's own calls, an outside service calling back (a
+ * webhook is a separate request), and the server pushing to a client.
  */
 function isAfterResponse(e: Edge, byId: Map<string, SimNode>): boolean {
   const kind = byId.get(e.source)?.data.componentKind;
@@ -143,6 +144,7 @@ function isAfterResponse(e: Edge, byId: Map<string, SimNode>): boolean {
   return (
     kind === "message_queue" ||
     kind === "task_worker" ||
+    kind === "external_api" ||
     protocol === "sse" ||
     protocol === "web_push"
   );

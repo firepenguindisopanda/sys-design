@@ -170,7 +170,8 @@ provider call the server back (a webhook), so `topo-intermediate` warned that th
 was "used as a hop". External APIs are now exempt, as clients and task workers are since
 finding 9; a unit test covers it, and no other result moved.
 
-**Finding 14: a callback is counted as part of the request.** The webhook edge (provider →
+**Finding 14: a callback is counted as part of the request.** *(Fixed: see "Update:
+finding 14 fixed" below.)* The webhook edge (provider →
 load balancer) is walked as if the student's request waited for it, so the callback's
 load balancer, API and database hops are added to the student's latency.
 `printing-credits/bad-no-webhook` scores 66 ms against 111 for the good design. *Fix:*
@@ -259,6 +260,29 @@ Five designs move from rule-only to engine-caught: `bad-sync-grading`,
   - `printing-credits/bad-no-webhook`;
   - `campus-food-guide/bad-pages-from-api` and `lecture-video-library/bad-no-cdn`.
 - **A worker whose results go nowhere:** the two `bad-results-not-stored` designs.
+
+## Update: finding 14 fixed
+
+([SPEC-webhook-latency.md](../../SPEC-webhook-latency.md).) An edge out of an external API is
+a callback, a separate request the student's doesn't wait for. The latency walk now
+leaves it out, as it does queues, workers and push edges. The call *to* the external API
+still counts. Only `printing-credits` has such an edge (its webhook):
+
+| Fixture | Before | After |
+|---|---|---|
+| `printing-credits/good` | 111 ms | 66 ms |
+| `printing-credits/bad-no-webhook` | 66 ms | 66 ms (now ties the good design) |
+| `printing-credits/bad-client-to-db` | 111 ms | 66 ms |
+| `printing-credits/bad-single-db-replica` | 111 ms | 66 ms |
+| `printing-credits/bad-client-calls-provider` | 93 ms | 31 ms |
+
+The brief's latency target was recalibrated from 230 to 140 ms (2× the good design,
+rounded up). No fixture's expected results changed, and every other brief and both demos
+are unchanged. `bad-client-calls-provider` is faster than the good design because the
+browser skips the server hop. Its flaw is the exposed key, which the engine warns about.
+`tests/latency.test.ts` now also pins `bad-no-webhook` as no faster than the good design.
+The engine count stays at 42 of 53: `bad-no-webhook` is still caught only by its brief
+rule, but the engine no longer rewards it.
 
 The rest of this note is the original phase 1 analysis, kept as written.
 
@@ -373,6 +397,8 @@ the spec's provisional numbers:
   course-assistant stays 120. Every good design still passes; only
   `link-shortener/bad-gap-no-edges` newly fails `nfr-latency` (92 ms).
   `tests/calibration.test.ts` fails if a target goes above three times its good design.
+- **printing-credits, after the finding 14 fix** (`webhook-latency`): 230 → 140 ms, for the
+  good design's 66 ms.
 
 ## Suggested order for phase 2
 

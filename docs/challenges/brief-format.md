@@ -132,6 +132,9 @@ characters, shown to students as the name of the verification row), a `severity`
 
 - Rules look at **single edges**, not paths. If the real path runs through a load
   balancer, list it as an allowed endpoint, as above.
+- Draw a webhook (an outside service calling your server back) as an edge from the
+  `external_api` to compute or a load balancer. Latency treats it as a separate request,
+  not part of the student's. Draw two-way edges with an external API from your server.
 - `websocket` and `webrtc` are two-way, so they match in either direction. Every other
   protocol matches only in the direction it was drawn.
 - `minConfig` can only check numbers. String settings such as a queue's `mode` can't be
@@ -218,7 +221,7 @@ fixture's own node ids or `source->target` edge ids, e.g. `placement-overflow-ap
 | `topo-api-keys-<edge>` | warn | A client-like node talks to an external API |
 | `topo-client-data-<edge>` | warn | A client-side node (mobile, desktop, IoT, static hosting, CDN) is wired straight to a database or cache, either direction |
 | `topo-sse-dir-<edge>` | warn | An SSE or Web Push edge isn't drawn server → client |
-| `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues and workers and SSE/Web Push edges (background work and server push), plus any inline `backgroundWorkMs` |
+| `nfr-latency` | pass/fail | Estimated time to answer a client's request against `maxLatencyMs`: the longest chain of hops from a client, leaving out edges out of queues, workers and external APIs and SSE/Web Push edges (background work, callbacks and server push), plus any inline `backgroundWorkMs` |
 | `nfr-throughput` | pass/fail | Estimated capacity against the throughput target: max(`minThroughputRpm`, the sum of features' `targetRpm`, using `pollingRpm` for polled features) |
 | `nfr-availability` | pass/fail | Estimated availability against `minAvailabilityPct` |
 | `nfr-cost` | pass/fail | Estimated monthly cost against `maxMonthlyCostUsd` (only if set) |
