@@ -1,8 +1,12 @@
+import path from "node:path";
 import type { Edge, Node } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 import { COMPONENT_CATALOG } from "./catalog";
 import { createStyledEdge } from "./edges";
+import { loadChallenges } from "./challenges/load";
+import { runFixture } from "./challenges/run";
 import { runVerification } from "./simulation";
+import { useSimulatorStore } from "./store";
 import type { ComponentKind, DesignNodeData, EdgeProtocol, FeatureBlock } from "./types";
 
 function node(id: string, kind: ComponentKind, config: object = {}): Node<DesignNodeData> {
@@ -739,5 +743,25 @@ describe("write capacity", () => {
       actual: "1600 req/min",
       detail: "The database's shards can take the writes.",
     });
+  });
+});
+
+describe("check messages", () => {
+  const challenges = loadChallenges(path.resolve(__dirname, "../../challenges"));
+  const fixtureResults = challenges.flatMap((c) =>
+    c.fixtures.map((f) => [`${c.brief.id}/${f.name}`, runFixture(c.brief, f).verification] as const),
+  );
+  const demoResult = (load: () => void) => {
+    load();
+    const { nodes, edges, features, nfr } = useSimulatorStore.getState();
+    return runVerification(nodes, edges, features, nfr);
+  };
+
+  it.each([
+    ...fixtureResults,
+    ["BeUWI demo", demoResult(() => useSimulatorStore.getState().loadDemo())] as const,
+    ["fan-in demo", demoResult(() => useSimulatorStore.getState().loadFanInDemo())] as const,
+  ])("%s: no detail cites the PDF", (_, result) => {
+    expect(result.checks.filter((c) => c.detail.includes("PDF")).map((c) => c.detail)).toEqual([]);
   });
 });

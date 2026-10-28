@@ -384,3 +384,88 @@ describe("workload fields in the sandbox", () => {
     expect(results()).toEqual(before.results);
   });
 });
+
+describe("stale results", () => {
+  beforeEach(() => store().loadDemo());
+
+  const run = () => store().runVerification();
+  const node = (kind: string) => store().nodes.find((n) => n.data.componentKind === kind)!;
+
+  it("is not stale with no result", () => {
+    expect(store().verification).toBeNull();
+    expect(store().resultsAreStale()).toBe(false);
+  });
+
+  it("is not stale right after a run", () => {
+    run();
+    expect(store().verifiedFingerprint).not.toBeNull();
+    expect(store().resultsAreStale()).toBe(false);
+  });
+
+  it.each<[string, () => void]>([
+    ["adding a node", () => store().addComponent("vm")],
+    ["deleting an edge", () => store().deleteEdge(store().edges[0].id)],
+    ["changing a protocol", () => store().updateEdge(store().edges[0].id, { protocol: "websocket" })],
+    ["unplacing a feature", () => store().placeFeature(store().features[0].id, null)],
+    ["changing a target in the sandbox", () => store().setNfr({ maxLatencyMs: 300 })],
+    ["renaming a node", () => store().updateNodeData(node("paas").id, { label: "Search API" })],
+    ["changing a config field", () => store().updateNodeConfig(node("database").id, { replicas: 3 })],
+  ])("is stale after %s", (_, change) => {
+    run();
+    change();
+    expect(store().resultsAreStale()).toBe(true);
+  });
+
+  it.each<[string, () => void]>([
+    [
+      "moving a node",
+      () => store().onNodesChange([{ type: "position", id: node("paas").id, position: { x: 900, y: 500 } }]),
+    ],
+    [
+      "React Flow measuring a node",
+      () =>
+        store().onNodesChange([
+          { type: "dimensions", id: node("paas").id, dimensions: { width: 180, height: 64 } },
+        ]),
+    ],
+    ["selecting a node", () => store().selectNode(node("paas").id)],
+    ["selecting an edge", () => store().selectEdge(store().edges[0].id)],
+    ["editing a purpose", () => store().updateNodeData(node("paas").id, { purpose: "Search" })],
+  ])("is not stale after %s", (_, change) => {
+    run();
+    change();
+    expect(store().resultsAreStale()).toBe(false);
+  });
+
+  it("is fresh again after running again", () => {
+    run();
+    store().addComponent("vm");
+    run();
+    expect(store().resultsAreStale()).toBe(false);
+  });
+
+  const goodText = readFileSync(
+    path.resolve(__dirname, "../../challenges/link-shortener/fixtures/good.yaml"),
+    "utf8",
+  );
+
+  it.each<[string, () => void]>([
+    ["clearCanvas", () => store().clearCanvas()],
+    ["startChallenge", () => store().startChallenge(brief)],
+    [
+      "loadDesign",
+      () => {
+        const result = importDesignFile(`challenge: link-shortener\n${goodText}`, "test.yaml", [brief], null);
+        if ("error" in result) throw new Error(result.error);
+        store().loadDesign(result.loaded);
+      },
+    ],
+    ["loadDemo", () => store().loadDemo()],
+  ])("%s clears the result and its record", (_, replace) => {
+    run();
+    replace();
+    expect(store().verification).toBeNull();
+    expect(store().verifiedFingerprint).toBeNull();
+    expect(store().resultsAreStale()).toBe(false);
+  });
+});

@@ -49,6 +49,10 @@ type SimulatorState = {
   features: FeatureBlock[];
   nfr: NonFunctionalRequirements;
   verification: VerificationResult | null;
+  /** The design as it was when `verification` ran; null with no result */
+  verifiedFingerprint: Fingerprint | null;
+  /** True when the design has changed in a way that could alter the last result */
+  resultsAreStale: () => boolean;
   /** Active challenge brief; null in the sandbox */
   challenge: Brief | null;
   /** Brief rule results from the last verification in a challenge */
@@ -137,6 +141,7 @@ const demoSeed = (): Pick<
   | "features"
   | "nfr"
   | "verification"
+  | "verifiedFingerprint"
   | "selectedNodeId"
   | "selectedEdgeId"
   | "pendingProtocol"
@@ -289,6 +294,7 @@ const demoSeed = (): Pick<
       maxMonthlyCostUsd: 250,
     },
     verification: null,
+    verifiedFingerprint: null,
     selectedNodeId: null,
     selectedEdgeId: null,
     pendingProtocol: "http",
@@ -356,6 +362,7 @@ const fanInSeed = (): ReturnType<typeof demoSeed> => {
       maxMonthlyCostUsd: 400,
     },
     verification: null,
+    verifiedFingerprint: null,
     selectedNodeId: null,
     selectedEdgeId: null,
     pendingProtocol: "db",
@@ -381,6 +388,7 @@ function challengeSeed(brief: Brief) {
     ),
     nfr: { ...brief.nfr },
     verification: null,
+    verifiedFingerprint: null,
     selectedNodeId: null,
     selectedEdgeId: null,
   };
@@ -588,7 +596,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     const { nodes, edges, features, nfr, challenge } = get();
     const verification = runVerification(nodes, edges, features, nfr);
     if (!challenge) {
-      set({ verification, ruleResults: null });
+      set({
+        verification,
+        ruleResults: null,
+        verifiedFingerprint: fingerprint(get(), { forResults: true }),
+      });
       return;
     }
     // In a challenge the brief's rules count too: overall is the worst of both.
@@ -596,7 +608,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     const overall = [verification.overall, ...ruleResults.map((r) => r.status)].reduce(
       (a, b) => (SEVERITY[b] > SEVERITY[a] ? b : a),
     );
-    set({ verification: { ...verification, overall }, ruleResults });
+    set({
+      verification: { ...verification, overall },
+      ruleResults,
+      verifiedFingerprint: fingerprint(get(), { forResults: true }),
+    });
   },
 
   loadDemo: () => set({ ...withBaseline(demoSeed()), challenge: null, ruleResults: null }),
@@ -611,6 +627,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       selectedNodeId: null,
       selectedEdgeId: null,
       verification: null,
+      verifiedFingerprint: null,
       ruleResults: null,
     }),
 
@@ -624,11 +641,19 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
       ...withBaseline({ nodes, edges, functionalReqs, features, nfr }),
       verification: null,
+      verifiedFingerprint: null,
       selectedNodeId: null,
       selectedEdgeId: null,
     }),
 
   hasUnsavedWork: () => hasUnsavedWork(get(), get().baseline),
+
+  resultsAreStale: () => {
+    const recorded = get().verifiedFingerprint;
+    if (!get().verification || !recorded) return false;
+    const now = fingerprint(get(), { forResults: true });
+    return now.canvas !== recorded.canvas || now.rest !== recorded.rest;
+  },
 
   markSaved: () => set({ baseline: fingerprint(get()) }),
 

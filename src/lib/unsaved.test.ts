@@ -115,3 +115,35 @@ describe("hasUnsavedWork", () => {
     ).toBe(false);
   });
 });
+
+describe("fingerprint for results", () => {
+  const before = fingerprint(demo(), { forResults: true });
+  const after = (mutate: (s: ReplaceableState) => void) => {
+    const s = demo();
+    mutate(s);
+    return fingerprint(s, { forResults: true });
+  };
+
+  it.each<[string, (s: ReplaceableState) => void]>([
+    ["moving a node", (s) => (s.nodes[0].position = { x: 400, y: 400 })],
+    ["changing a purpose", (s) => (s.nodes[0].data.purpose = "Students")],
+  ])("ignores %s", (_, mutate) => {
+    expect(after(mutate)).toEqual(before);
+  });
+
+  it.each<[string, (s: ReplaceableState) => void]>([
+    ["renaming a node", (s) => (s.nodes[0].data.label = "Phone app")],
+    [
+      "changing a config field",
+      (s) => {
+        const db = s.nodes.find((n) => n.data.componentKind === "database")!;
+        (db.data.config as { replicas: number }).replicas = 3;
+      },
+    ],
+    ["changing a protocol", (s) => (s.edges[0].data = { ...s.edges[0].data, protocol: "websocket" })],
+    ["unplacing a feature", (s) => (s.features[0].placedOnNodeId = null)],
+    ["changing a target", (s) => (s.nfr.maxLatencyMs = 300)],
+  ])("counts %s", (_, mutate) => {
+    expect(after(mutate)).not.toEqual(before);
+  });
+});

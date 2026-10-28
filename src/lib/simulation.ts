@@ -570,7 +570,7 @@ export function runVerification(
       category: "topology",
       title: "Database without compute",
       status: "warn",
-      detail: "PDF guideline: clients should reach databases via compute intermediates.",
+      detail: "Clients should reach a database through compute, such as an API, not directly.",
     });
   }
 
@@ -606,7 +606,7 @@ export function runVerification(
         category: "topology",
         title: `${n.data.label} used as hop`,
         status: "warn",
-        detail: "PDF: mainly only compute components should be intermediates between others.",
+        detail: "Requests pass through this on the way to other components. Usually only compute sits in the middle.",
       });
     }
   }
@@ -627,7 +627,7 @@ export function runVerification(
       category: "topology",
       title: "Static Content Hosting pattern",
       status: "warn",
-      detail: "Static hosting without CDN — higher client latency for assets (PDF pattern).",
+      detail: "Static hosting without a CDN in front: every client loads the site's files from one place, which is slower.",
     });
   }
 
@@ -637,7 +637,7 @@ export function runVerification(
       category: "topology",
       title: "Cache Aside opportunity",
       status: "warn",
-      detail: "No cache next to the database — consider Redis/Memcached for hot reads (PDF / cost case study).",
+      detail: "No cache next to the database. A cache (Redis or Memcached) can take the repeated reads.",
     });
   } else if (hasCache && dbCount > 0) {
     checks.push({
@@ -684,7 +684,7 @@ export function runVerification(
         title: "Client → external API",
         status: "warn",
         detail:
-          "PDF/security: API keys on the client risk reverse engineering. Prefer proxying through compute (Type B).",
+          "A client calling an external API directly has to hold its API key, where anyone can extract it. Call the API from your server instead.",
       });
     }
   }
@@ -724,7 +724,7 @@ export function runVerification(
         category: "topology",
         title: `${protocol === "sse" ? "SSE" : "Web Push"} direction`,
         status: "warn",
-        detail: "Draw SSE / Web Push from server → client (PDF: server delivers messages).",
+        detail: "SSE and Web Push go from server to client. Draw the arrow that way.",
       });
     }
   }
@@ -849,7 +849,7 @@ export function runVerification(
       status: cost <= nfr.maxMonthlyCostUsd ? "pass" : "fail",
       detail:
         cost <= nfr.maxMonthlyCostUsd
-          ? "Estimated monthly cost is within budget (heuristic; PDF stresses cost as a design axis)."
+          ? "Estimated monthly cost is within budget (a rough estimate)."
           : "Over budget. Prefer Functions/Edge at low load, cache-aside, or smaller fixed VMs.",
       actual: `$${cost}/mo`,
       target: `≤ $${nfr.maxMonthlyCostUsd}/mo`,

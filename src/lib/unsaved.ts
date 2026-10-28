@@ -23,15 +23,20 @@ export type ReplaceableState = {
  */
 export type Fingerprint = { canvas: string; rest: string };
 
-export function fingerprint(s: ReplaceableState): Fingerprint {
+export function fingerprint(
+  s: ReplaceableState,
+  opts: { forResults?: boolean } = {},
+): Fingerprint {
+  // For results, positions and purpose notes are left out: neither changes a result,
+  // and tidying the canvas shouldn't mark a run as old.
   const nodes = s.nodes
     .map((n) => ({
       id: n.id,
       kind: n.data.componentKind,
       label: n.data.label,
-      purpose: n.data.purpose,
+      purpose: opts.forResults ? undefined : n.data.purpose,
       config: n.data.config,
-      at: [Math.round(n.position.x), Math.round(n.position.y)],
+      at: opts.forResults ? undefined : [Math.round(n.position.x), Math.round(n.position.y)],
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const edges = s.edges

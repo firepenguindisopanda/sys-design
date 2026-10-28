@@ -1,8 +1,8 @@
 import path from "node:path";
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { loadChallenges } from "@/lib/challenges/load";
 import { useSimulatorStore } from "@/lib/store";
+import { renderWithStore as render } from "@/test/render-with-store";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { RequirementsPanel } from "./requirements-panel";
 
@@ -63,20 +63,7 @@ describe("unnamedControls", () => {
 });
 
 describe("accessible names", () => {
-  // Zustand renders on the server from getInitialState(), which setState never touches,
-  // so copy the live state into that object before rendering and put it back afterwards.
-  const initial = useSimulatorStore.getInitialState();
-  const saved = { ...initial };
-  const render = (ui: React.ReactElement) => {
-    Object.assign(initial, store());
-    return renderToStaticMarkup(ui);
-  };
-
   beforeEach(() => store().loadDemo());
-  afterEach(() => {
-    Object.assign(initial, saved);
-    store().loadDemo();
-  });
 
   const panel = () => render(<RequirementsPanel />);
 

@@ -30,7 +30,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 
 ### P0: broken or misleading
 
-**1. Verification results go stale silently** (seen)
+**1. Verification results go stale silently** (seen) — **fixed** in `stale-results`: old results are marked "(old)" with a notice until the next run; moving nodes doesn't count
 - *What happens:* In the food-guide brief I ran the check on an empty canvas, then added a VM. The panel still said "Topology: Canvas is empty" and "Fail", next to a canvas with a node on it.
 - *Why it matters:* Visibility of system status, Nielsen #1. Students will read old numbers as the result of their latest change.
 - *Where:* `runVerification` sets `verification` once (`src/lib/store.ts:587`). No edit action clears it or marks it out of date; only Clear, loading a design and starting a challenge reset it.
@@ -81,7 +81,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - The 8 px handles are below the 24 px minimum target size (WCAG 2.5.8 and Fitts's law), and they're always visible, which adds visual noise.
 - *Fix:* Show handles only on hover or selection, and make the hit area 24 px even if the dot stays small. Let the student pick the protocol after connecting: create the edge with a sensible default based on source and target kinds (client → compute is HTTP, compute → database is DB), then open the edge inspector. Keep the toolbar picker as an override.
 
-**10. Results panel: no order, no summary, and it pushes the canvas** (seen)
+**10. Results panel: no order, no summary, and it pushes the canvas** (seen) — **fixed** in `stale-results`: failures first, a count summary, passes collapsed, the panel collapsible (not resizable), and no "PDF" in check messages
 - Checks appear in engine order, so passes, warnings and failures are mixed. A student has to scan all of them to find what failed.
 - No count is shown (for example "3 failed · 1 warning · 8 passed").
 - The panel takes up to `max-h-44` plus its header, and the canvas shrinks with it. At 1280×800 the canvas lost about 30% of its height.
