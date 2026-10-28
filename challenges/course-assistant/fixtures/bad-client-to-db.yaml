@@ -1,0 +1,31 @@
+description: >-
+  Good design plus a direct connection from the laptop to the database, so the
+  web app holds the database password.
+design:
+  nodes:
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Assistant API 1 }
+    - { id: api-2, kind: paas, label: Assistant API 2 }
+    - { id: llm, kind: external_api, label: AI model API }
+    - { id: cache, kind: cache, label: Recent conversations, config: { memoryGb: 3 } }
+    - { id: db, kind: database, label: Conversations DB, config: { replicas: 2 } }
+  edges:
+    - laptop -> lb : http
+    - laptop -> db : db
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> llm : http
+    - api-2 -> llm : http
+    - api-1 -> laptop : sse
+    - api-2 -> laptop : sse
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    ask-question: api-1
+    history: api-2
+expect:
+  fails: [no-client-to-db]
+  warns: [topo-client-data-laptop->db]

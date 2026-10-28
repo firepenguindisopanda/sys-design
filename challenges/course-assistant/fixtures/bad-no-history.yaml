@@ -1,0 +1,26 @@
+description: >-
+  Good design without the database. Conversations live only in the cache and
+  are lost whenever it restarts.
+design:
+  nodes:
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Assistant API 1 }
+    - { id: api-2, kind: paas, label: Assistant API 2 }
+    - { id: llm, kind: external_api, label: AI model API }
+    - { id: cache, kind: cache, label: Recent conversations, config: { memoryGb: 3 } }
+  edges:
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> llm : http
+    - api-2 -> llm : http
+    - api-1 -> laptop : sse
+    - api-2 -> laptop : sse
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+  placements:
+    ask-question: api-1
+    history: api-2
+expect:
+  fails: [history-db, topo-data-store, nfr-availability]

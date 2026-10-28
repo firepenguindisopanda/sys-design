@@ -1,0 +1,90 @@
+id: course-assistant
+title: Course Q&A assistant
+tagline: Ask about the course notes and watch the answer stream in
+source: >-
+  Adapted from the "chatgpt" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a course assistant that calls an external AI model.
+summary: >-
+  Students ask questions about the course notes in a chat window. The answer comes
+  from an external AI model, reached through the provider's paid API, and appears
+  word by word as it is generated. Past conversations are kept so students can come
+  back to them. Journeys: ask a question and watch the answer stream in; reopen an
+  earlier conversation. The hard part: each answer takes many seconds to generate,
+  the provider charges per request, and the API key must never reach a student's
+  browser.
+outOfScope:
+  - training or fine-tuning a model
+  - uploading documents
+  - grading or marking
+
+functionalRequirements:
+  - id: ask-question
+    text: A student asks a question and sees the answer appear word by word.
+    feature:
+      name: Ask a question
+      description: Add course context, call the model API, and stream its answer back.
+      resources: { memoryGb: 1, vcpus: 1, storageGb: 1 }
+      targetRpm: 300
+      computeMsPerRequest: 30
+  - id: history
+    text: A student lists their past conversations and reopens one.
+    feature:
+      name: Conversation history
+      description: List and load a student's stored conversations.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 400
+      computeMsPerRequest: 15
+
+nfr:
+  maxLatencyMs: 120
+  minThroughputRpm: 850
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 260
+
+rules:
+  - id: llm-from-server
+    title: The server calls the model API
+    type: edge
+    mode: required
+    from: compute
+    to: external_api
+    severity: fail
+    why: Your server calls the model, so the paid API key stays on the server and you control what is sent.
+  - id: no-client-to-llm
+    title: No client calls the model directly
+    type: edge
+    mode: forbidden
+    from: client
+    to: external_api
+    severity: fail
+    why: A browser or app calling the model API has to carry the API key, and anyone can copy it and spend your budget.
+  - id: stream-answers
+    title: Answers stream to the student
+    type: edge
+    mode: required
+    from: compute
+    to: [mobile, desktop]
+    protocols: [sse]
+    severity: fail
+    why: Answers take many seconds; stream them server to client with SSE so the student sees words as they arrive.
+  - id: history-db
+    title: Conversations stored in a database
+    type: edge
+    mode: required
+    from: compute
+    to: database
+    severity: fail
+    why: Past conversations must survive a restart, so the server stores them in a database.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - The model API is slow or down for a minute. What does the student see, and what happens to questions already in progress?
+  - Every answer costs money. Where in this design would you stop one student from sending 500 questions in an hour?
+  - Each streamed answer holds a connection open for 20 seconds or more. What does that mean for the load balancer and for how many students one server can serve?

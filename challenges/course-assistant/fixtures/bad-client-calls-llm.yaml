@@ -1,0 +1,29 @@
+description: >-
+  Good design with the laptop calling the model API itself instead of the
+  server. The API key has to ship to every student's browser.
+design:
+  nodes:
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Assistant API 1 }
+    - { id: api-2, kind: paas, label: Assistant API 2 }
+    - { id: llm, kind: external_api, label: AI model API }
+    - { id: cache, kind: cache, label: Recent conversations, config: { memoryGb: 3 } }
+    - { id: db, kind: database, label: Conversations DB, config: { replicas: 2 } }
+  edges:
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - laptop -> llm : http
+    - api-1 -> laptop : sse
+    - api-2 -> laptop : sse
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    ask-question: api-1
+    history: api-2
+expect:
+  fails: [llm-from-server, no-client-to-llm]
+  warns: [topo-api-keys-laptop->llm]
