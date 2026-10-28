@@ -1,0 +1,99 @@
+id: printing-credits
+title: Printing credits top-up
+tagline: Buy printing credits by card through an outside payment provider
+source: >-
+  Adapted from the "payment-system" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a campus top-up that relies on an outside payment provider.
+summary: >-
+  Students top up their printing credits by card. The university does not handle card
+  numbers: the student pays on the payment provider's own page, and the provider then
+  calls the university's system back (a webhook) to confirm each payment. Credits are
+  added only when that confirmation arrives, and every payment is kept in a ledger.
+  Journeys: a student picks an amount and is sent to the provider's payment page; the
+  provider confirms the payment and the credits appear; a student checks their balance
+  at a printer. The hard part: the browser can't be trusted to say a payment worked,
+  the provider's secret key must stay on the server, and the ledger is money, so it
+  can't be lost.
+outOfScope:
+  - refunds
+  - the print queue and the printers themselves
+  - campus ID cards
+  - drawing the provider's hosted payment page
+
+functionalRequirements:
+  - id: start-payment
+    text: A student picks an amount and is sent to the provider's payment page.
+    feature:
+      name: Start payment
+      description: Ask the provider for a payment page for this student and amount, and record it as pending.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 60
+      computeMsPerRequest: 25
+  - id: payment-confirmed
+    text: The provider confirms a payment and the student's credits go up.
+    feature:
+      name: Confirm payment
+      description: Handle the provider's webhook, mark the payment paid in the ledger and add the credits.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 60
+      computeMsPerRequest: 20
+  - id: view-balance
+    text: A student checks how many credits they have left.
+    feature:
+      name: View balance
+      description: Return a student's balance and recent top-ups.
+      resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 1 }
+      targetRpm: 400
+      computeMsPerRequest: 10
+
+nfr:
+  maxLatencyMs: 230
+  minThroughputRpm: 520
+  minAvailabilityPct: 99.9
+  maxMonthlyCostUsd: 240
+
+rules:
+  - id: provider-from-server
+    title: The server calls the payment provider
+    type: edge
+    mode: required
+    from: compute
+    to: external_api
+    severity: fail
+    why: Creating a payment needs the provider's secret key, so your server makes that call and the key never leaves it.
+  - id: no-client-to-provider
+    title: No client calls the provider's API
+    type: edge
+    mode: forbidden
+    from: client
+    to: external_api
+    severity: fail
+    why: A browser or app calling the provider's API has to carry the secret key, and anyone can copy it from there.
+  - id: webhook-to-server
+    title: The provider confirms payments to the server
+    type: edge
+    mode: required
+    from: external_api
+    to: [compute, load_balancer]
+    severity: fail
+    why: Credits are added when the provider calls your server back to confirm the payment, not when the student's browser says it worked.
+  - id: ledger-replicas
+    title: Replicated ledger database
+    type: component
+    kind: database
+    minConfig: { replicas: 2 }
+    severity: fail
+    why: The ledger records students' money; one database copy is a single point of failure.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - The student pays on the provider's own page, not yours. Why does that keep card numbers off your servers, and what does your system still have to store?
+  - The provider retries a webhook when your server doesn't answer in time, so the same confirmation can arrive twice. How do you make sure the credits are added only once?
+  - Anyone can send a request to your webhook address. How does your server check that a confirmation really came from the provider?

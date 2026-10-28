@@ -1,0 +1,33 @@
+description: >-
+  Reference design. Students reach two API instances through a load balancer. The
+  APIs call the payment provider to start each payment, the provider calls back
+  through the load balancer to confirm it, and the ledger is a replicated database
+  with a small cache for balances.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: lb, kind: load_balancer }
+    - { id: api-1, kind: paas, label: Credits API 1 }
+    - { id: api-2, kind: paas, label: Credits API 2 }
+    - { id: provider, kind: external_api, label: Payment provider }
+    - { id: cache, kind: cache, label: Balance cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Ledger DB, config: { replicas: 2 } }
+  edges:
+    - phone -> lb : http
+    - laptop -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> provider : http
+    - api-2 -> provider : http
+    - provider -> lb : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+  placements:
+    start-payment: api-1
+    payment-confirmed: api-2
+    view-balance: api-2
+expect:
+  pass: true
