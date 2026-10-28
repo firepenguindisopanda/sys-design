@@ -1,176 +1,222 @@
-# Tasks: Phase 3, `challenge-panels`
+# Tasks: Phase 3, `design-io`
 
-Spec: [SPEC-challenge-panels.md](../SPEC-challenge-panels.md). Plan: [plan.md](plan.md).
+Spec: [SPEC-design-io.md](../SPEC-design-io.md). Plan: [plan.md](plan.md).
 
 Standing verification for every task: `npm test`, `npx tsc --noEmit` and `npm run lint`
-pass; `tests/demos.test.ts` unchanged. Tasks that touch content or the UI also run
-`npm run build` and a browser check with no console errors.
+pass; `tests/demos.test.ts` and `tests/challenges.test.ts` unchanged. Tasks that touch
+content, the store or the UI also run `npm run build`; UI tasks add a browser check with
+no console errors.
 
 ---
 
-## Task 1: Required `title` on rules, end to end through content
+## Task 1: Optional `at` and `purpose` on fixture nodes
 
-**Description:** Test first in `validate.test.ts`: a rule without `title` fails with the
-path `rules[0].title`; an empty title fails; a valid title is read onto the rule. Then
-add `title: string` to `ComponentRule` and `EdgeRule`, read it with `r.str` in both rule
-readers in `validate.ts` and add it to their allowed keys. Write titles for all 15 rules
-in the four briefs (sentence case, ≤ ~40 chars; `no-client-to-db` is "No client talks to
-the database" everywhere). Add `title` to the rules section and both YAML examples in
-`docs/challenges/brief-format.md` and to the example brief in `SPEC.md`. Update the
-hand-built rules in `rules.test.ts` and `rawBrief()` in `validate.test.ts`.
+**Description:** Test first in `validate.test.ts`: `at: [20, 40]` is read as a position;
+`at` that isn't a list of two finite numbers fails with the path (`design.nodes[0].at`);
+`purpose` must be a non-empty string; a node without either reads as `null` for both.
+Then add `position: { x: number; y: number } | null` and `purpose: string | null` to
+`CompactNode`, read them in `readDesign`, and make `buildNode` use them when present
+(grid position and catalog purpose otherwise). Add a `design.test.ts` case for both.
+Document `at` and `purpose` in the fixtures section of `docs/challenges/brief-format.md`.
 
 **Acceptance criteria:**
-- [x] Missing or empty `title` is a validation error naming the file and field
-- [x] All four briefs load with titles; fixture harness unchanged and passing
-- [x] Docs and `SPEC.md` examples show `title`
+- [x] `at` and `purpose` are optional, validated, and used by `buildDesign`
+- [x] Every existing fixture loads unchanged; fixture harness passing
 
 **Verification:**
 - [x] `npx vitest run src/lib/challenges`; `npm run build`; standing checks
-- [x] Remove one title temporarily: `npm run build` fails with that file and field; restore
 
 **Dependencies:** None
 
-**Files likely touched:** `src/lib/challenges/types.ts`, `src/lib/challenges/validate.ts`,
-`src/lib/challenges/validate.test.ts`, `src/lib/challenges/rules.test.ts`,
-`challenges/*/brief.yaml`, `docs/challenges/brief-format.md`, `SPEC.md`
-
-**Estimated scope:** M (many files, each a few lines)
-
----
-
-## Task 2: Verification rows show rule titles
-
-**Description:** Test first in `rules.test.ts`: results carry the rule's `title` for a
-passing and a failing rule of each type. Add `title` to `RuleResult` and copy it in
-`checkComponentRule` and `checkEdgeRule`. In `verification-panel.tsx`, the row title
-becomes `rule.title` (replacing `Brief rule: {rule.id}`), with `title={rule.id}` on the
-element for authors.
-
-**Acceptance criteria:**
-- [x] Rule results include the title; status and detail unchanged
-- [x] Rule rows show the title; the id is available on hover
-
-**Verification:**
-- [x] `npx vitest run src/lib/challenges/rules.test.ts`; standing checks
-- [x] Browser: start link shortener, run verification, rows read "Cache on the read path"
-  (or the chosen titles), not ids
-
-**Dependencies:** Task 1
-
-**Files likely touched:** `src/lib/challenges/types.ts`, `src/lib/challenges/rules.ts`,
-`src/lib/challenges/rules.test.ts`, `src/components/simulator/verification-panel.tsx`
+**Files likely touched:** `src/lib/challenges/types.ts`, `validate.ts`,
+`validate.test.ts`, `design.ts`, `design.test.ts`, `docs/challenges/brief-format.md`
 
 **Estimated scope:** S
 
-### Checkpoint A
-- [x] Tests, types, lint and `npm run build` green; titled rule rows in the browser
-
 ---
 
-## Task 3: Brief panel and tabbed side panel
+## Task 2: `compactDesign`, the inverse of `buildDesign`
 
-**Description:** Test first in a new `brief-panel.test.tsx` (`renderToStaticMarkup`,
-node environment, link-shortener brief via `loadChallenges`): markup contains the
-summary, each out-of-scope item and each reflection question; with empty `outOfScope`
-and `reflection`, neither heading renders. Then build `BriefPanel({ brief })`: title and
-tagline, summary, "Out of scope" list, "Think about" numbered list with "Not graded; use
-them to check your design." Build `SidePanel()`: sandbox → `<RequirementsPanel />`;
-challenge → `Tabs` (`defaultValue="brief"`, `key={challenge.id}`) with Brief and
-Requirements. Use it in both places in `simulator-app.tsx`.
+**Description:** Test first in `design.test.ts`, then add
+`compactDesign(nodes, edges, features)` to `design.ts`, returning
+`{ design: CompactDesign } | { problems: string[] }`:
+- config reduced to fields that differ from the catalog default, nested fields
+  included, never `kind`; an unchanged node has `config: {}`;
+- `label` and `purpose` are `null` when they equal the catalog's (or are empty);
+- position rounded to whole pixels;
+- ids: kept when a unique slug; otherwise `_` → `-` and `-2`, `-3` on clashes; edges and
+  placements follow the new ids;
+- edges as `source->target` with their protocol; two edges on one pair → a problem
+  naming both nodes by label;
+- placements from features with a `placedOnNodeId`.
 
 **Acceptance criteria:**
-- [x] Sandbox: no tabs, panel identical to today
-- [x] Challenge: opens on Brief; switching challenge returns to Brief
-- [x] Brief content scrolls; the requirements tab keeps its internal scroll
+- [x] `compactDesign(buildDesign(f))` keeps every fixture's node ids, edges and
+  placements exactly, and `buildDesign` of it equals the original build
+- [x] `load_balancer-3` → `load-balancer-3`, with edges and placements renamed
+- [x] Duplicate edges are reported, not dropped
 
 **Verification:**
-- [x] `npx vitest run src/components/simulator/brief-panel.test.tsx`; standing checks
-- [x] Browser at 1440px: all four briefs' text matches their YAML
+- [x] `npx vitest run src/lib/challenges/design.test.ts`; standing checks
 
-**Dependencies:** None (uses existing `Brief` fields)
+**Dependencies:** Task 1
 
-**Files likely touched:** `src/components/simulator/brief-panel.tsx` (new),
-`src/components/simulator/brief-panel.test.tsx` (new),
-`src/components/simulator/side-panel.tsx` (new),
-`src/components/simulator/simulator-app.tsx`
+**Files likely touched:** `src/lib/challenges/design.ts`, `design.test.ts`
 
 **Estimated scope:** M
 
 ---
 
-## Task 4: Header breakpoints and sheet button label
+## Task 3: `validateDesignFile`: top level and sandbox/challenge resolution
 
-**Description:** Split the header's `lg:hidden` wrapper: the Library sheet button keeps
-`lg:hidden`; the side-panel sheet button becomes `xl:hidden`. Its label reads "Brief" in
-a challenge and "Reqs" in the sandbox (icon unchanged or `FileText` for Brief).
+**Description:** Test first in `validate.test.ts`, then add
+`validateDesignFile(raw, briefs, currentBriefId, file)` to `validate.ts`. Allowed top-level
+keys: `challenge`, `functionalRequirements`, `nfr`, `design`, and the ignored
+`description`, `expect`, `knownGap`. Resolution per spec story 2:
+- `challenge: <id>` → that brief (unknown id → "No challenge called `<id>`.");
+  `functionalRequirements`/`nfr` alongside it fail;
+- `functionalRequirements` (+ required `nfr`) → sandbox, read with the brief's
+  `readRequirement` / `readNfr`, unique ids;
+- neither → the current brief; in the sandbox, the spec's "no requirements" message.
+The design is read with `readDesign` against the resolved requirements. Returns
+`{ brief: Brief | null, functionalRequirements, nfr, design }`.
 
 **Acceptance criteria:**
-- [x] 1024–1279px: the side-panel button shows and opens the sheet; Library button
-  hidden (library is inline)
-- [x] <1024px: both buttons show; ≥1280px: neither shows
-- [x] Label follows the mode
+- [x] Each of the three file kinds resolves as the spec says, including the two errors
+- [x] Fixture keys are ignored; other unknown keys fail with their path
+- [x] Placements in a sandbox file are checked against its own requirement ids
 
 **Verification:**
-- [x] Browser at 1024, 1150, 1279, 1280: as above; standing checks
+- [x] `npx vitest run src/lib/challenges/validate.test.ts`; standing checks
 
-**Dependencies:** Task 3
+**Dependencies:** Task 1
 
-**Files likely touched:** `src/components/simulator/simulator-app.tsx`
+**Files likely touched:** `src/lib/challenges/validate.ts`, `validate.test.ts`
 
-**Estimated scope:** XS
+**Estimated scope:** M
+
+---
+
+## Task 4: `design-file.ts`: export and import text, round trips
+
+**Description:** Test first in the new `design-file.test.ts`, then add the browser-safe
+`src/lib/challenges/design-file.ts`:
+- `exportDesignFile({ nodes, edges, features, functionalReqs, nfr, challenge })` →
+  `{ text, fileName } | { error }`. Uses `compactDesign`; writes `challenge` or the
+  sandbox `functionalRequirements` + `nfr`; nodes as flow maps, edges as
+  `a -> b : protocol`; validates its own text with `validateDesignFile` before
+  returning.
+- `importDesignFile(text, fileName, briefs, currentBriefId)` →
+  `{ loaded } | { error }`, where `loaded` is the `BuiltDesign` plus the brief (or
+  `null`) and the sandbox requirements. YAML syntax errors become
+  `<fileName>: <message>`.
+
+**Acceptance criteria:**
+- [x] Every fixture in every brief: build → export → import gives the same built design
+  and identical `runVerification` + `evaluateRules` results
+- [x] Both demos (store state after `loadDemo` / `loadFanInDemo`) round-trip with the
+  same requirements, features, NFRs and verification result
+- [x] Export → import → export gives identical text
+- [x] YAML syntax error, unknown challenge, unknown node, placement on non-compute:
+  each returns a message with file name and path
+- [x] Every fixture file's raw text imports into its own challenge
+
+**Verification:**
+- [x] `npx vitest run src/lib/challenges`; standing checks
+
+**Dependencies:** Tasks 2, 3
+
+**Files likely touched:** `src/lib/challenges/design-file.ts`, `design-file.test.ts`
+
+**Estimated scope:** M
+
+### Checkpoint A
+- [x] All Phase A tests pass; existing tests unchanged; `npm run build` green
+
+---
+
+## Task 5: `loadDesign` store action; ids never reused
+
+**Description:** Test first in `store.test.ts`. Add `loadDesign(loaded)`: with a brief,
+start from `challengeSeed(brief)` and add the nodes, edges and placements; without one,
+set `challenge: null` and the sandbox requirements (`freq-<id>` rows), features and NFRs.
+Clears verification, rule results and selection in the same `set`. Add
+`freshId(prefix, taken)` and use it in `addComponent` and `addFunctionalRequirement`;
+demo seeds keep `uid`.
+
+**Acceptance criteria:**
+- [x] After `loadDesign` into a challenge, `setNfr`, `updateFeature` and
+  `addFunctionalRequirement` are still no-ops
+- [x] A sandbox load gives editable requirements matching the file
+- [x] After loading `paas-1`…`paas-5` (and `feat-1`…), new nodes and requirements get
+  unused ids
+- [x] `tests/demos.test.ts` unchanged
+
+**Verification:**
+- [x] `npx vitest run src/lib/store.test.ts tests/demos.test.ts`; standing checks
+
+**Dependencies:** Task 4
+
+**Files likely touched:** `src/lib/store.ts`, `src/lib/store.test.ts`
+
+**Estimated scope:** S
+
+---
+
+## Task 6: Export and Import buttons with the error message
+
+**Description:** First, in the browser, load a fixture through a temporary dev call to
+`loadDesign` and check imported edges draw correctly without handles (plan risk 2); fix
+in `buildDesign` if not. Then add `src/components/simulator/design-io.tsx`: Export
+(`Download` icon; `Blob` + temporary `<a download>`), Import (`Upload` icon; hidden
+`<input type="file" accept=".yaml,.yml">`, `file.text()`, reset the input so the same
+file can be picked twice), and one dismissible error line under the toolbar. Render it
+in `design-canvas.tsx` next to Clear, in both modes.
+
+**Acceptance criteria:**
+- [x] Export downloads `<challenge id>-design.yaml` or `sandbox-design.yaml`
+- [x] Import loads a valid file and replaces the canvas; an invalid one shows the
+  message and leaves the canvas as it was
+- [x] Both buttons reachable at 375px
+
+**Verification:**
+- [x] Browser: export and re-import the BeUWI demo; `npm run build`; standing checks
+
+**Dependencies:** Task 5
+
+**Files likely touched:** `src/components/simulator/design-io.tsx`,
+`src/components/simulator/design-canvas.tsx`, maybe `src/lib/challenges/design.ts`
+
+**Estimated scope:** S
 
 ### Checkpoint B
-- [x] Brief tab works inline (≥1280px) and in the sheet (<1280px)
+- [x] Export and import work by hand in the sandbox and a challenge
 
 ---
 
-## Task 5: Placement select shows node names; hide BeUWI note in a challenge
+## Task 7: Browser walkthrough, build, bundle size
 
-**Description:** In `requirements-panel.tsx`, build one map of compute node id → display
-text (`label` plus the vCPU-left suffix) and `unplaced` → "Unplaced"; pass it as `items`
-to the placement `Select` and use the same text in the `SelectItem`s, as
-`challenge-picker.tsx` does. Render the "Defaults mirror BeUWI…" note only when not
-locked.
+**Description:** Walk through the spec's browser checklist in the Chrome DevTools
+browser at 1440 and 375 wide. Compare `.next/static` JS sizes against a `main` build
+and record the difference. Add notes to [plan.md](plan.md).
 
 **Acceptance criteria:**
-- [x] The closed trigger shows the node's label, in both modes
-- [x] The note shows in the sandbox and not in a challenge
-
-**Verification:**
-- [x] Browser: place a feature in the sandbox demo and in a challenge, trigger shows the
-  label; standing checks
-
-**Dependencies:** None
-
-**Files likely touched:** `src/components/simulator/requirements-panel.tsx`
-
-**Estimated scope:** XS
-
----
-
-## Task 6: Browser walkthrough and build
-
-**Description:** Walk through the spec's browser checklist in the in-app preview.
-
-**Acceptance criteria:**
-- [x] Each challenge opens on Brief with text matching the YAML; tab switching works by
-  mouse and keyboard; picking another challenge returns to Brief
-- [x] Sandbox: no tabs, BeUWI note visible; challenge: note hidden
-- [x] Placement trigger shows the node label
-- [x] Rule rows show titles after a run
-- [x] At 375, 1024, 1150, 1279, 1280 and 1440px the library and the side panel are each
-  reachable, with no horizontal scroll; the requirements list scrolls inside its tab
-- [x] No console errors
+- [x] Sandbox: BeUWI demo export → clear → import gives the same picture and result
+- [x] Challenge: export, switch to sandbox, import → back in the challenge with the design
+- [x] `link-shortener/fixtures/good.yaml` passes in its challenge; refused in the sandbox
+- [x] Broken file: message shown, canvas unchanged
+- [x] Two edges on one pair: Export refuses, naming the pair
+- [x] No console errors; bundle growth recorded
 
 **Verification:**
 - [x] `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`
 - [x] Notes from the walkthrough added to [plan.md](plan.md)
 
-**Dependencies:** Tasks 1–5
+**Dependencies:** Tasks 1–6
 
 **Files likely touched:** `tasks/plan.md`
 
 **Estimated scope:** S
 
 ### Checkpoint C
-- [x] All four spec success criteria met; ready for review (nothing committed until asked)
+- [x] All five spec success criteria met; ready for review (nothing committed until asked)

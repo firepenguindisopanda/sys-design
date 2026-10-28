@@ -263,13 +263,20 @@ export function validateBrief(raw: unknown, file: string): Brief {
   };
 }
 
-function readDesign(r: Reader, raw: unknown, brief: Brief, path: string): CompactDesign {
+function readPosition(r: Reader, v: unknown, path: string): { x: number; y: number } {
+  if (!Array.isArray(v) || v.length !== 2 || !v.every((n) => typeof n === "number" && Number.isFinite(n))) {
+    return r.fail(path, "expected [x, y] with two numbers");
+  }
+  return { x: v[0], y: v[1] };
+}
+
+function readDesign(r: Reader, raw: unknown, frIds: string[], path: string): CompactDesign {
   const o = r.obj(raw, path, ["nodes", "edges", "placements"]);
 
   const np = r.at(path, "nodes");
   const nodes: CompactNode[] = r.list(o.nodes, np).map((n, i) => {
     const p = r.at(np, i);
-    const no = r.obj(n, p, ["id", "kind", "label", "config"]);
+    const no = r.obj(n, p, ["id", "kind", "label", "purpose", "at", "config"]);
     const kind = r.oneOf<ComponentKind>(no.kind, r.at(p, "kind"), KINDS, "kind");
     if (no.config !== undefined) {
       const cp = r.at(p, "config");
@@ -283,6 +290,8 @@ function readDesign(r: Reader, raw: unknown, brief: Brief, path: string): Compac
       id: r.slug(no.id, r.at(p, "id")),
       kind,
       label: no.label === undefined ? null : r.str(no.label, r.at(p, "label")),
+      purpose: no.purpose === undefined ? null : r.str(no.purpose, r.at(p, "purpose")),
+      position: no.at === undefined ? null : readPosition(r, no.at, r.at(p, "at")),
       config: (no.config as Obj | undefined) ?? {},
     };
   });
@@ -313,7 +322,6 @@ function readDesign(r: Reader, raw: unknown, brief: Brief, path: string): Compac
   r.unique(edges.map((e) => e.id), ep, "edge");
 
   const pp = r.at(path, "placements");
-  const frIds = brief.functionalRequirements.map((fr) => fr.id);
   const po = o.placements === undefined ? {} : r.obj(o.placements, pp, frIds);
   const placements: Record<string, string> = {};
   for (const [frId, nodeId] of Object.entries(po)) {
@@ -357,8 +365,80 @@ export function validateFixture(raw: unknown, brief: Brief, file: string, name: 
   return {
     name,
     description: r.str(o.description, "description"),
-    design: readDesign(r, o.design, brief, "design"),
+    design: readDesign(
+      r,
+      o.design,
+      brief.functionalRequirements.map((fr) => fr.id),
+      "design",
+    ),
     expect: readExpectation(r, o.expect, brief, "expect"),
     knownGap: o.knownGap == null ? null : r.str(o.knownGap, "knownGap"),
   };
+}
+
+export type DesignFile = {
+  /** The challenge the design is for; null for a sandbox design */
+  brief: Brief | null;
+  functionalRequirements: BriefRequirement[];
+  nfr: NonFunctionalRequirements;
+  design: CompactDesign;
+};
+
+/**
+ * Read an exported design or a fixture. `challenge: <id>` picks that brief; a sandbox
+ * file carries its own requirements and targets; a file with neither (a fixture) is for
+ * the current challenge. Fixture-only keys are accepted and ignored.
+ */
+export function validateDesignFile(
+  raw: unknown,
+  briefs: Brief[],
+  currentBriefId: string | null,
+  file: string,
+): DesignFile {
+  const r = reader(file);
+  const o = r.obj(raw, "", [
+    "challenge",
+    "functionalRequirements",
+    "nfr",
+    "design",
+    "description",
+    "expect",
+    "knownGap",
+  ]);
+
+  let brief: Brief | null;
+  let functionalRequirements: BriefRequirement[];
+  let nfr: NonFunctionalRequirements;
+  if (o.challenge !== undefined) {
+    const id = r.str(o.challenge, "challenge");
+    brief = briefs.find((b) => b.id === id) ?? r.fail("challenge", `no challenge called ${JSON.stringify(id)}`);
+    if (o.functionalRequirements !== undefined) {
+      r.fail("functionalRequirements", "not allowed with challenge; the brief sets the requirements");
+    }
+    if (o.nfr !== undefined) r.fail("nfr", "not allowed with challenge; the brief sets the targets");
+    ({ functionalRequirements, nfr } = brief);
+  } else if (o.functionalRequirements !== undefined) {
+    brief = null;
+    functionalRequirements = r
+      .list(o.functionalRequirements, "functionalRequirements")
+      .map((fr, i) => readRequirement(r, fr, r.at("functionalRequirements", i)));
+    r.unique(functionalRequirements.map((fr) => fr.id), "functionalRequirements", "requirement id");
+    nfr = readNfr(r, o.nfr, "nfr");
+  } else {
+    if (o.nfr !== undefined) r.fail("nfr", "only allowed with functionalRequirements");
+    const current = briefs.find((b) => b.id === currentBriefId);
+    if (!current) {
+      throw new Error(`${file}: This design has no requirements. Pick its challenge first, then import it.`);
+    }
+    brief = current;
+    ({ functionalRequirements, nfr } = current);
+  }
+
+  const design = readDesign(
+    r,
+    o.design,
+    functionalRequirements.map((fr) => fr.id),
+    "design",
+  );
+  return { brief, functionalRequirements, nfr, design };
 }

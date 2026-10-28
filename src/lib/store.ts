@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
 import { createStyledEdge, styleEdgeForProtocol } from "./edges";
 import { evaluateRules } from "./challenges/rules";
+import type { LoadedDesign } from "./challenges/design-file";
 import type { Brief, RuleResult } from "./challenges/types";
 import { canPlaceFeature, runVerification } from "./simulation";
 import type {
@@ -74,15 +75,29 @@ type SimulatorState = {
   clearCanvas: () => void;
   startChallenge: (brief: Brief) => void;
   leaveChallenge: () => void;
+  /** Replace the canvas with an imported design, in its challenge or the sandbox */
+  loadDesign: (loaded: LoadedDesign) => void;
 };
 
 let seq = 1;
 const uid = (prefix: string) => `${prefix}-${seq++}`;
 
-function createNode(kind: ComponentKind, position: { x: number; y: number }): SimNode {
+/** Like uid, but skips ids already in use (an imported design may hold any of them). */
+function freshId(prefix: string, taken: string[]): string {
+  const used = new Set(taken);
+  let id = uid(prefix);
+  while (used.has(id)) id = uid(prefix);
+  return id;
+}
+
+function createNode(
+  kind: ComponentKind,
+  position: { x: number; y: number },
+  id = uid(kind),
+): SimNode {
   const item = COMPONENT_CATALOG.find((c) => c.kind === kind)!;
   return {
-    id: uid(kind),
+    id,
     type: "designNode",
     position,
     data: {
@@ -398,7 +413,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
 
   addComponent: (kind) => {
     const offset = get().nodes.length * 24;
-    const node = createNode(kind, { x: 120 + offset, y: 100 + (offset % 160) });
+    const node = createNode(
+      kind,
+      { x: 120 + offset, y: 100 + (offset % 160) },
+      freshId(kind, get().nodes.map((n) => n.id)),
+    );
     set({
       nodes: [...get().nodes, node],
       selectedNodeId: node.id,
@@ -473,8 +492,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
 
   addFunctionalRequirement: (text) => {
     if (get().challenge) return; // a challenge's requirements are fixed
-    const featureId = uid("feat");
-    const reqId = uid("freq");
+    const featureId = freshId("feat", get().features.map((f) => f.id));
+    const reqId = freshId("freq", get().functionalReqs.map((r) => r.id));
     const feature: FeatureBlock = {
       id: featureId,
       name: text.slice(0, 48) || "New feature",
@@ -572,4 +591,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   startChallenge: (brief) => set(challengeSeed(brief)),
 
   leaveChallenge: () => set({ ...demoSeed(), challenge: null, ruleResults: null }),
+
+  loadDesign: ({ brief, nodes, edges, features, functionalReqs, nfr }) =>
+    set({
+      challenge: brief,
+      ruleResults: null,
+      nodes,
+      edges,
+      functionalReqs,
+      features,
+      nfr,
+      verification: null,
+      selectedNodeId: null,
+      selectedEdgeId: null,
+    }),
 }));

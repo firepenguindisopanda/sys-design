@@ -67,11 +67,11 @@ function componentRule(patch: Partial<ComponentRule>): ComponentRule {
 // phone ↔ api over WebSocket (drawn api → phone), api → db, laptop → db (bad).
 const design: CompactDesign = {
   nodes: [
-    { id: "phone", kind: "mobile", label: null, config: {} },
-    { id: "laptop", kind: "desktop", label: null, config: {} },
-    { id: "api", kind: "functions", label: null, config: {} },
-    { id: "db", kind: "database", label: null, config: { replicas: 2 } },
-    { id: "db2", kind: "database", label: null, config: {} },
+    { id: "phone", kind: "mobile", label: null, purpose: null, position: null, config: {} },
+    { id: "laptop", kind: "desktop", label: null, purpose: null, position: null, config: {} },
+    { id: "api", kind: "functions", label: null, purpose: null, position: null, config: {} },
+    { id: "db", kind: "database", label: null, purpose: null, position: null, config: { replicas: 2 } },
+    { id: "db2", kind: "database", label: null, purpose: null, position: null, config: {} },
   ],
   edges: [
     { id: "api->phone", source: "api", target: "phone", protocol: "websocket" },

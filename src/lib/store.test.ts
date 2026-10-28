@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildDesign } from "./challenges/design";
+import { importDesignFile } from "./challenges/design-file";
 import { loadChallenges } from "./challenges/load";
 import { runFixture } from "./challenges/run";
 import { useSimulatorStore } from "./store";
@@ -165,5 +167,104 @@ describe("challenge verification matches the fixture harness", () => {
     const { s, expected } = attempt("bad-client-to-db");
     expect(expected.verification.overall).not.toBe("fail");
     expect(s.verification?.overall).toBe("fail");
+  });
+});
+
+describe("loadDesign", () => {
+  beforeEach(() => store().loadDemo());
+
+  function load(text: string, current: string | null = null) {
+    const result = importDesignFile(text, "test.yaml", [brief], current);
+    if ("error" in result) throw new Error(result.error);
+    store().selectNode(store().nodes[0]?.id ?? null);
+    store().runVerification();
+    store().loadDesign(result.loaded);
+    return result.loaded;
+  }
+
+  const good = linkShortener.fixtures.find((f) => f.name === "good")!;
+  const goodText = readFileSync(
+    path.resolve(__dirname, "../../challenges/link-shortener/fixtures/good.yaml"),
+    "utf8",
+  );
+
+  it("starts the file's challenge with its design, locks in place", () => {
+    const loaded = load(`challenge: link-shortener\n${goodText}`);
+    const s = store();
+    expect(s.challenge).toBe(brief);
+    expect(s.nodes).toEqual(loaded.nodes);
+    expect(s.edges).toEqual(loaded.edges);
+    expect(s.features).toEqual(loaded.features);
+    expect(s.nfr).toEqual(brief.nfr);
+    expect(s.verification).toBeNull();
+    expect(s.ruleResults).toBeNull();
+    expect(s.selectedNodeId).toBeNull();
+
+    const before = { reqs: s.functionalReqs, features: s.features, nfr: s.nfr };
+    store().addFunctionalRequirement("Something extra");
+    store().updateFeature("redirect", { targetRpm: 1 });
+    store().setNfr({ maxLatencyMs: 9999 });
+    expect(store().functionalReqs).toEqual(before.reqs);
+    expect(store().features).toEqual(before.features);
+    expect(store().nfr).toEqual(before.nfr);
+
+    store().runVerification();
+    const expected = runFixture(brief, good);
+    expect(store().verification?.checks).toEqual(expected.verification.checks);
+    expect(store().ruleResults).toEqual(expected.rules);
+  });
+
+  it("loads a fixture into the current challenge", () => {
+    store().startChallenge(brief);
+    load(goodText, "link-shortener");
+    expect(store().challenge).toBe(brief);
+    expect(store().nodes).toHaveLength(good.design.nodes.length);
+  });
+
+  /** A sandbox file with paas-1…paas-n and requirements feat-1…feat-n. */
+  function sandboxText(n: number) {
+    const ids = Array.from({ length: n }, (_, i) => i + 1);
+    return [
+      "functionalRequirements:",
+      ...ids.flatMap((i) => [
+        `  - id: feat-${i}`,
+        `    text: Requirement ${i}`,
+        `    feature: { name: Feature ${i}, resources: { memoryGb: 0.1, vcpus: 0.1, storageGb: 0.1 }, targetRpm: 5, computeMsPerRequest: 50 }`,
+      ]),
+      "nfr: { maxLatencyMs: 300, minThroughputRpm: 50, minAvailabilityPct: 99, maxMonthlyCostUsd: null }",
+      "design:",
+      "  nodes:",
+      ...ids.map((i) => `    - { id: paas-${i}, kind: paas }`),
+      "  placements: { feat-1: paas-1 }",
+    ].join("\n");
+  }
+
+  it("leaves a challenge for a sandbox file, with editable requirements", () => {
+    store().startChallenge(brief);
+    load(sandboxText(1), "link-shortener");
+    const s = store();
+    expect(s.challenge).toBeNull();
+    expect(s.functionalReqs).toEqual([{ id: "freq-feat-1", text: "Requirement 1", featureId: "feat-1" }]);
+    expect(s.features[0]).toMatchObject({ id: "feat-1", name: "Feature 1", placedOnNodeId: "paas-1" });
+    expect(s.nfr.maxMonthlyCostUsd).toBeNull();
+
+    store().setNfr({ maxLatencyMs: 9999 });
+    store().addFunctionalRequirement("Write things");
+    expect(store().nfr.maxLatencyMs).toBe(9999);
+    expect(store().functionalReqs).toHaveLength(2);
+  });
+
+  it("never reuses an id already on the canvas", () => {
+    // The store's counter is well below 60 after loading the demo, so it has to
+    // step past ids the file already uses.
+    load(sandboxText(60));
+    for (let i = 0; i < 6; i++) store().addComponent("paas");
+    for (let i = 0; i < 3; i++) store().addFunctionalRequirement(`Extra ${i}`);
+    const nodeIds = store().nodes.map((n) => n.id);
+    const featureIds = store().features.map((f) => f.id);
+    const reqIds = store().functionalReqs.map((r) => r.id);
+    expect(new Set(nodeIds).size).toBe(66);
+    expect(new Set(featureIds).size).toBe(63);
+    expect(new Set(reqIds).size).toBe(63);
   });
 });

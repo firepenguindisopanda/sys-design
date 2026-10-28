@@ -148,6 +148,10 @@ knownGap: null                # or a sentence; see below
   so `config: { capacity: { vcpus: 8 } }` keeps the default memory and storage.
   Enum-like fields are checked: database `engine` (relational, document, graph,
   vector), cache `engine` (redis, memcached) and queue `mode` (queue, pubsub).
+- **`purpose` and `at`** (both optional) are what the canvas shows and where: a short
+  phrase replacing the catalog's purpose, and the position as `at: [x, y]` in pixels.
+  Without `at` nodes are laid out on a grid of four per row. Hand-written fixtures can
+  leave both out; designs exported from the canvas include them.
 - **Edges.** `source -> target : protocol`, written unquoted as above. Each edge gets the
   id `source->target`, so one pair of nodes can have only one edge.
 - **Placements.** Features can only be placed on compute nodes. A requirement left out

@@ -5,7 +5,7 @@ reflection questions in the Brief tab only, sheet button labelled "Brief" in a c
 Module `challenge-panels` from the approved [capability map](CAPABILITY-MAP-phase3.md);
 builds on slice 1 ([SPEC-challenge-slice1.md](SPEC-challenge-slice1.md)), which is
 merged to `main`. Branch: `feat/challenge-panels`, from `main`. Plan:
-[tasks/plan.md](tasks/plan.md).
+[tasks/challenge-panels/plan.md](tasks/challenge-panels/plan.md).
 
 ## Objective
 

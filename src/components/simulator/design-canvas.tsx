@@ -16,6 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChallengePicker } from "./challenge-picker";
+import { DesignIo } from "./design-io";
 import { DesignNode } from "./design-node";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
@@ -186,6 +187,7 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
             Clear
           </Button>
         </div>
+        <DesignIo briefs={briefs} />
         <PendingProtocolPicker />
       </div>
       {ready ? (

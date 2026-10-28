@@ -79,6 +79,10 @@ export type CompactNode = {
   id: string;
   kind: ComponentKind;
   label: string | null;
+  /** null means the catalog's purpose for this kind */
+  purpose: string | null;
+  /** Canvas position (`at: [x, y]`); null places the node on a grid */
+  position: { x: number; y: number } | null;
   /** Merged over the catalog defaultConfig for this kind */
   config: Record<string, unknown>;
 };

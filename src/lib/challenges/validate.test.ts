@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- these tests mutate raw, untyped parsed YAML */
 import { describe, expect, it } from "vitest";
-import { validateBrief, validateFixture } from "./validate";
+import { validateBrief, validateDesignFile, validateFixture } from "./validate";
 
 const FILE = "challenges/test/brief.yaml";
 const FIXTURE_FILE = "challenges/test/fixtures/good.yaml";
@@ -205,10 +205,38 @@ describe("validateFixture", () => {
       { id: "api->cache", source: "api", target: "cache", protocol: "db" },
       { id: "api->db", source: "api", target: "db", protocol: "db" },
     ]);
-    expect(fx.design.nodes[0]).toEqual({ id: "phone", kind: "mobile", label: null, config: {} });
+    expect(fx.design.nodes[0]).toEqual({
+      id: "phone",
+      kind: "mobile",
+      label: null,
+      purpose: null,
+      position: null,
+      config: {},
+    });
     expect(fx.design.placements).toEqual({ "create-link": "api", redirect: "api" });
     expect(fx.expect).toEqual({ pass: true, fails: [], warns: [] });
     expect(fx.knownGap).toBeNull();
+  });
+
+  it("reads optional node positions and purposes", () => {
+    const f = rawFixture();
+    f.design.nodes[1].at = [460, 40.4];
+    f.design.nodes[1].purpose = "Creates and resolves links";
+    const node = validateFixture(f, brief, FIXTURE_FILE, "good").design.nodes[1];
+    expect(node.position).toEqual({ x: 460, y: 40.4 });
+    expect(node.purpose).toBe("Creates and resolves links");
+  });
+
+  it("rejects malformed positions and purposes", () => {
+    const atError = "design.nodes[0].at: expected [x, y] with two numbers";
+    expect(fixtureError((f) => (f.design.nodes[0].at = [1]))).toContain(atError);
+    expect(fixtureError((f) => (f.design.nodes[0].at = [1, 2, 3]))).toContain(atError);
+    expect(fixtureError((f) => (f.design.nodes[0].at = [1, "2"]))).toContain(atError);
+    expect(fixtureError((f) => (f.design.nodes[0].at = { x: 1, y: 2 }))).toContain(atError);
+    expect(fixtureError((f) => (f.design.nodes[0].at = [1, Infinity]))).toContain(atError);
+    expect(fixtureError((f) => (f.design.nodes[0].purpose = ""))).toContain(
+      "design.nodes[0].purpose: expected a non-empty string",
+    );
   });
 
   it("rejects malformed edges and unknown nodes", () => {
@@ -274,5 +302,98 @@ describe("validateFixture", () => {
     expect(fx.expect).toEqual({ pass: false, fails: ["cache-on-read-path", "topo-cache"], warns: [] });
     expect(fx.knownGap).toBe("Reason.");
     expect(fixtureError((f) => (f.knownGap = ""))).toContain("knownGap: expected a non-empty string");
+  });
+});
+
+describe("validateDesignFile", () => {
+  const brief = validateBrief(rawBrief(), FILE);
+  const briefs = [brief];
+  const DESIGN_FILE = "my-design.yaml";
+
+  function sandboxFile(): Record<string, any> {
+    const b = rawBrief();
+    return {
+      functionalRequirements: [{ ...b.functionalRequirements[0], id: "feat-4" }],
+      nfr: b.nfr,
+      design: { ...rawFixture().design, placements: { "feat-4": "api" } },
+    };
+  }
+
+  function fileError(raw: Record<string, any>, current: string | null = null): string {
+    try {
+      validateDesignFile(raw, briefs, current, DESIGN_FILE);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error("expected validateDesignFile to throw");
+  }
+
+  it("reads a challenge file against that brief, whatever is current", () => {
+    const file = validateDesignFile(
+      { challenge: "link-shortener", design: rawFixture().design },
+      briefs,
+      null,
+      DESIGN_FILE,
+    );
+    expect(file.brief).toBe(brief);
+    expect(file.functionalRequirements).toBe(brief.functionalRequirements);
+    expect(file.nfr).toEqual(brief.nfr);
+    expect(file.design.placements).toEqual({ "create-link": "api", redirect: "api" });
+  });
+
+  it("reads a sandbox file's own requirements and targets", () => {
+    const file = validateDesignFile(sandboxFile(), briefs, "link-shortener", DESIGN_FILE);
+    expect(file.brief).toBeNull();
+    expect(file.functionalRequirements.map((fr) => fr.id)).toEqual(["feat-4"]);
+    expect(file.functionalRequirements[0].feature.description).toBe("");
+    expect(file.nfr.maxLatencyMs).toBe(120);
+    expect(file.design.placements).toEqual({ "feat-4": "api" });
+  });
+
+  it("allows a sandbox file with no requirements", () => {
+    const raw: Record<string, any> = { ...sandboxFile(), functionalRequirements: [] };
+    raw.design.placements = {};
+    expect(validateDesignFile(raw, briefs, null, DESIGN_FILE).functionalRequirements).toEqual([]);
+  });
+
+  it("reads a fixture into the current challenge, ignoring its expectations", () => {
+    const file = validateDesignFile(
+      { ...rawFixture(), knownGap: "Reason." },
+      briefs,
+      "link-shortener",
+      DESIGN_FILE,
+    );
+    expect(file.brief).toBe(brief);
+    expect(file.design.nodes).toHaveLength(4);
+  });
+
+  it("refuses a file with no requirements in the sandbox", () => {
+    expect(fileError({ design: rawFixture().design })).toBe(
+      `${DESIGN_FILE}: This design has no requirements. Pick its challenge first, then import it.`,
+    );
+  });
+
+  it("names the file and path in errors", () => {
+    expect(fileError({ challenge: "ride-share", design: rawFixture().design })).toBe(
+      `${DESIGN_FILE}: challenge: no challenge called "ride-share"`,
+    );
+    expect(fileError({ ...sandboxFile(), challenge: "link-shortener" })).toContain(
+      "functionalRequirements: not allowed with challenge",
+    );
+    expect(fileError({ ...sandboxFile(), nfr: undefined })).toBe(`${DESIGN_FILE}: nfr: expected a mapping`);
+    expect(fileError({ nfr: rawBrief().nfr, design: rawFixture().design })).toContain(
+      "nfr: only allowed with functionalRequirements",
+    );
+    expect(fileError({ challenge: "link-shortener" })).toBe(`${DESIGN_FILE}: design: expected a mapping`);
+    expect(fileError({ ...sandboxFile(), extra: 1 })).toBe(`${DESIGN_FILE}: extra: unknown field`);
+  });
+
+  it("checks placements against the file's own requirement ids", () => {
+    const raw = sandboxFile();
+    raw.design.placements = { redirect: "api" };
+    expect(fileError(raw)).toBe(`${DESIGN_FILE}: design.placements.redirect: unknown field`);
+    const dup = sandboxFile();
+    dup.functionalRequirements.push(dup.functionalRequirements[0]);
+    expect(fileError(dup)).toContain('duplicate requirement id "feat-4"');
   });
 });
