@@ -513,6 +513,8 @@ export function runVerification(
     "cache",
     // Workers do background compute: consuming a queue and calling on is their job.
     "task_worker",
+    // An outside service the server calls, which may call back (a webhook); not part of your system.
+    "external_api",
   ]);
   for (const n of nodes) {
     const inC = inDeg.get(n.id) ?? 0;

@@ -329,6 +329,13 @@ describe("topo-intermediate", () => {
     expect(hopWarnings(extra, extraEdges)).toEqual([]);
   });
 
+  // Finding 13: the server calls the provider and the provider calls back (a webhook).
+  it("does not flag an external API that calls the server back", () => {
+    const extra = [node("payments", "external_api")];
+    const extraEdges = [edge("api-1", "payments"), edge("payments", "lb")];
+    expect(hopWarnings(extra, extraEdges)).toEqual([]);
+  });
+
   it("still flags a data store used as a hop", () => {
     const extra = [node("files", "object_storage")];
     expect(hopWarnings(extra, [edge("db", "files")])).toEqual(["topo-intermediate-db"]);
