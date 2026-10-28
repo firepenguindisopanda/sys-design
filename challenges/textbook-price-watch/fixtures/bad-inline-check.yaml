@@ -1,0 +1,23 @@
+description: >-
+  Good design without the queue and workers. Adding a watch makes the API call the
+  bookstore and wait for the price before answering.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: fn, kind: functions, label: Watch API }
+    - { id: cache, kind: cache, label: Price cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Prices DB, config: { replicas: 2 } }
+    - { id: store, kind: external_api, label: Online bookstore }
+  edges:
+    - phone -> fn : http
+    - laptop -> fn : http
+    - fn -> cache : db
+    - fn -> db : db
+    - fn -> store : http
+    - fn -> phone : web_push
+  placements:
+    add-watch: fn
+    price-history: fn
+expect:
+  fails: [checks-queued, workers-check, nfr-latency]

@@ -1,0 +1,29 @@
+description: >-
+  Good design plus a direct connection from the laptop to the database.
+design:
+  nodes:
+    - { id: phone, kind: mobile, label: Student phone }
+    - { id: laptop, kind: desktop, label: Student laptop }
+    - { id: fn, kind: functions, label: Watch API }
+    - { id: cache, kind: cache, label: Price cache, config: { memoryGb: 1 } }
+    - { id: db, kind: database, label: Prices DB, config: { replicas: 2 } }
+    - { id: checks, kind: message_queue, label: Price checks }
+    - { id: checkers, kind: task_worker, label: Price checkers }
+    - { id: store, kind: external_api, label: Online bookstore }
+  edges:
+    - phone -> fn : http
+    - laptop -> fn : http
+    - laptop -> db : db
+    - fn -> cache : db
+    - fn -> db : db
+    - fn -> checks : http
+    - checks -> checkers : http
+    - checkers -> store : http
+    - checkers -> db : db
+    - checkers -> phone : web_push
+  placements:
+    add-watch: fn
+    price-history: fn
+expect:
+  fails: [no-client-to-db]
+  warns: [topo-client-data-laptop->db]

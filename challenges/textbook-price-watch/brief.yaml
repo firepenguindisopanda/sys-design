@@ -1,0 +1,101 @@
+id: textbook-price-watch
+title: Textbook price watch
+tagline: Get a push when a course textbook gets cheaper
+source: >-
+  Adapted from the "camelcamelcamel" starter in nvidia_genai/architect-it/src/shared/starters.ts
+  (own work), rewritten as a textbook price tracker for one university's students.
+summary: >-
+  Students add the textbooks on their reading lists, with the price they're willing to
+  pay. The service checks each book's price at an online bookstore, which has an API
+  that needs a secret key and allows only a few calls a second, keeps the price history,
+  and pushes a notification to the student's phone when a price drops below their
+  target. Journeys: a student adds a book with a target price; a student views a book's
+  price history; a student gets a push when the price drops. Workers also recheck every
+  watched book regularly; there is no scheduler component, so draw only the checks that
+  adding a book starts. The hard part: almost nobody uses it for most of the semester,
+  and then everyone does in the first two weeks, so paying for servers that sit idle
+  would use up the budget.
+outOfScope:
+  - buying the book
+  - bookstores other than the one
+  - second-hand listings
+  - drawing the recheck scheduler
+
+functionalRequirements:
+  - id: add-watch
+    text: A student adds a textbook and the price they're willing to pay.
+    feature:
+      name: Add watch
+      description: Store the watch and get the book's current price from the bookstore.
+      resources: { memoryGb: 0.25, vcpus: 0.25, storageGb: 0.1 }
+      targetRpm: 60
+      computeMsPerRequest: 30
+      backgroundWorkMs: 2000
+  - id: price-history
+    text: A student views how a book's price has changed this semester.
+    feature:
+      name: Price history
+      description: Return the book's recorded prices and the student's target.
+      resources: { memoryGb: 0.25, vcpus: 0.25, storageGb: 0.1 }
+      targetRpm: 300
+      computeMsPerRequest: 15
+
+nfr:
+  maxLatencyMs: 50
+  minThroughputRpm: 600
+  minAvailabilityPct: 99.5
+  maxMonthlyCostUsd: 160
+
+rules:
+  - id: api-on-functions
+    title: API runs on cloud functions
+    type: component
+    kind: functions
+    severity: fail
+    why: The service is idle for most of the semester; cloud functions cost almost nothing when nobody calls them and scale up on their own in the first weeks.
+  - id: checks-queued
+    title: Price checks go on a queue
+    type: edge
+    mode: required
+    from: compute
+    to: message_queue
+    severity: fail
+    why: The bookstore answers slowly and allows only a few calls a second; the API queues a check and answers the student straight away.
+  - id: workers-check
+    title: Workers call the bookstore
+    type: edge
+    mode: required
+    from: task_worker
+    to: external_api
+    severity: fail
+    why: Background workers take checks off the queue at a pace the bookstore allows, so a rush of new watches never breaks its limit.
+  - id: store-from-server
+    title: Clients don't call the bookstore
+    type: edge
+    mode: forbidden
+    from: client
+    to: external_api
+    severity: fail
+    why: The bookstore's API needs a secret key; an app that calls it has to carry the key, and anyone can copy it from there.
+  - id: drop-alerts
+    title: Price drops sent as web push
+    type: edge
+    mode: required
+    from: [task_worker, compute]
+    to: client
+    protocols: [web_push]
+    severity: fail
+    why: A student shouldn't have to keep checking; the server pushes a notification when the price falls below their target.
+  - id: no-client-to-db
+    title: No client talks to the database
+    type: edge
+    mode: forbidden
+    from: client
+    to: database
+    severity: fail
+    why: Clients reach data through compute, never directly.
+
+reflection:
+  - Two hundred students add the same textbook in one morning. How do you avoid checking its price two hundred times?
+  - The bookstore's API is down for an hour. What do students see, and what happens to the checks?
+  - A price drops and rises again within ten minutes. Should students who were told about the drop be told again?
