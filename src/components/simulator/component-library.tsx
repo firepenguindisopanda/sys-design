@@ -1,6 +1,7 @@
 "use client";
 
 import { COMPONENT_CATALOG } from "@/lib/catalog";
+import { LIBRARY_DRAG_TYPE } from "@/lib/placement";
 import { useSimulatorStore } from "@/lib/store";
 import type { CatalogCategory, ComponentKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,7 @@ export function ComponentLibrary() {
           Components
         </h2>
         <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-          Click to place. Connect with the protocol picker on the canvas.
+          Click or drag onto the canvas. Connect with the protocol picker on the canvas.
         </p>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
@@ -92,6 +93,12 @@ export function ComponentLibrary() {
                         type="button"
                         variant="outline"
                         onClick={() => addComponent(item.kind)}
+                        // A drag suppresses the click, so dropping never adds two nodes.
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(LIBRARY_DRAG_TYPE, item.kind);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
                         className="h-auto w-full justify-start gap-2 border-slate-200 bg-white px-2.5 py-2 text-left shadow-none hover:border-teal-300 hover:bg-teal-50/50"
                       >
                         <Icon className="h-4 w-4 shrink-0 text-teal-700" />

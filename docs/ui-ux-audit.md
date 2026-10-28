@@ -65,7 +65,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - Section labels (`text-slate-400` on `#f8fafc`) measure **2.51:1**. WCAG AA needs 4.5:1. `text-slate-500` at 10 px is borderline.
 - *Fix:* Set a floor of 12 px for body text and 11 px for uppercase labels, and move labels to `slate-500` or darker. Do it through tokens (see finding 14), not one class at a time.
 
-**7. The camera re-fits on every add or delete** (seen, code) — since `inspector-placement`, nodes stacked by the re-fit can also sit under the inspector card
+**7. The camera re-fits on every add or delete** (seen, code) — **fixed** in `canvas-ergonomics`: the view fits only when a design is loaded, new nodes go to a free spot in view, and the library supports drag and drop
 - `FitViewOnReady` (`design-canvas.tsx:31`) calls `fitView` whenever the node count changes. Adding one VM to an empty canvas zoomed it to 150%. On a busy canvas, every add re-frames the whole view, so the user loses their place.
 - New nodes appear at `120 + 24·n` (`store.ts:440`), which drifts off-screen once you've panned.
 - *Fix:* Fit only on load, import, challenge start and demo load. Place new nodes at the centre of the current viewport (`screenToFlowPosition`) and nudge them so they don't overlap. Allow drag-and-drop from the library; the instruction says "Click to place", but dragging is the convention users expect in diagram tools.
@@ -76,7 +76,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - *Why it matters:* User control and freedom, and error recovery (Nielsen #3 and #9).
 - *Fix:* Add a Delete button to the node inspector and set `deleteKeyCode={["Backspace", "Delete"]}`. Add a small undo stack (zundo or a hand-rolled snapshot list of `{nodes, edges, features}`) with Ctrl+Z and Ctrl+Shift+Z.
 
-**9. The connection workflow is hard to discover** (seen)
+**9. The connection workflow is hard to discover** (seen) — **mostly fixed** in `canvas-ergonomics`: handles hidden until needed with a 20 px hit area, DB as the default protocol into a database or cache, and the "New link" label. Keyboard connecting and fewer handles are still open
 - To connect two nodes you first choose a protocol in a "New link" dropdown at the top, then drag between one of 18 small handles per node (198 handles across 11 nodes in the demo). The dropdown shows the raw value `http` instead of its label, because `SelectValue` gets no `items` (`edge-inspector.tsx:175`). Its hint is cut off at `max-w-[10rem]`.
 - The 8 px handles are below the 24 px minimum target size (WCAG 2.5.8 and Fitts's law), and they're always visible, which adds visual noise.
 - *Fix:* Show handles only on hover or selection, and make the hit area 24 px even if the dot stays small. Let the student pick the protocol after connecting: create the edge with a sensible default based on source and target kinds (client → compute is HTTP, compute → database is DB), then open the edge inspector. Keep the toolbar picker as an override.
@@ -138,7 +138,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - This is part of why the workload placeholders ("req/min") now clip in IBM Plex Sans.
 - *Fix:* decide whether those inputs should be 11 px (as written) or 14 px (as rendered), then pass the matching `md:` class or change the primitive. Best done with the text-size floor in finding 6.
 
-**20. Edge inspector selects show raw values** (seen, found during `ui-quick-fixes`)
+**20. Edge inspector selects show raw values** (seen, found during `ui-quick-fixes`) — **fixed** in `canvas-ergonomics`
 - The Protocol, From and To selects have no `items`, so selecting the API → graph DB edge shows `db`, `paas-7` and `database-9`, not "DB", "Programme API" and "Programme Graph DB". The "New link" select was fixed the same way in `ui-quick-fixes`.
 
 **18. Small items** (seen and code)

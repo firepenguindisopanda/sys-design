@@ -130,3 +130,30 @@
     @apply font-sans;
   }
 }
+
+/* Canvas handles: hidden at rest, shown on a hovered, selected or focused node and on
+   every node while a connection is drawn. The 8 px dot keeps a 20 px hit area. */
+.sesim-handle {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.react-flow__node:hover .sesim-handle,
+.react-flow__node.selected .sesim-handle,
+.react-flow__node:focus-visible .sesim-handle,
+.react-flow__node:focus-within .sesim-handle,
+.react-flow.connecting .sesim-handle {
+  opacity: 1;
+}
+/* The handle is 8 px border-box with a 1 px border, so its padding box is 6 px:
+   7 px on each side makes the ring 20 px. */
+.sesim-handle::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 9999px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sesim-handle {
+    transition: none;
+  }
+}

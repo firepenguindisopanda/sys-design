@@ -114,3 +114,30 @@ describe("accessible names", () => {
     expect(unnamedControls(render(<PendingProtocolPicker />))).toEqual([]);
   });
 });
+
+describe("connection inspector names", () => {
+  beforeEach(() => store().loadDemo());
+
+  /** The text inside the select trigger with this id suffix. */
+  function trigger(html: string, suffix: string): string {
+    const m = new RegExp(`<button\\b[^>]*\\sid="[^"]*-${suffix}"[^>]*>([\\s\\S]*?)</button>`).exec(html);
+    if (!m) throw new Error(`no ${suffix} trigger`);
+    return m[1].replace(/<[^>]+>/g, "");
+  }
+
+  it("shows node and protocol names, not ids, in the triggers", () => {
+    const api = store().nodes.find((n) => n.data.label === "Programme API")!;
+    const db = store().nodes.find((n) => n.data.label === "Programme Graph DB")!;
+    const edge = store().edges.find((e) => e.source === api.id && e.target === db.id)!;
+    useSimulatorStore.setState({ selectedNodeId: null, selectedEdgeId: edge.id });
+    const html = render(<InspectorCard onClose={() => {}} />);
+
+    expect(trigger(html, "from")).toContain("Programme API");
+    expect(trigger(html, "to")).toContain("Programme Graph DB");
+    expect(trigger(html, "protocol")).toContain("Database protocol");
+    for (const part of ["from", "to", "protocol"]) {
+      expect(trigger(html, part)).not.toMatch(/paas-|database-|^db$/);
+    }
+    expect(unnamedControls(html)).toEqual([]);
+  });
+});

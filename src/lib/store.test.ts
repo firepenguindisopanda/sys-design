@@ -5,6 +5,7 @@ import { buildDesign } from "./challenges/design";
 import { exportDesignFile, importDesignFile } from "./challenges/design-file";
 import { loadChallenges } from "./challenges/load";
 import { runFixture } from "./challenges/run";
+import { getEdgeData } from "./edges";
 import { useSimulatorStore } from "./store";
 
 const store = () => useSimulatorStore.getState();
@@ -521,5 +522,123 @@ describe("deleteNode", () => {
     expect(store().nodes).toEqual(nodes);
     expect(store().edges).toEqual(edges);
     expect(store().features).toEqual(features);
+  });
+});
+
+describe("layoutVersion", () => {
+  beforeEach(() => store().loadDemo());
+
+  const sandboxFile = () => {
+    const result = importDesignFile(
+      `challenge: link-shortener\ndesign: { nodes: [{ id: api, kind: paas }] }`,
+      "t.yaml",
+      [brief],
+      null,
+    );
+    if ("error" in result) throw new Error(result.error);
+    return result.loaded;
+  };
+
+  it.each<[string, () => void]>([
+    ["loadDemo", () => store().loadDemo()],
+    ["loadFanInDemo", () => store().loadFanInDemo()],
+    ["startChallenge", () => store().startChallenge(brief)],
+    ["leaveChallenge", () => store().leaveChallenge()],
+    ["loadDesign", () => store().loadDesign(sandboxFile())],
+  ])("rises by one on %s", (_, replace) => {
+    const before = store().layoutVersion;
+    replace();
+    expect(store().layoutVersion).toBe(before + 1);
+  });
+
+  it.each<[string, () => void]>([
+    ["addComponent", () => store().addComponent("vm")],
+    ["deleteNode", () => store().deleteNode(store().nodes[0].id)],
+    [
+      "onConnect",
+      () =>
+        store().onConnect({
+          source: store().nodes[0].id,
+          target: store().nodes[1].id,
+          sourceHandle: null,
+          targetHandle: null,
+        }),
+    ],
+    [
+      "onNodesChange",
+      () =>
+        store().onNodesChange([
+          { type: "position", id: store().nodes[0].id, position: { x: 9, y: 9 } },
+        ]),
+    ],
+    ["updateNodeData", () => store().updateNodeData(store().nodes[0].id, { label: "Renamed" })],
+  ])("doesn't change on %s", (_, edit) => {
+    const before = store().layoutVersion;
+    edit();
+    expect(store().layoutVersion).toBe(before);
+  });
+});
+
+describe("placing new components", () => {
+  beforeEach(() => {
+    store().loadDemo();
+    store().clearCanvas();
+    store().setViewCentre(null);
+  });
+
+  it("centres the first node on the view centre", () => {
+    store().setViewCentre({ x: 500, y: 300 });
+    store().addComponent("vm");
+    expect(store().nodes[0].position).toEqual({ x: 400, y: 265 });
+  });
+
+  it("never stacks a second node on the first", () => {
+    store().setViewCentre({ x: 500, y: 300 });
+    store().addComponent("vm");
+    store().addComponent("vm");
+    const [a, b] = store().nodes.map((n) => n.position);
+    const overlaps =
+      a.x < b.x + 200 && b.x < a.x + 200 && a.y < b.y + 70 && b.y < a.y + 70;
+    expect(overlaps).toBe(false);
+  });
+
+  it("uses a drop position as given", () => {
+    store().setViewCentre({ x: 500, y: 300 });
+    store().addComponent("vm", { x: 10, y: 20 });
+    expect(store().nodes[0].position).toEqual({ x: 10, y: 20 });
+  });
+
+  it("falls back to the offset rule with no view centre", () => {
+    store().addComponent("vm");
+    store().addComponent("vm");
+    expect(store().nodes.map((n) => n.position)).toEqual([
+      { x: 120, y: 100 },
+      { x: 144, y: 124 },
+    ]);
+  });
+
+  it("still selects the new node", () => {
+    store().addComponent("database");
+    expect(store().selectedNodeId).toBe(store().nodes[0].id);
+  });
+});
+
+describe("default protocol for drawn connections", () => {
+  beforeEach(() => store().loadDemo());
+
+  const byKind = (kind: string) => store().nodes.find((n) => n.data.componentKind === kind)!;
+  const connect = (source: string, target: string) => {
+    store().onConnect({ source, target, sourceHandle: null, targetHandle: null });
+    return getEdgeData(store().edges.at(-1)!).protocol;
+  };
+
+  it("gives db into the database, whatever the picker says", () => {
+    store().setPendingProtocol("http");
+    expect(connect(byKind("paas").id, byKind("database").id)).toBe("db");
+  });
+
+  it("follows the picker between compute and network nodes", () => {
+    store().setPendingProtocol("http");
+    expect(connect(byKind("load_balancer").id, byKind("paas").id)).toBe("http");
   });
 });

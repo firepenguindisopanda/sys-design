@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
 import { createStyledEdge, styleEdgeForProtocol } from "./edges";
 import { evaluateRules } from "./challenges/rules";
+import { defaultProtocol, freeSpot } from "./placement";
 import type { LoadedDesign } from "./challenges/design-file";
 import type { Brief, RuleResult } from "./challenges/types";
 import { canPlaceFeature, runVerification } from "./simulation";
@@ -57,10 +58,16 @@ type SimulatorState = {
   challenge: Brief | null;
   /** Brief rule results from the last verification in a challenge */
   ruleResults: RuleResult[] | null;
+  /** Raised whenever the whole design is replaced, so the canvas re-fits the view */
+  layoutVersion: number;
+  /** Centre of the visible canvas in flow coordinates; null until the canvas reports it */
+  viewCentre: { x: number; y: number } | null;
+  setViewCentre: (centre: { x: number; y: number } | null) => void;
   onNodesChange: (changes: NodeChange<SimNode>[]) => void;
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
-  addComponent: (kind: ComponentKind) => void;
+  /** Add a node at `at` (its top-left, from a drop), or at a free spot in view */
+  addComponent: (kind: ComponentKind, at?: { x: number; y: number }) => void;
   selectNode: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
   setPendingProtocol: (protocol: EdgeProtocol) => void;
@@ -414,6 +421,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   challenge: null,
   ruleResults: null,
   pendingReplace: null,
+  layoutVersion: 0,
+  viewCentre: null,
+
+  setViewCentre: (centre) => set({ viewCentre: centre }),
 
   onNodesChange: (changes) => {
     const nodes = applyNodeChanges(changes, get().nodes) as SimNode[];
@@ -429,7 +440,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   },
 
   onConnect: (connection) => {
-    const protocol = get().pendingProtocol;
+    const kindOf = (id: string | null) =>
+      get().nodes.find((n) => n.id === id)?.data.componentKind;
+    const protocol = defaultProtocol(
+      kindOf(connection.source),
+      kindOf(connection.target),
+      get().pendingProtocol,
+    );
     const edge = createStyledEdge(
       {
         ...connection,
@@ -447,13 +464,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     });
   },
 
-  addComponent: (kind) => {
-    const offset = get().nodes.length * 24;
-    const node = createNode(
-      kind,
-      { x: 120 + offset, y: 100 + (offset % 160) },
-      freshId(kind, get().nodes.map((n) => n.id)),
-    );
+  addComponent: (kind, at) => {
+    const { nodes, viewCentre } = get();
+    const offset = nodes.length * 24;
+    const position =
+      at ??
+      (viewCentre ? freeSpot(viewCentre, nodes) : { x: 120 + offset, y: 100 + (offset % 160) });
+    const node = createNode(kind, position, freshId(kind, nodes.map((n) => n.id)));
     set({
       nodes: [...get().nodes, node],
       selectedNodeId: node.id,
@@ -629,9 +646,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     });
   },
 
-  loadDemo: () => set({ ...withBaseline(demoSeed()), challenge: null, ruleResults: null }),
+  loadDemo: () =>
+    set({
+      ...withBaseline(demoSeed()),
+      challenge: null,
+      ruleResults: null,
+      layoutVersion: get().layoutVersion + 1,
+    }),
 
-  loadFanInDemo: () => set({ ...withBaseline(fanInSeed()), challenge: null, ruleResults: null }),
+  loadFanInDemo: () =>
+    set({
+      ...withBaseline(fanInSeed()),
+      challenge: null,
+      ruleResults: null,
+      layoutVersion: get().layoutVersion + 1,
+    }),
 
   clearCanvas: () =>
     set({
@@ -645,9 +674,16 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
     }),
 
-  startChallenge: (brief) => set(withBaseline(challengeSeed(brief))),
+  startChallenge: (brief) =>
+    set({ ...withBaseline(challengeSeed(brief)), layoutVersion: get().layoutVersion + 1 }),
 
-  leaveChallenge: () => set({ ...withBaseline(demoSeed()), challenge: null, ruleResults: null }),
+  leaveChallenge: () =>
+    set({
+      ...withBaseline(demoSeed()),
+      challenge: null,
+      ruleResults: null,
+      layoutVersion: get().layoutVersion + 1,
+    }),
 
   loadDesign: ({ brief, nodes, edges, features, functionalReqs, nfr }) =>
     set({
@@ -658,6 +694,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       verifiedFingerprint: null,
       selectedNodeId: null,
       selectedEdgeId: null,
+      layoutVersion: get().layoutVersion + 1,
     }),
 
   hasUnsavedWork: () => hasUnsavedWork(get(), get().baseline),

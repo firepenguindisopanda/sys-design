@@ -116,7 +116,9 @@ export function VerificationPanel() {
           id={RESULTS_ID}
           hidden={hidden}
           data-stale={stale || undefined}
-          className="max-h-44 overflow-y-auto border-t border-slate-100 px-4 py-2"
+          // relative: the rows' sr-only status text is absolutely positioned, and without a
+          // positioned ancestor it escapes this scroll box and makes the page scroll.
+          className="relative max-h-44 overflow-y-auto border-t border-slate-100 px-4 py-2"
         >
           <ResultRows
             rows={rows}

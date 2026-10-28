@@ -62,6 +62,7 @@ function MultiHandles() {
     <>
       {leftTargets.map((top, i) => (
         <Handle
+          className="sesim-handle"
           key={`t-l-${i}`}
           type="target"
           id={`t-left-${i}`}
@@ -71,6 +72,7 @@ function MultiHandles() {
       ))}
       {rightSources.map((top, i) => (
         <Handle
+          className="sesim-handle"
           key={`s-r-${i}`}
           type="source"
           id={`s-right-${i}`}
@@ -79,14 +81,14 @@ function MultiHandles() {
         />
       ))}
       {/* Extra routing surfaces for vertical / reverse layouts */}
-      <Handle type="target" id="t-top-0" position={Position.Top} style={{ ...handleBase, left: "30%" }} />
-      <Handle type="target" id="t-top-1" position={Position.Top} style={{ ...handleBase, left: "70%" }} />
-      <Handle type="source" id="s-top-0" position={Position.Top} style={{ ...handleBase, left: "50%" }} />
-      <Handle type="target" id="t-bottom-0" position={Position.Bottom} style={{ ...handleBase, left: "30%" }} />
-      <Handle type="target" id="t-bottom-1" position={Position.Bottom} style={{ ...handleBase, left: "70%" }} />
-      <Handle type="source" id="s-bottom-0" position={Position.Bottom} style={{ ...handleBase, left: "50%" }} />
-      <Handle type="source" id="s-left-0" position={Position.Left} style={{ ...handleBase, top: "10%" }} />
-      <Handle type="target" id="t-right-0" position={Position.Right} style={{ ...handleBase, top: "10%" }} />
+      <Handle className="sesim-handle" type="target" id="t-top-0" position={Position.Top} style={{ ...handleBase, left: "30%" }} />
+      <Handle className="sesim-handle" type="target" id="t-top-1" position={Position.Top} style={{ ...handleBase, left: "70%" }} />
+      <Handle className="sesim-handle" type="source" id="s-top-0" position={Position.Top} style={{ ...handleBase, left: "50%" }} />
+      <Handle className="sesim-handle" type="target" id="t-bottom-0" position={Position.Bottom} style={{ ...handleBase, left: "30%" }} />
+      <Handle className="sesim-handle" type="target" id="t-bottom-1" position={Position.Bottom} style={{ ...handleBase, left: "70%" }} />
+      <Handle className="sesim-handle" type="source" id="s-bottom-0" position={Position.Bottom} style={{ ...handleBase, left: "50%" }} />
+      <Handle className="sesim-handle" type="source" id="s-left-0" position={Position.Left} style={{ ...handleBase, top: "10%" }} />
+      <Handle className="sesim-handle" type="target" id="t-right-0" position={Position.Right} style={{ ...handleBase, top: "10%" }} />
     </>
   );
 }

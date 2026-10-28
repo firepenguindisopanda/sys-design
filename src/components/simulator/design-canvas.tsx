@@ -21,25 +21,35 @@ import { DesignNode } from "./design-node";
 import { edgeAriaLabel, nodeAriaLabel } from "./flow-labels";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { InspectorCard } from "./inspector-card";
+import { COMPONENT_CATALOG } from "@/lib/catalog";
+import { DEFAULT_NODE_SIZE, LIBRARY_DRAG_TYPE } from "@/lib/placement";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Eraser, Sparkles } from "lucide-react";
 import type { Brief } from "@/lib/challenges/types";
+import type { ComponentKind } from "@/lib/types";
 
 const nodeTypes = {
   designNode: DesignNode,
 } as NodeTypes;
 
-function FitViewOnReady({ nodeCount }: { nodeCount: number }) {
+/**
+ * Re-fit the view when the whole design is replaced (a demo, a challenge, an import).
+ * Adding, deleting, moving or connecting nodes never moves the camera. The first render
+ * is skipped: ReactFlow's `fitView` prop already fits on mount.
+ */
+function FitViewOnReady({ layoutVersion }: { layoutVersion: number }) {
   const { fitView } = useReactFlow();
+  const fitted = useRef(layoutVersion);
 
   useEffect(() => {
-    if (nodeCount === 0) return;
+    if (fitted.current === layoutVersion) return;
+    fitted.current = layoutVersion;
     const id = requestAnimationFrame(() => {
       fitView({ padding: 0.2, duration: 200 });
     });
     return () => cancelAnimationFrame(id);
-  }, [fitView, nodeCount]);
+  }, [fitView, layoutVersion]);
 
   return null;
 }
@@ -47,12 +57,19 @@ function FitViewOnReady({ nodeCount }: { nodeCount: number }) {
 function FlowCanvas() {
   const nodes = useSimulatorStore((s) => s.nodes);
   const edges = useSimulatorStore((s) => s.edges);
+  const selectedNodeId = useSimulatorStore((s) => s.selectedNodeId);
   const selectedEdgeId = useSimulatorStore((s) => s.selectedEdgeId);
   const onNodesChange = useSimulatorStore((s) => s.onNodesChange);
   const onEdgesChange = useSimulatorStore((s) => s.onEdgesChange);
   const onConnect = useSimulatorStore((s) => s.onConnect);
   const selectNode = useSimulatorStore((s) => s.selectNode);
   const selectEdge = useSimulatorStore((s) => s.selectEdge);
+  const addComponent = useSimulatorStore((s) => s.addComponent);
+  const setViewCentre = useSimulatorStore((s) => s.setViewCentre);
+  const layoutVersion = useSimulatorStore((s) => s.layoutVersion);
+  const { screenToFlowPosition } = useReactFlow();
+  // Shows every node's handles while a connection is being drawn (see globals.css).
+  const [connecting, setConnecting] = useState(false);
   // Matches when InspectorCard shows, so a tall card never covers the minimap.
   const inspectorOpen = useSimulatorStore(
     (s) =>
@@ -61,9 +78,16 @@ function FlowCanvas() {
   );
 
   // Screen-reader names are added here only, never written to the store.
+  // The store's selection also marks the node, as for edges, so a node added from the
+  // library shows its selected border and handles like a clicked one.
   const namedNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, ariaLabel: nodeAriaLabel(n) })),
-    [nodes],
+    () =>
+      nodes.map((n) => ({
+        ...n,
+        ariaLabel: nodeAriaLabel(n),
+        selected: n.id === selectedNodeId,
+      })),
+    [nodes, selectedNodeId],
   );
 
   const styledEdges: Edge[] = edges.map((e) => ({
@@ -100,6 +124,47 @@ function FlowCanvas() {
     [],
   );
 
+  // New nodes go where the student is looking: keep the store told of the view centre.
+  const reportCentre = useCallback(() => {
+    const el = flowRef.current;
+    if (!el) return;
+    const { left, top, width, height } = el.getBoundingClientRect();
+    if (width === 0 || height === 0) return;
+    setViewCentre(screenToFlowPosition({ x: left + width / 2, y: top + height / 2 }));
+  }, [screenToFlowPosition, setViewCentre]);
+
+  useEffect(() => {
+    const el = flowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(reportCentre);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [reportCentre]);
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(LIBRARY_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  // A library item dropped on the canvas lands centred on the pointer.
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      const kind = event.dataTransfer.getData(LIBRARY_DRAG_TYPE) as ComponentKind;
+      if (!COMPONENT_CATALOG.some((c) => c.kind === kind)) return;
+      event.preventDefault();
+      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      addComponent(kind, {
+        x: point.x - DEFAULT_NODE_SIZE.width / 2,
+        y: point.y - DEFAULT_NODE_SIZE.height / 2,
+      });
+    },
+    [addComponent, screenToFlowPosition],
+  );
+
+  const onConnectStart = useCallback(() => setConnecting(true), []);
+  const onConnectEnd = useCallback(() => setConnecting(false), []);
+
   const isValidConnection = useCallback((connection: Connection | Edge) => {
     if (!connection.source || !connection.target) return false;
     // Allow many edges per node / handle; only block self-loops.
@@ -115,6 +180,12 @@ function FlowCanvas() {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
+      onConnectStart={onConnectStart}
+      onConnectEnd={onConnectEnd}
+      onInit={reportCentre}
+      onMoveEnd={reportCentre}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onNodeClick={onNodeClick}
       onEdgeClick={onEdgeClick}
       onPaneClick={onPaneClick}
@@ -127,14 +198,14 @@ function FlowCanvas() {
       proOptions={{ hideAttribution: true }}
       minZoom={0.2}
       maxZoom={1.5}
-      className="bg-transparent"
+      className={connecting ? "bg-transparent connecting" : "bg-transparent"}
       edgesFocusable
       elementsSelectable
       edgesReconnectable
       // React Flow's screen-reader text says "press delete"; its default is Backspace only.
       deleteKeyCode={["Backspace", "Delete"]}
     >
-      <FitViewOnReady nodeCount={nodes.length} />
+      <FitViewOnReady layoutVersion={layoutVersion} />
       <Background
         variant={BackgroundVariant.Dots}
         gap={18}

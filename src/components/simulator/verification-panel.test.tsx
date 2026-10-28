@@ -77,6 +77,9 @@ describe("VerificationPanel", () => {
     for (const r of rows) expect(at(html, r.title)).toBeGreaterThan(-1);
     expect(html).not.toMatch(/Show \d+ passed/);
     expect(html).not.toContain("Hide passed");
+    // The rows' sr-only status text is absolutely positioned; a positioned scroll box keeps
+    // it inside, or a long list of passes makes the whole page scroll.
+    expect(tagWithId(html, "verification-results")).toMatch(/class="[^"]*\brelative\b/);
   });
 
   it("marks the results as old after a change", () => {

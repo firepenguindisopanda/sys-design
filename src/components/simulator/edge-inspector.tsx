@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { ArrowLeftRight, Trash2 } from "lucide-react";
 
+const arrow = (direction: string) => (direction === "bidirectional" ? "↔" : "→");
+
 /** The selected connection's fields. `InspectorCard` owns the frame and the title. */
 export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
   const selectedEdgeId = useSimulatorStore((s) => s.selectedEdgeId);
@@ -31,6 +33,11 @@ export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
 
   const data = getEdgeData(edge);
   const meta = PROTOCOL_META[data.protocol];
+  // Let each <SelectValue> show the name instead of the raw protocol or node id.
+  const protocolItems = Object.fromEntries(
+    PROTOCOL_OPTIONS.map((p) => [p.protocol, `${p.label} (${arrow(p.direction)})`]),
+  );
+  const nodeItems = Object.fromEntries(nodes.map((n) => [n.id, n.data.label]));
 
   return (
     <div className="space-y-3">
@@ -43,6 +50,7 @@ export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-protocol`} className="text-xs">Protocol</Label>
         <Select
+          items={protocolItems}
           value={data.protocol}
           onValueChange={(v) => {
             if (!v) return;
@@ -55,7 +63,7 @@ export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
           <SelectContent>
             {PROTOCOL_OPTIONS.map((p) => (
               <SelectItem key={p.protocol} value={p.protocol}>
-                {p.label} ({p.direction === "bidirectional" ? "↔" : "→"})
+                {protocolItems[p.protocol]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -79,6 +87,7 @@ export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
         <div className="min-w-0 space-y-1">
           <Label htmlFor={`${id}-from`} className="text-[10px]">From</Label>
           <Select
+            items={nodeItems}
             value={edge.source}
             onValueChange={(v) => {
               if (!v || v === edge.target) return;
@@ -100,6 +109,7 @@ export function EdgeInspector({ onDeleted }: { onDeleted?: () => void }) {
         <div className="min-w-0 space-y-1">
           <Label htmlFor={`${id}-to`} className="text-[10px]">To</Label>
           <Select
+            items={nodeItems}
             value={edge.target}
             onValueChange={(v) => {
               if (!v || v === edge.source) return;
