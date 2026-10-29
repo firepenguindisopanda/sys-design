@@ -43,6 +43,10 @@ export function BriefPanel({ brief }: { brief: Brief }) {
                 <li key={q}>{q}</li>
               ))}
             </ol>
+            <p className="text-[10px] leading-snug text-slate-500">
+              After a run, scenario checks you haven&apos;t met appear as hints you can open one
+              at a time.
+            </p>
           </section>
         )}
       </div>

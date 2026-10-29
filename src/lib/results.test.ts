@@ -33,9 +33,9 @@ describe("orderResults", () => {
   it("merges brief rules in by status, after the engine checks in each group", () => {
     const checks = demoChecks();
     const rules: RuleResult[] = [
-      { id: "has-cache", title: "Has a cache", status: "pass", detail: "Found one" },
-      { id: "no-direct-db", title: "No direct DB", status: "fail", detail: "Needs an API" },
-      { id: "queue", title: "Uses a queue", status: "warn", detail: "Needs a queue" },
+      { id: "has-cache", title: "Has a cache", status: "pass", detail: "Found one", kind: "required", why: "", fix: null },
+      { id: "no-direct-db", title: "No direct DB", status: "fail", detail: "Needs an API", kind: "forbidden", why: "", fix: "Needs an API" },
+      { id: "queue", title: "Uses a queue", status: "warn", detail: "Needs a queue", kind: "required", why: "", fix: "Needs a queue" },
     ];
     const rows = orderResults(checks, rules);
     expect(rows).toHaveLength(checks.length + rules.length);
@@ -81,5 +81,27 @@ describe("countResults and summarizeCounts", () => {
 
   it("uses the plural for more than one warning", () => {
     expect(summarizeCounts({ fail: 0, warn: 2, pass: 0 })).toBe("2 warnings");
+  });
+});
+
+describe("orderResults with staged rules", () => {
+  it("adds one summary row for the hidden rules and marks revealed rows", () => {
+    const rows = orderResults([], null, {
+      shown: [
+        { id: "a", title: "A", status: "fail", kind: "required", step: 1, text: "", canWhy: true, canFix: false },
+        { id: "p", title: "P", status: "pass", kind: "required", step: 0, text: "Has p.", canWhy: false, canFix: false },
+      ],
+      hidden: { count: 2, status: "fail" },
+    });
+    expect(rows.map((r) => r.key)).toEqual(["rule-a", "hidden-rules", "rule-p"]);
+    expect(rows[0].hint).toEqual({ step: 1, canWhy: true, canFix: false });
+    expect(rows[1]).toMatchObject({ title: "2 scenario checks not met yet", hintSummary: true });
+    expect(rows[2].hint).toBeUndefined();
+  });
+
+  it("says check, not checks, for one and leaves the row out for none", () => {
+    const one = orderResults([], null, { shown: [], hidden: { count: 1, status: "warn" } });
+    expect(one[0]).toMatchObject({ title: "1 scenario check not met yet", status: "warn" });
+    expect(orderResults([], null, { shown: [], hidden: { count: 0, status: "pass" } })).toEqual([]);
   });
 });

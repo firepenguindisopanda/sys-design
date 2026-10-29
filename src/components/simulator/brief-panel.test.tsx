@@ -44,3 +44,11 @@ describe("BriefPanel", () => {
     for (const rule of brief.rules) expect(text).not.toContain(rule.title);
   });
 });
+
+describe("BriefPanel hints", () => {
+  it("says that unmet scenario checks appear as hints", () => {
+    expect(renderText()).toContain(
+      "After a run, scenario checks you haven't met appear as hints you can open one at a time.",
+    );
+  });
+});

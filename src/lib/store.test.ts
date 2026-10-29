@@ -642,3 +642,61 @@ describe("default protocol for drawn connections", () => {
     expect(connect(byKind("load_balancer").id, byKind("paas").id)).toBe("http");
   });
 });
+
+describe("hints", () => {
+  const foodGuide = challenges.find((c) => c.brief.id === "campus-food-guide")!.brief;
+  const goodText = readFileSync(
+    path.resolve(__dirname, "../../challenges/link-shortener/fixtures/good.yaml"),
+    "utf8",
+  );
+
+  beforeEach(() => {
+    store().startChallenge(foodGuide);
+    store().runVerification();
+  });
+
+  it("reveals the failing required rules one at a time, in brief order", () => {
+    expect(store().hintSteps).toEqual({});
+    store().revealNextHint();
+    expect(store().hintSteps).toEqual({ "pages-on-cdn": 1 });
+    store().revealNextHint();
+    expect(store().hintSteps).toEqual({ "pages-on-cdn": 1, "clients-use-cdn": 1 });
+  });
+
+  it("advances a hint up to the fix and no further", () => {
+    store().revealNextHint();
+    for (let i = 0; i < 4; i++) store().advanceHint("pages-on-cdn");
+    expect(store().hintSteps).toEqual({ "pages-on-cdn": 3 });
+  });
+
+  it("does nothing when no rule is hidden", () => {
+    for (let i = 0; i < 3; i++) store().revealNextHint();
+    const before = store().hintSteps;
+    store().revealNextHint();
+    expect(store().hintSteps).toBe(before);
+  });
+
+  it.each<[string, () => void]>([
+    ["startChallenge", () => store().startChallenge(foodGuide)],
+    ["leaveChallenge", () => store().leaveChallenge()],
+    [
+      "loadDesign",
+      () => {
+        const result = importDesignFile(`challenge: link-shortener\n${goodText}`, "test.yaml", [brief], null);
+        if ("error" in result) throw new Error(result.error);
+        store().loadDesign(result.loaded);
+      },
+    ],
+  ])("%s resets the hints", (_, replace) => {
+    store().revealNextHint();
+    replace();
+    expect(store().hintSteps).toEqual({});
+  });
+
+  it("doesn't make results stale or count as unsaved work", () => {
+    store().revealNextHint();
+    store().advanceHint("pages-on-cdn");
+    expect(store().resultsAreStale()).toBe(false);
+    expect(store().hasUnsavedWork()).toBe(false);
+  });
+});

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { hintsUsed, stageRules } from "@/lib/hints";
 import { countResults, orderResults, summarizeCounts, type ResultRow } from "@/lib/results";
 import { useSimulatorStore } from "@/lib/store";
 import type { CheckStatus, VerificationResult } from "@/lib/types";
@@ -22,6 +23,7 @@ function statusLabel(status: CheckStatus) {
 }
 
 const RESULTS_ID = "verification-results";
+const HINT_ANNOUNCER_ID = "hint-announcement";
 
 const STATUS_SPOKEN: Record<CheckStatus, string> = {
   fail: "Failed:",
@@ -33,6 +35,10 @@ export function VerificationPanel() {
   const run = useSimulatorStore((s) => s.runVerification);
   const verification = useSimulatorStore((s) => s.verification);
   const ruleResults = useSimulatorStore((s) => s.ruleResults);
+  const inChallenge = useSimulatorStore((s) => s.challenge !== null);
+  const hintSteps = useSimulatorStore((s) => s.hintSteps);
+  const revealNextHint = useSimulatorStore((s) => s.revealNextHint);
+  const advanceHint = useSimulatorStore((s) => s.advanceHint);
   const stale = useSimulatorStore((s) => s.verification !== null && s.resultsAreStale());
   // Hidden only for the result it was hidden on, so a new run shows the panel again.
   const [hiddenFor, setHiddenFor] = useState<VerificationResult | null>(null);
@@ -40,9 +46,40 @@ export function VerificationPanel() {
   // The same for the passed rows, so a new run collapses them again.
   const [passedShownFor, setPassedShownFor] = useState<VerificationResult | null>(null);
   const showPassed = verification !== null && passedShownFor === verification;
+  // What the last hint opened, for screen readers; cleared by a new run.
+  const [hintSaid, setHintSaid] = useState<{ for: VerificationResult; text: string } | null>(
+    null,
+  );
+  // The row to focus after the next render, set when a hint button goes away.
+  const focusRowRef = useRef<string | null>(null);
 
-  const rows = verification ? orderResults(verification.checks, ruleResults) : [];
-  const counts = countResults(rows);
+  // Counts and the overall result include the rules still hidden behind hints.
+  const counts = countResults(verification ? orderResults(verification.checks, ruleResults) : []);
+  const staged = ruleResults ? stageRules(ruleResults, hintSteps) : undefined;
+  const rows = verification ? orderResults(verification.checks, ruleResults, staged) : [];
+
+  /** Open a hint, then say what it showed. */
+  function openHint(ruleId: string | null) {
+    const id = ruleId ?? staged?.nextHiddenId;
+    if (!verification || !id) return;
+    if (ruleId === null) revealNextHint();
+    else advanceHint(ruleId);
+    const steps = useSimulatorStore.getState().hintSteps;
+    const rule = ruleResults?.find((r) => r.id === id);
+    if (!rule) return;
+    const text =
+      steps[id] === 1 ? `Hint: ${rule.title}` : steps[id] === 2 ? `Why: ${rule.why}` : `Fix: ${rule.fix}`;
+    setHintSaid({ for: verification, text });
+    // "Show a hint" and "Show the fix" remove the button that was pressed; move focus to
+    // the rule's row so it isn't lost. "Why?" keeps its button (its text changes).
+    if (steps[id] !== 2) focusRowRef.current = `result-rule-${id}`;
+  }
+
+  useEffect(() => {
+    if (!focusRowRef.current) return;
+    document.getElementById(focusRowRef.current)?.focus();
+    focusRowRef.current = null;
+  });
 
   return (
     <div className="border-t border-slate-200 bg-white">
@@ -69,6 +106,11 @@ export function VerificationPanel() {
               {summarizeCounts(counts)}
             </span>
           )}
+          {verification && inChallenge && hintsUsed(hintSteps) > 0 && (
+            <span className="hidden text-[11px] text-slate-600 sm:inline">
+              Hints used: {hintsUsed(hintSteps)}
+            </span>
+          )}
           {verification && (
             <div className="hidden text-[11px] text-slate-500 sm:flex sm:gap-3">
               <span>{verification.estimatedLatencyMs} ms latency</span>
@@ -83,6 +125,9 @@ export function VerificationPanel() {
           </span>
           <span aria-live="polite" className="sr-only">
             {verification && `Run finished: ${summarizeCounts(counts, ", ")}.`}
+          </span>
+          <span id={HINT_ANNOUNCER_ID} aria-live="polite" className="sr-only">
+            {hintSaid?.for === verification && hintSaid.text}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -125,6 +170,7 @@ export function VerificationPanel() {
             stale={stale}
             showPassed={showPassed}
             onTogglePassed={() => setPassedShownFor(showPassed ? null : verification)}
+            onHint={openHint}
           />
         </div>
       )}
@@ -138,11 +184,14 @@ function ResultRows({
   stale,
   showPassed,
   onTogglePassed,
+  onHint,
 }: {
   rows: ResultRow[];
   stale: boolean;
   showPassed: boolean;
   onTogglePassed: () => void;
+  /** Open the next hidden rule (null) or the next step of this rule's hint */
+  onHint: (ruleId: string | null) => void;
 }) {
   const passed = rows.filter((r) => r.status === "pass").length;
   const collapsible = passed > 0 && passed < rows.length;
@@ -154,8 +203,11 @@ function ResultRows({
         {shown.map((row) => (
           <li
             key={row.key}
+            id={`result-${row.key}`}
+            // Rule rows can take focus, so a hint button that goes away can hand it on.
+            tabIndex={row.rule ? -1 : undefined}
             className={cn(
-              "flex gap-2 rounded border px-2.5 py-2",
+              "flex gap-2 rounded border px-2.5 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               // Brief rules, only in a challenge; they count toward the overall result.
               row.rule ? "border-teal-100 bg-teal-50/40" : "border-slate-100 bg-slate-50/80",
               // Old results: dashed outline and grey icons, but the text keeps its contrast.
@@ -172,9 +224,23 @@ function ResultRows({
                 <span className="sr-only">{STATUS_SPOKEN[row.status]} </span>
                 {row.title}
               </div>
-              <div className="mt-0.5 text-[10px] leading-snug text-slate-500">
-                {row.detail}
-              </div>
+              {row.detail && (
+                <div className="mt-0.5 text-[10px] leading-snug text-slate-500">
+                  {row.detail}
+                </div>
+              )}
+              {row.hintSummary && (
+                <HintButton onClick={() => onHint(null)}>Show a hint</HintButton>
+              )}
+              {/* One button whose text changes, so focus stays on it from "Why?" to the fix. */}
+              {(row.hint?.canWhy || row.hint?.canFix) && (
+                <HintButton
+                  label={`${row.hint.canWhy ? "Why?" : "Show the fix:"} ${row.title}`}
+                  onClick={() => onHint(row.ruleId!)}
+                >
+                  {row.hint.canWhy ? "Why?" : "Show the fix"}
+                </HintButton>
+              )}
               {(row.actual || row.target) && (
                 <div className="mt-1 text-[10px] text-slate-600">
                   {row.actual && <span>Actual {row.actual}</span>}
@@ -199,5 +265,30 @@ function ResultRows({
         </Button>
       )}
     </>
+  );
+}
+
+function HintButton({
+  label,
+  onClick,
+  children,
+}: {
+  /** Names the rule too, since every revealed row has the same button text */
+  label?: string;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      aria-label={label}
+      aria-controls={HINT_ANNOUNCER_ID}
+      onClick={onClick}
+      className="mt-1 h-6 px-2 text-[10px]"
+    >
+      {children}
+    </Button>
   );
 }

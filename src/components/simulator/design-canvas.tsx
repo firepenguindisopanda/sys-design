@@ -39,17 +39,23 @@ const nodeTypes = {
  * is skipped: ReactFlow's `fitView` prop already fits on mount.
  */
 function FitViewOnReady({ layoutVersion }: { layoutVersion: number }) {
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
   const fitted = useRef(layoutVersion);
 
   useEffect(() => {
     if (fitted.current === layoutVersion) return;
     fitted.current = layoutVersion;
     const id = requestAnimationFrame(() => {
-      fitView({ padding: 0.2, duration: 200 });
+      // On an empty canvas fitView doesn't do nothing: React Flow queues it until nodes
+      // appear, so the first node added would zoom the view to the maximum. Reset instead.
+      if (useSimulatorStore.getState().nodes.length === 0) {
+        setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 });
+      } else {
+        fitView({ padding: 0.2, duration: 200 });
+      }
     });
     return () => cancelAnimationFrame(id);
-  }, [fitView, layoutVersion]);
+  }, [fitView, setViewport, layoutVersion]);
 
   return null;
 }

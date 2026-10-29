@@ -185,3 +185,49 @@ describe("evaluateRules: titles", () => {
     expect(run(componentRule({ title, min: 3 }))).toMatchObject({ title, status: "fail" });
   });
 });
+
+describe("evaluateRules: parts", () => {
+  it("splits a required edge rule into kind, why and fix", () => {
+    expect(run(edgeRule({ from: "compute", to: "cache" }))).toMatchObject({
+      kind: "required",
+      why: "Because.",
+      fix: "Needs a compute → cache connection.",
+    });
+    expect(run(edgeRule({ from: "compute", to: "database" }))).toMatchObject({
+      kind: "required",
+      why: "Because.",
+      fix: null,
+    });
+  });
+
+  it("splits a component rule the same way, as a required rule", () => {
+    expect(run(componentRule({ min: 2, minConfig: { replicas: 2 } }))).toMatchObject({
+      kind: "required",
+      why: "Because.",
+      fix: "Needs 2 × database with replicas ≥ 2; found 1.",
+    });
+    expect(run(componentRule({ min: 2 }))).toMatchObject({ kind: "required", fix: null });
+  });
+
+  it("splits a forbidden rule into kind, why and the edges to remove", () => {
+    expect(run(edgeRule({ mode: "forbidden", from: "client", to: "database" }))).toMatchObject({
+      kind: "forbidden",
+      why: "Because.",
+      fix: "Remove laptop->db.",
+    });
+    expect(run(edgeRule({ mode: "forbidden", from: "client", to: "cache" }))).toMatchObject({
+      kind: "forbidden",
+      fix: null,
+    });
+  });
+
+  it("composes a failing detail from why and fix", () => {
+    for (const r of [
+      run(edgeRule({ from: "compute", to: "cache" })),
+      run(componentRule({ min: 3 })),
+      run(edgeRule({ mode: "forbidden", from: "client", to: "database" })),
+    ]) {
+      expect(r.detail).toBe(`${r.why} ${r.fix}`);
+    }
+  });
+});

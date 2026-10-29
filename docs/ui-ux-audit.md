@@ -36,7 +36,7 @@ Priority: **P0** is broken or misleading; **P1** costs students time or excludes
 - *Where:* `runVerification` sets `verification` once (`src/lib/store.ts:587`). No edit action clears it or marks it out of date; only Clear, loading a design and starting a challenge reset it.
 - *Fix:* Keep a fingerprint of the design at run time (`src/lib/unsaved.ts` already computes one). When it changes, dim the results and show "Design changed since this run. Run again." Don't clear them: comparing before and after is useful.
 
-**2. One empty run gives away every brief rule's answer** (seen)
+**2. One empty run gives away every brief rule's answer** (seen) — **fixed** in `staged-hints`: failing required rules start as a count, and students open title, why and fix one step at a time
 - *What happens:* Running the food-guide brief on an empty canvas listed every rule with its fix: "Needs a cdn → static_hosting connection", "Needs a client → cdn connection", "Needs a compute → cache connection".
 - *Why it matters:* `HANDOVER.md` says rules stay out of the Brief tab "because they read like hints". One click on Run shows them all anyway, so a student can build the design from the list without reasoning about it.
 - *Where:* `src/lib/challenges/rules.ts:66` appends `Needs a <link> connection` to every failing rule.

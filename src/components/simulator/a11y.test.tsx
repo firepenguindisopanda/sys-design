@@ -6,6 +6,7 @@ import { renderWithStore as render } from "@/test/render-with-store";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { InspectorCard } from "./inspector-card";
 import { RequirementsPanel } from "./requirements-panel";
+import { VerificationPanel } from "./verification-panel";
 
 const store = () => useSimulatorStore.getState();
 
@@ -112,6 +113,26 @@ describe("accessible names", () => {
 
   it("names the new-link protocol picker", () => {
     expect(unnamedControls(render(<PendingProtocolPicker />))).toEqual([]);
+  });
+});
+
+describe("results panel hint names", () => {
+  const foodGuide = loadChallenges(path.join(process.cwd(), "challenges")).find(
+    (c) => c.brief.id === "campus-food-guide",
+  )!.brief;
+
+  it("names the hint buttons", () => {
+    store().startChallenge(foodGuide);
+    store().runVerification();
+    store().revealNextHint();
+    let html = render(<VerificationPanel />);
+    expect(html).toContain("Show a hint");
+    expect(html).toContain("Why?");
+    expect(unnamedControls(html)).toEqual([]);
+    store().advanceHint("pages-on-cdn");
+    html = render(<VerificationPanel />);
+    expect(html).toContain("Show the fix");
+    expect(unnamedControls(html)).toEqual([]);
   });
 });
 

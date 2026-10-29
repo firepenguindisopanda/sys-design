@@ -129,5 +129,11 @@ export type RuleResult = {
   id: string;
   title: string;
   status: CheckStatus;
+  /** The full text: "Has …" on a pass, otherwise `${why} ${fix}` */
   detail: string;
+  /** Component rules count as required */
+  kind: "required" | "forbidden";
+  why: string;
+  /** "Needs …" or "Remove …" on a failure; null on a pass */
+  fix: string | null;
 };

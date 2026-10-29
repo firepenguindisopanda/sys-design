@@ -127,6 +127,17 @@ belong to the engine), a `title` (a short phrase in sentence case, at most about
 characters, shown to students as the name of the verification row), a `severity`
 (`fail` or `warn`) and a `why` sentence the student sees when the rule isn't met.
 
+Students meet a failing **required** rule (a component rule, or an edge rule with
+`mode: required`) as a hint they open in steps:
+- after a run, only a count ("2 scenario checks not met yet");
+- then the `title`;
+- then the `why`;
+- then the fix the engine writes ("Needs a … connection").
+
+So write a `title` that makes sense on its own, and a `why` that explains the problem
+before it names the answer. A **forbidden** rule's violation shows in full at once, since
+it points at an edge the student drew. Passing rules show their title.
+
 **Component rule:** at least `min` nodes of a kind, each meeting `minConfig`.
 
 ```yaml

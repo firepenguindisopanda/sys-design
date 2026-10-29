@@ -16,6 +16,7 @@ import { evaluateRules } from "./challenges/rules";
 import { defaultProtocol, freeSpot } from "./placement";
 import type { LoadedDesign } from "./challenges/design-file";
 import type { Brief, RuleResult } from "./challenges/types";
+import { stageRules, type HintSteps } from "./hints";
 import { canPlaceFeature, runVerification } from "./simulation";
 import { fingerprint, hasUnsavedWork, type Fingerprint, type ReplaceableState } from "./unsaved";
 import type {
@@ -58,6 +59,15 @@ type SimulatorState = {
   challenge: Brief | null;
   /** Brief rule results from the last verification in a challenge */
   ruleResults: RuleResult[] | null;
+  /**
+   * Hints opened per brief rule id. Kept until the challenge is left, restarted or
+   * replaced; not part of either fingerprint, so it is never stale or unsaved work.
+   */
+  hintSteps: HintSteps;
+  /** Open the title of the next hidden failing rule, in brief order */
+  revealNextHint: () => void;
+  /** Open the next step of a rule's hint, up to its fix */
+  advanceHint: (ruleId: string) => void;
   /** Raised whenever the whole design is replaced, so the canvas re-fits the view */
   layoutVersion: number;
   /** Centre of the visible canvas in flow coordinates; null until the canvas reports it */
@@ -385,6 +395,7 @@ function challengeSeed(brief: Brief) {
   return {
     challenge: brief,
     ruleResults: null,
+    hintSteps: {},
     nodes: [],
     edges: [],
     functionalReqs: brief.functionalRequirements.map((fr) => ({
@@ -420,6 +431,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   ...withBaseline(demoSeed()),
   challenge: null,
   ruleResults: null,
+  hintSteps: {},
   pendingReplace: null,
   layoutVersion: 0,
   viewCentre: null,
@@ -651,6 +663,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ...withBaseline(demoSeed()),
       challenge: null,
       ruleResults: null,
+      hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
     }),
 
@@ -659,6 +672,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ...withBaseline(fanInSeed()),
       challenge: null,
       ruleResults: null,
+      hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
     }),
 
@@ -682,6 +696,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ...withBaseline(demoSeed()),
       challenge: null,
       ruleResults: null,
+      hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
     }),
 
@@ -689,6 +704,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     set({
       challenge: brief,
       ruleResults: null,
+      hintSteps: {},
       ...withBaseline({ nodes, edges, functionalReqs, features, nfr }),
       verification: null,
       verifiedFingerprint: null,
@@ -696,6 +712,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       selectedEdgeId: null,
       layoutVersion: get().layoutVersion + 1,
     }),
+
+  revealNextHint: () => {
+    const { ruleResults, hintSteps } = get();
+    const next = ruleResults && stageRules(ruleResults, hintSteps).nextHiddenId;
+    if (next) set({ hintSteps: { ...hintSteps, [next]: 1 } });
+  },
+
+  advanceHint: (ruleId) => {
+    const step = get().hintSteps[ruleId];
+    if (!step || step === 3) return;
+    set({ hintSteps: { ...get().hintSteps, [ruleId]: (step + 1) as 2 | 3 } });
+  },
 
   hasUnsavedWork: () => hasUnsavedWork(get(), get().baseline),
 

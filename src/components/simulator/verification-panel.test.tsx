@@ -94,6 +94,74 @@ describe("VerificationPanel", () => {
   });
 });
 
+describe("VerificationPanel hints", () => {
+  const foodGuide = challenges.find((c) => c.brief.id === "campus-food-guide")!.brief;
+  const required = foodGuide.rules.filter((r) => r.type === "edge" && r.mode === "required");
+  /** A phrase from each rule's why, free of characters React escapes. */
+  const whyPhrases = [
+    "host them as static files behind a CDN",
+    "keeps copies close to them",
+    "keep them in a cache so the database only handles changes",
+  ];
+
+  beforeEach(() => {
+    store().startChallenge(foodGuide);
+    store().runVerification();
+  });
+
+  it("names none of the unmet rules after a first run", () => {
+    expect(required).toHaveLength(3);
+    const html = render();
+    for (const r of required) expect(html).not.toContain(r.title);
+    for (const w of whyPhrases) expect(html).not.toContain(w);
+    expect(html).not.toContain("Needs a");
+    expect(html).toContain("3 scenario checks not met yet");
+    expect(html).toContain("Show a hint");
+  });
+
+  it("counts the hidden rules as failed", () => {
+    const { verification, ruleResults } = store();
+    const counts = countResults(orderResults(verification!.checks, ruleResults));
+    const engineFails = verification!.checks.filter((c) => c.status === "fail").length;
+    expect(counts.fail).toBe(engineFails + 3);
+    expect(render()).toContain(`${counts.fail} failed`);
+    expect(verification!.overall).toBe("fail");
+  });
+
+  it("reveals the title, then why, then the fix", () => {
+    store().revealNextHint();
+    let html = render();
+    expect(html).toContain("Site files served by a CDN");
+    expect(html).not.toContain(whyPhrases[0]);
+    expect(html).toContain("Why?");
+    expect(html).toContain("2 scenario checks not met yet");
+    // The hint announcer is set by the buttons' click handlers, which static markup can't run.
+    expect(tagWithId(html, "hint-announcement")).toContain('aria-live="polite"');
+
+    store().advanceHint("pages-on-cdn");
+    html = render();
+    expect(html).toContain(whyPhrases[0]);
+    expect(html).not.toContain("Needs a");
+    expect(html).toContain("Show the fix");
+
+    store().advanceHint("pages-on-cdn");
+    html = render();
+    expect(html).toContain("Needs a cdn → static_hosting connection.");
+    expect(html).toContain("Hints used: 3");
+  });
+
+  it("shows a forbidden rule's violation in full at once", () => {
+    store().addComponent("desktop");
+    store().addComponent("database");
+    const [client, db] = store().nodes;
+    store().onConnect({ source: client.id, target: db.id, sourceHandle: null, targetHandle: null });
+    store().runVerification();
+    const html = render();
+    expect(html).toContain("No client talks to the database");
+    expect(html).toContain("Clients reach data through compute, never directly. Remove ");
+  });
+});
+
 function loadFixture(
   brief: Parameters<typeof buildDesign>[0],
   fixture: Parameters<typeof buildDesign>[1],

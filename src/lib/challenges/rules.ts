@@ -31,13 +31,15 @@ function checkComponentRule(rule: ComponentRule, nodes: SimNode[]): RuleResult {
     );
   }).length;
   const ok = found >= rule.min;
+  const fix = ok ? null : `Needs ${describeComponent(rule)}; found ${found}.`;
   return {
     id: rule.id,
     title: rule.title,
     status: ok ? "pass" : rule.severity,
-    detail: ok
-      ? `Has ${describeComponent(rule)}.`
-      : `${rule.why} Needs ${describeComponent(rule)}; found ${found}.`,
+    detail: fix === null ? `Has ${describeComponent(rule)}.` : `${rule.why} ${fix}`,
+    kind: "required",
+    why: rule.why,
+    fix,
   };
 }
 
@@ -61,15 +63,24 @@ function checkEdgeRule(rule: EdgeRule, nodes: SimNode[], edges: Edge[]): RuleRes
   const via = rule.protocols ? ` over ${rule.protocols.join(" or ")}` : "";
   const link = `${rule.from.join(" or ")} → ${rule.to.join(" or ")}${via}`;
   const ok = rule.mode === "required" ? hits.length > 0 : hits.length === 0;
-  let detail: string;
+  let fix: string | null = null;
+  let passText = "";
   if (rule.mode === "required") {
-    detail = ok ? `Has ${link} (${hits[0].id}).` : `${rule.why} Needs a ${link} connection.`;
+    if (ok) passText = `Has ${link} (${hits[0].id}).`;
+    else fix = `Needs a ${link} connection.`;
   } else {
-    detail = ok
-      ? `No ${link} connection.`
-      : `${rule.why} Remove ${hits.map((e) => e.id).join(", ")}.`;
+    if (ok) passText = `No ${link} connection.`;
+    else fix = `Remove ${hits.map((e) => e.id).join(", ")}.`;
   }
-  return { id: rule.id, title: rule.title, status: ok ? "pass" : rule.severity, detail };
+  return {
+    id: rule.id,
+    title: rule.title,
+    status: ok ? "pass" : rule.severity,
+    detail: fix === null ? passText : `${rule.why} ${fix}`,
+    kind: rule.mode,
+    why: rule.why,
+    fix,
+  };
 }
 
 /** Check a design against the scenario-specific rules of a brief. */
