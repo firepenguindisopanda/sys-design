@@ -98,7 +98,7 @@ describe("evaluateRules: edge rules", () => {
     expect(run(edgeRule({ from: "compute", to: "database" }))).toMatchObject({
       id: "r",
       status: "pass",
-      detail: "Has compute → database (api->db).",
+      detail: "Has compute → database (Cloud Functions → Database).",
     });
   });
 
@@ -132,15 +132,27 @@ describe("evaluateRules: edge rules", () => {
     expect(run(edgeRule({ from: "client", to: ["cache", "database"] })).status).toBe("pass");
     expect(run(edgeRule({ from: ["iot", "desktop"], to: "database" }))).toMatchObject({
       status: "pass",
-      detail: "Has iot or desktop → database (laptop->db).",
+      detail: "Has iot or desktop → database (Desktop Client → Database).",
     });
     expect(run(edgeRule({ from: ["iot", "mobile"], to: "database" })).status).toBe("fail");
   });
 
   it("forbidden edge fails and names the offending edges", () => {
     const result = run(edgeRule({ mode: "forbidden", from: "client", to: "database" }));
-    expect(result).toMatchObject({ status: "fail", detail: "Because. Remove laptop->db." });
+    expect(result).toMatchObject({
+      status: "fail",
+      detail: "Because. Remove the Desktop Client → Database connection.",
+    });
     expect(run(edgeRule({ mode: "forbidden", from: "client", to: "cache" })).status).toBe("pass");
+  });
+
+  // Students see these names, so they must not be internal edge ids like "e-desktop-18-…".
+  it("names every offending connection by its nodes, two-way ones with ↔", () => {
+    const result = run(edgeRule({ mode: "forbidden", from: "client", to: ["compute", "database"] }));
+    expect(result.fix).toBe(
+      "Remove these connections: Cloud Functions ↔ Mobile Client, Desktop Client → Database.",
+    );
+    expect(result.detail).not.toMatch(/->|laptop|api/);
   });
 });
 
@@ -213,7 +225,7 @@ describe("evaluateRules: parts", () => {
     expect(run(edgeRule({ mode: "forbidden", from: "client", to: "database" }))).toMatchObject({
       kind: "forbidden",
       why: "Because.",
-      fix: "Remove laptop->db.",
+      fix: "Remove the Desktop Client → Database connection.",
     });
     expect(run(edgeRule({ mode: "forbidden", from: "client", to: "cache" }))).toMatchObject({
       kind: "forbidden",

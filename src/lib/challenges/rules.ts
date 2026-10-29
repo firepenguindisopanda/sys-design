@@ -60,17 +60,28 @@ function checkEdgeRule(rule: EdgeRule, nodes: SimNode[], edges: Edge[]): RuleRes
     );
   });
 
+  // Students read these, so name a connection by its nodes, not its internal edge id.
+  const named = (e: Edge) => {
+    const arrow = PROTOCOL_META[getEdgeData(e).protocol].direction === "bidirectional" ? "↔" : "→";
+    const label = (id: string) => byId.get(id)?.data.label || id;
+    return `${label(e.source)} ${arrow} ${label(e.target)}`;
+  };
+
   const via = rule.protocols ? ` over ${rule.protocols.join(" or ")}` : "";
   const link = `${rule.from.join(" or ")} → ${rule.to.join(" or ")}${via}`;
   const ok = rule.mode === "required" ? hits.length > 0 : hits.length === 0;
   let fix: string | null = null;
   let passText = "";
   if (rule.mode === "required") {
-    if (ok) passText = `Has ${link} (${hits[0].id}).`;
+    if (ok) passText = `Has ${link} (${named(hits[0])}).`;
     else fix = `Needs a ${link} connection.`;
   } else {
     if (ok) passText = `No ${link} connection.`;
-    else fix = `Remove ${hits.map((e) => e.id).join(", ")}.`;
+    else
+      fix =
+        hits.length === 1
+          ? `Remove the ${named(hits[0])} connection.`
+          : `Remove these connections: ${hits.map(named).join(", ")}.`;
   }
   return {
     id: rule.id,
