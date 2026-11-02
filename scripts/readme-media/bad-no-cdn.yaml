@@ -1,0 +1,40 @@
+# bad-no-cdn.yaml from challenges/lecture-video-library/fixtures, with node positions
+# so the README screenshots show a readable layout. Used by capture-readme-media.mjs.
+description: >-
+  Good design without the CDN. Students stream every lecture through the API
+  servers from object storage, so in exam week the same files are sent hundreds of
+  times from one place.
+design:
+  nodes:
+    - { id: lecturer-pc, kind: desktop, label: Lecturer machine, at: [0, 40] }
+    - { id: laptop, kind: desktop, label: Student laptop, at: [0, 160] }
+    - { id: phone, kind: mobile, label: Student phone, at: [0, 280] }
+    - { id: lb, kind: load_balancer, at: [280, 160] }
+    - { id: api-1, kind: paas, label: Library API 1, at: [560, 90] }
+    - { id: api-2, kind: paas, label: Library API 2, at: [560, 230] }
+    - { id: cache, kind: cache, label: Lecture list cache, config: { memoryGb: 5 }, at: [840, -30] }
+    - { id: db, kind: database, label: Lectures DB, config: { replicas: 2 }, at: [840, 90] }
+    - { id: videos, kind: object_storage, label: Recordings, config: { storageGb: 2000 }, at: [840, 420] }
+    - { id: jobs, kind: message_queue, label: Conversion jobs, at: [840, 230] }
+    - { id: converters, kind: task_worker, label: Video converters, at: [1120, 230] }
+  edges:
+    - lecturer-pc -> lb : http
+    - laptop -> lb : http
+    - phone -> lb : http
+    - lb -> api-1 : http
+    - lb -> api-2 : http
+    - api-1 -> cache : db
+    - api-2 -> cache : db
+    - api-1 -> db : db
+    - api-2 -> db : db
+    - api-1 -> videos : http
+    - api-2 -> videos : http
+    - api-1 -> jobs : http
+    - api-2 -> jobs : http
+    - jobs -> converters : http
+    - converters -> videos : http
+    - converters -> db : db
+  placements:
+    upload-recording: api-1
+    browse-lectures: api-1
+    watch-lecture: api-2
