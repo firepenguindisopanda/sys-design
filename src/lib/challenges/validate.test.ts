@@ -420,3 +420,37 @@ describe("validateDesignFile", () => {
     expect(fileError(dup)).toContain('duplicate requirement id "feat-4"');
   });
 });
+
+describe("validateBrief: load block", () => {
+  it("reads a valid load block", () => {
+    const b = rawBrief();
+    b.load = {
+      requests: 50000,
+      windowSeconds: 600,
+      shape: "steady",
+      features: { redirect: { writeShare: 0, dbMs: 2 }, "create-link": { writeShare: 1 } },
+    };
+    expect(validateBrief(b, FILE).load).toEqual({
+      requests: 50000,
+      windowSeconds: 600,
+      shape: "steady",
+      features: { redirect: { writeShare: 0, dbMs: 2 }, "create-link": { writeShare: 1 } },
+    });
+  });
+
+  it("leaves a brief without one as it was", () => {
+    expect(validateBrief(rawBrief(), FILE).load).toBeUndefined();
+  });
+
+  it.each([
+    ["an unknown requirement id", (b: Record<string, any>) => (b.load = { features: { nope: { dbMs: 2 } } }), "load.features.nope"],
+    ["a write share above 1", (b: Record<string, any>) => (b.load = { features: { redirect: { writeShare: 1.5 } } }), "load.features.redirect.writeShare"],
+    ["zero database time", (b: Record<string, any>) => (b.load = { features: { redirect: { dbMs: 0 } } }), "load.features.redirect.dbMs"],
+    ["an unknown shape", (b: Record<string, any>) => (b.load = { shape: "burst" }), "load.shape"],
+    ["zero requests", (b: Record<string, any>) => (b.load = { requests: 0 }), "load.requests"],
+    ["a window under a minute", (b: Record<string, any>) => (b.load = { windowSeconds: 10 }), "load.windowSeconds"],
+    ["an unknown field", (b: Record<string, any>) => (b.load = { rate: 5 }), "load"],
+  ])("rejects %s with its path", (_, mutate, path) => {
+    expect(briefError(mutate)).toMatch(new RegExp(`^${FILE.replace(/\./g, "\.")}: ${path.replace(/\./g, "\.")}[:.]`));
+  });
+});

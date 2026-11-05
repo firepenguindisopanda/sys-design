@@ -20,7 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 
-const KIND_STYLES: Record<
+export const KIND_STYLES: Record<
   string,
   { icon: typeof Server; accent: string; chip: string }
 > = {

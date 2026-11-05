@@ -64,6 +64,20 @@ export type BriefRequirement = {
   feature: BriefFeature;
 };
 
+export type LoadShape = "steady" | "ramp" | "spike";
+
+/**
+ * The load simulation's default scenario for a brief (SPEC-dataflow-sim.md). Only the
+ * load simulation reads it; the engine and rules never do.
+ */
+export type BriefLoad = {
+  requests?: number;
+  windowSeconds?: number;
+  shape?: LoadShape;
+  /** By requirement id */
+  features?: Record<string, { writeShare?: number; dbMs?: number }>;
+};
+
 export type Brief = {
   id: string;
   title: string;
@@ -77,6 +91,7 @@ export type Brief = {
   rules: Rule[];
   /** Questions for the student; not graded */
   reflection: string[];
+  load?: BriefLoad;
 };
 
 export type CompactNode = {

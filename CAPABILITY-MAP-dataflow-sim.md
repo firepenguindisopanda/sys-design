@@ -1,0 +1,83 @@
+# Capability Map: load simulation page
+
+Status: **approved** (2026-11-05). **Slice 1 is built** on `feat/dataflow-sim` (not yet
+committed): `loadsim-model`, `loadsim-page` and `brief-load` for two pilot briefs,
+specified together in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), with the plan and
+task notes in [tasks/dataflow-sim/](tasks/dataflow-sim/). Each later module gets its own
+`SPEC-<module id>.md`.
+
+## Goal
+
+A student who has drawn and connected a design opens a **separate page** that sends a
+large load through it, by default 100,000 requests, and plays the result back as an
+animation. Requests leave the clients, pass through load balancers (split across the
+instances behind them), compute, caches and databases. Good and bad designs behave
+visibly differently: a component past its capacity backs up and drops requests, a queue
+absorbs a spike, a killed node takes its traffic down or hands it to a replica, and slow
+work backs up the tier in front of it.
+
+The page uses **its own load model with realistic capacities**, separate from the static
+engine behind Run simulation. It **shows what happened and gives no pass/fail**, so the two
+never compete for the verdict.
+
+## Decisions from the interview (2026-10-28)
+
+| Question | Decision |
+|---|---|
+| Where it lives | A separate page (`/simulate`), not on the design canvas |
+| Teaching goal | A separate load model, not an explanation of the engine's verdict |
+| "100,000 requests" | A compressed replay: requests arrive over a simulated period, computed in one go, then played back in about 30 s |
+| Capacities | New realistic figures, not the engine's campus heuristics |
+| Realism against brief stories (2026-11-05) | Briefs mark realistically heavy queries with a per-feature database cost (`dbMs`), never raised to force a failure. A flaw that only costs speed shows as a busier, slower design, not a failing one |
+| Who sets the load | The brief gives a default scenario, and the student can change it; in the sandbox it's derived from the features |
+| Behaviours | Bottleneck saturation, a queue absorbing a spike, failure injection, slow work and cascades |
+| Routing | Compute behind one load balancer is a pool of identical copies; the balancer splits requests evenly |
+| Getting the design there | A "Simulate load" button in the editor opens the page in the same tab; a reload keeps the design |
+| Moving nodes (2026-11-05) | Nodes can be dragged on the simulation page to tidy the layout. The moves stay on that page and never change the design |
+| Verdict | None. The page reports what happened and names the first component to saturate |
+| First slice | Saturation end to end |
+
+## Modules
+
+| Module id | Responsibility | Depends on |
+|---|---|---|
+| `loadsim-model` | Pure TypeScript in `src/lib/loadsim/`. It builds a flow graph from a design, made up of pools, routes per feature and the stages each request passes through. It generates arrivals from a scenario and steps a deterministic fluid model through time. The output is frames for playback and a summary. It holds no React code and makes no engine calls. | — |
+| `brief-load` | An optional `load` block in `brief.yaml` with the default scenario and per-feature workload (write share, database time per request). It covers the validator, types and `brief-format.md`. | — |
+| `loadsim-page` | The `/simulate` route and the hand-off from the editor through session storage, using the design-file format. It also has the canvas (nodes can be moved, nothing else edited) with animated edges and node gauges, scenario controls, playback controls, the summary and a per-component table. | `loadsim-model`, `brief-load` |
+| `loadsim-queues` | Message queues and task workers: a queue's backlog grows during a spike and workers drain it later; writes handed to a worker reach the database at the workers' pace. | `loadsim-model`, `loadsim-page` |
+| `loadsim-cascades` | Limits on concurrent requests (worker threads, database connections). Slow work done inside the request (`backgroundWorkMs`) and slow or rate-limited external APIs hold those slots, so the tier upstream backs up too. | `loadsim-queues` |
+| `loadsim-failures` | The student kills a node, or brings it back, during playback. Traffic moves to the rest of a pool or to a replica; without one, the requests fail. Re-runs the model from that moment. | `loadsim-model`, `loadsim-page` |
+| `loadsim-delivery` | Autoscaling for PaaS, Functions and Edge, with scale-up lag and cold starts. Files through CDN, static hosting and object storage (`fileRpm`), and polling against push (`pollingRpm`). | `loadsim-model` |
+| `brief-load-rollout` | A calibrated `load` block for the other 14 briefs, one commit per brief, like the phase brief steps. | each behaviour module its briefs need |
+
+Build order:
+
+```
+loadsim-model + brief-load (2 pilots) + loadsim-page   ← slice 1 (one spec)
+  → loadsim-queues → loadsim-cascades
+  → loadsim-failures            (can run alongside queues once slice 1 lands)
+  → loadsim-delivery
+  → brief-load-rollout          (brief by brief, as the behaviours they need exist)
+```
+
+## Boundaries between modules
+
+- `loadsim-model` is the only module that computes load numbers. The page only displays
+  frames and the summary. Nothing in `src/lib/loadsim/` imports `simulation.ts`, and
+  nothing in the engine imports `loadsim/`.
+- The editor's only changes are the "Simulate load" button and, if approved, restoring a
+  design from the hand-off after a reload. The editor store, the engine,
+  `src/lib/challenges/rules.ts` and the verification panel stay as they are.
+- Each behaviour module adds stages to the model and states, per pilot fixture, what
+  becomes visible. Earlier pilot expectations stay as they are or get stronger.
+- Briefs gain only the optional `load` block. Fixtures don't change.
+
+## Out of scope for all of it
+
+- A pass/fail verdict or grading on the simulation page.
+- Editing the design on the simulation page. Dragging nodes there only tidies that page's
+  layout and is never saved to the design.
+- Randomness. The model is deterministic, so the same design and scenario always give
+  the same run.
+- Saving runs, comparing two runs side by side, or exporting a video. These are candidates
+  after the first slices.

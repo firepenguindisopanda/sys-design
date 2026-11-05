@@ -41,6 +41,14 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 275
 
+load:
+  requests: 100000
+  windowSeconds: 1200
+  shape: spike
+  features:
+    redirect: { writeShare: 0, dbMs: 3 }
+    create-link: { writeShare: 1, dbMs: 6 }
+
 rules:
   - id: cache-on-read-path
     title: Cache on the read path

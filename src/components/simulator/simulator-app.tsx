@@ -8,12 +8,28 @@ import { VerificationPanel } from "./verification-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Boxes, FileText, ListChecks } from "lucide-react";
+import { useEffect } from "react";
+import { loadHandoff } from "@/lib/loadsim/handoff";
 import { useSimulatorStore } from "@/lib/store";
 import type { Brief } from "@/lib/challenges/types";
 
 export function SimulatorApp({ briefs }: { briefs: Brief[] }) {
   // The side-panel sheet opens on the brief in a challenge, so the button says so.
   const inChallenge = useSimulatorStore((s) => s.challenge !== null);
+  const loadDesign = useSimulatorStore((s) => s.loadDesign);
+
+  // After a reload the store starts over; bring back the design last sent to the load
+  // simulation in this tab. Only an untouched editor is replaced, never the student's work.
+  useEffect(() => {
+    if (!useSimulatorStore.getState().isFreshStart()) return;
+    let result: ReturnType<typeof loadHandoff>;
+    try {
+      result = loadHandoff(window.sessionStorage, briefs);
+    } catch {
+      return; // session storage blocked: keep the starting design
+    }
+    if ("loaded" in result) loadDesign(result.loaded);
+  }, [briefs, loadDesign]);
 
   return (
     <TooltipProvider>

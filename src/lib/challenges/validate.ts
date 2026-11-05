@@ -3,12 +3,14 @@ import { PROTOCOL_META } from "@/lib/edges";
 import type { ComponentKind, EdgeProtocol, NonFunctionalRequirements } from "@/lib/types";
 import type {
   Brief,
+  BriefLoad,
   BriefRequirement,
   CompactDesign,
   CompactEdge,
   CompactNode,
   Fixture,
   FixtureExpectation,
+  LoadShape,
   NodeMatcher,
   Rule,
 } from "./types";
@@ -20,6 +22,7 @@ const MATCHERS: ReadonlySet<string> = new Set([...KINDS, "client", "compute"]);
 const PROTOCOLS: ReadonlySet<string> = new Set(Object.keys(PROTOCOL_META));
 const SEVERITIES: ReadonlySet<string> = new Set(["fail", "warn"]);
 const EDGE_MODES: ReadonlySet<string> = new Set(["required", "forbidden"]);
+const LOAD_SHAPES: ReadonlySet<string> = new Set(["steady", "ramp", "spike"]);
 
 /** String config fields limited to a fixed set of values (mirrors types.ts). */
 const CONFIG_ENUMS: Partial<Record<ComponentKind, Record<string, ReadonlySet<string>>>> = {
@@ -149,6 +152,41 @@ function readRequirement(r: Reader, raw: unknown, path: string): BriefRequiremen
   };
 }
 
+/** The load simulation's default scenario (SPEC-dataflow-sim.md); every field optional. */
+function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): BriefLoad {
+  const o = r.obj(raw, path, ["requests", "windowSeconds", "shape", "features"]);
+  const intIn = (v: unknown, p: string, min: number, max: number): number =>
+    Number.isInteger(v) && (v as number) >= min && (v as number) <= max
+      ? (v as number)
+      : r.fail(p, `expected a whole number from ${min} to ${max}`);
+  const load: BriefLoad = {};
+  if (o.requests !== undefined) load.requests = intIn(o.requests, r.at(path, "requests"), 1_000, 1_000_000);
+  if (o.windowSeconds !== undefined) {
+    load.windowSeconds = intIn(o.windowSeconds, r.at(path, "windowSeconds"), 60, 3_600);
+  }
+  if (o.shape !== undefined) load.shape = r.oneOf<LoadShape>(o.shape, r.at(path, "shape"), LOAD_SHAPES, "shape");
+  if (o.features !== undefined) {
+    const fp = r.at(path, "features");
+    const features = r.obj(o.features, fp, frIds);
+    load.features = {};
+    for (const [id, value] of Object.entries(features)) {
+      const p = r.at(fp, id);
+      const f = r.obj(value, p, ["writeShare", "dbMs"]);
+      const entry: { writeShare?: number; dbMs?: number } = {};
+      if (f.writeShare !== undefined) {
+        const share = r.num(f.writeShare, r.at(p, "writeShare"));
+        entry.writeShare = share <= 1 ? share : r.fail(r.at(p, "writeShare"), "expected a share from 0 to 1");
+      }
+      if (f.dbMs !== undefined) {
+        const ms = r.num(f.dbMs, r.at(p, "dbMs"));
+        entry.dbMs = ms > 0 ? ms : r.fail(r.at(p, "dbMs"), "expected a number > 0");
+      }
+      load.features[id] = entry;
+    }
+  }
+  return load;
+}
+
 function readNfr(r: Reader, raw: unknown, path: string): NonFunctionalRequirements {
   const o = r.obj(raw, path, [
     "maxLatencyMs",
@@ -247,6 +285,7 @@ export function validateBrief(raw: unknown, file: string): Brief {
     "nfr",
     "rules",
     "reflection",
+    "load",
   ]);
 
   const frs = r.list(o.functionalRequirements, "functionalRequirements");
@@ -270,6 +309,9 @@ export function validateBrief(raw: unknown, file: string): Brief {
     nfr: readNfr(r, o.nfr, "nfr"),
     rules,
     reflection: r.optList(o.reflection, "reflection").map((s, i) => r.str(s, r.at("reflection", i))),
+    ...(o.load === undefined
+      ? {}
+      : { load: readLoad(r, o.load, functionalRequirements.map((fr) => fr.id), "load") }),
   };
 }
 

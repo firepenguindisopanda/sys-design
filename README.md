@@ -70,6 +70,23 @@ Briefs live in `challenges/<id>/brief.yaml`, with good and bad reference designs
 npm test
 ```
 
+## Load simulation
+
+**Simulate load** in the canvas toolbar opens `/simulate`, which sends a large load through your design (by default 100,000 requests over 20 minutes, with a spike at the start) and plays it back in about 30 seconds.
+- **Moving dots** show requests leaving the clients and splitting evenly across a load balancer's instances. Failed requests turn red where they fail.
+- **Each component's gauge** says how busy it is in words: "80% busy", "Saturated · 5,965 failed".
+- **Afterwards,** a summary and a per-component table say what was served, what failed and why, typical and slowest answer times, and what a cache would save.
+
+It uses its own load model with realistic capacities, separate from the Run simulation checks, and gives no pass/fail. So the two can disagree: a design without a cache can fail the throughput check but survive the load, just busier and slower.
+
+**On the page:**
+- You can change the requests, window and shape, and play back at 1×, 2× or 4×.
+- You can drag nodes to tidy the layout; the moves stay on that page and never change your design.
+- With reduced motion turned on, edges show their rates as text instead of moving dots.
+- The page lists the parts of your design it doesn't simulate yet: queues, workers, files, push and autoscaling.
+
+The design reaches the page through the tab's session storage, so reloading `/simulate` keeps it, and reloading an untouched editor brings back the design last sent to it. A brief can set its own default load and realistic per-query database costs in an optional `load` block (see [docs/challenges/brief-format.md](docs/challenges/brief-format.md)). The design and plans are in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md) and [CAPABILITY-MAP-dataflow-sim.md](CAPABILITY-MAP-dataflow-sim.md).
+
 ## Screenshots and recordings
 
 Everything in `docs/media/` comes from `scripts/capture-readme-media.mjs`, which drives the app with Playwright (using your installed Chrome) and converts the recordings with ffmpeg. Rerun it after UI changes:

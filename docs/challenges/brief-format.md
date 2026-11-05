@@ -183,6 +183,49 @@ it points at an edge the student drew. Passing rules show their title.
 
 **Protocols:** `http`, `websocket`, `sse`, `web_push`, `db`, `webrtc`.
 
+### load (optional)
+
+The default scenario for the **load simulation** page (`/simulate`, see
+`SPEC-dataflow-sim.md`). Students can change the requests, window and shape there, but not
+the per-feature figures. Only the load simulation reads this block: the engine and the
+rules never do, so adding it changes no verification result.
+
+```yaml
+load:
+  requests: 100000        # 1,000 to 1,000,000; default 100,000
+  windowSeconds: 1200     # 60 to 3,600; default 1,200 (20 minutes)
+  shape: spike            # steady | ramp | spike; default spike
+  features:               # by requirement id; every field optional
+    browse-sections: { writeShare: 0, dbMs: 25 }
+    enrol: { writeShare: 1, dbMs: 8 }
+    view-timetable: { writeShare: 0, dbMs: 5 }
+```
+
+This is `course-registration`'s block. Its section list is a join that counts the seats
+left, so it's heavy (25 ms). The link shortener's redirect is a key lookup (3 ms), so a
+missing cache there makes the database about 4× busier without anything failing.
+
+To calibrate a block, print every fixture's load results:
+
+```bash
+LOADSIM_PROBE=1 LOADSIM_BRIEFS=<id> npx vitest run tests/loadsim-probe.test.ts --reporter=verbose
+```
+
+- **`shape`:** `steady` is an even rate; `ramp` rises evenly from zero; `spike` puts half
+  the requests in the first quarter of the window, then runs at an even rate.
+- **`writeShare`:** the part of the feature's requests that write (0 to 1). Writes skip the
+  cache and go to the database's primary. If it's left out, it's `writeRpm / targetRpm`
+  when the feature has `writeRpm`, otherwise 0.2 for a feature that stores data
+  (`storageGb` above 0) and 0 for one that doesn't.
+- **`dbMs`:** the database time one request costs, for its reads and writes. If it's left
+  out, it's 3 ms for reads and 8 ms for writes.
+- **`dbMs` is always a realistic cost for that query.** A heavy query (a join over
+  sections and enrolments) can cost tens of milliseconds. A key lookup costs a few. Don't
+  raise it to make a bad design fail: where a flaw only costs speed, the page should show
+  a busier, slower database, not a failing one.
+- Requests are split across features in proportion to `targetRpm`, and evenly across
+  client nodes.
+
 ## Fixtures
 
 A fixture is a design written in a few lines, plus what should happen to it.
@@ -321,3 +364,4 @@ Never use `knownGap` for a mistake in the fixture itself, and never leave it emp
 | `tests/challenges.test.ts` | One test per fixture, plus one structure test per brief |
 | `tests/calibration.test.ts` | Each brief's latency target is between its good design's latency and three times it |
 | `tests/probe.test.ts` | Calibration aid; skipped unless `PROBE=1` |
+| `src/lib/loadsim/` | The load simulation's model; reads the brief's optional `load` block |

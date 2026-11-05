@@ -49,6 +49,15 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 350
 
+load:
+  requests: 100000
+  windowSeconds: 1200
+  shape: spike
+  features:
+    browse-sections: { writeShare: 0, dbMs: 25 }
+    enrol: { writeShare: 1, dbMs: 8 }
+    view-timetable: { writeShare: 0, dbMs: 5 }
+
 rules:
   - id: catalog-cache
     title: Section list served from a cache

@@ -21,6 +21,7 @@ import { DesignNode } from "./design-node";
 import { edgeAriaLabel, nodeAriaLabel } from "./flow-labels";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { InspectorCard } from "./inspector-card";
+import { SimulateLoadButton } from "./simulate-load-button";
 import { COMPONENT_CATALOG } from "@/lib/catalog";
 import { DEFAULT_NODE_SIZE, LIBRARY_DRAG_TYPE } from "@/lib/placement";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
@@ -310,6 +311,7 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
             </Button>
           </div>
           <DesignIo briefs={briefs} />
+          <SimulateLoadButton />
           <PendingProtocolPicker />
         </div>
         <InspectorCard onClose={focusCanvas} />

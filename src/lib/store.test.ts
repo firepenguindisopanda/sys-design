@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDesign } from "./challenges/design";
 import { exportDesignFile, importDesignFile } from "./challenges/design-file";
 import { loadChallenges } from "./challenges/load";
@@ -698,5 +698,50 @@ describe("hints", () => {
     store().advanceHint("pages-on-cdn");
     expect(store().resultsAreStale()).toBe(false);
     expect(store().hasUnsavedWork()).toBe(false);
+  });
+});
+
+describe("isFreshStart", () => {
+  // A fresh module gives the store as a page load creates it.
+  async function freshStore() {
+    vi.resetModules();
+    const mod = await import("./store");
+    return () => mod.useSimulatorStore.getState();
+  }
+
+  it("is true on a store nobody has touched", async () => {
+    const fresh = await freshStore();
+    expect(fresh().isFreshStart()).toBe(true);
+  });
+
+  it("stays true after selecting and reporting the view centre", async () => {
+    const fresh = await freshStore();
+    fresh().selectNode(fresh().nodes[0].id);
+    fresh().setViewCentre({ x: 10, y: 20 });
+    expect(fresh().isFreshStart()).toBe(true);
+  });
+
+  it.each([
+    ["adding a node", (s: () => ReturnType<typeof store>) => s().addComponent("vm")],
+    ["loading a demo", (s: () => ReturnType<typeof store>) => s().loadDemo()],
+    ["starting a challenge", (s: () => ReturnType<typeof store>) => s().startChallenge(brief)],
+    ["running the check", (s: () => ReturnType<typeof store>) => s().runVerification()],
+    [
+      "loading a design",
+      (s: () => ReturnType<typeof store>) => {
+        const result = importDesignFile(
+          `challenge: link-shortener\ndesign: { nodes: [{ id: api, kind: paas }] }`,
+          "t.yaml",
+          [brief],
+          null,
+        );
+        if ("error" in result) throw new Error(result.error);
+        s().loadDesign(result.loaded);
+      },
+    ],
+  ])("is false after %s", async (_, act) => {
+    const fresh = await freshStore();
+    act(fresh);
+    expect(fresh().isFreshStart()).toBe(false);
   });
 });

@@ -113,6 +113,11 @@ type SimulatorState = {
   baseline: Fingerprint;
   /** True when replacing the canvas would lose changes made since the baseline */
   hasUnsavedWork: () => boolean;
+  /**
+   * True on a page load nobody has touched yet: the starting demo, unchanged, with no
+   * result. Only then may the editor bring back the design last sent to /simulate.
+   */
+  isFreshStart: () => boolean;
   /** Take the current design as the baseline (after an export) */
   markSaved: () => void;
   pendingReplace: PendingReplace | null;
@@ -427,8 +432,11 @@ function unplaceMissing(features: FeatureBlock[], nodes: SimNode[]): FeatureBloc
   );
 }
 
+/** The design every page load starts with, kept to recognise an untouched editor. */
+const startSeed = withBaseline(demoSeed());
+
 export const useSimulatorStore = create<SimulatorState>((set, get) => ({
-  ...withBaseline(demoSeed()),
+  ...startSeed,
   challenge: null,
   ruleResults: null,
   hintSteps: {},
@@ -726,6 +734,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   },
 
   hasUnsavedWork: () => hasUnsavedWork(get(), get().baseline),
+
+  isFreshStart: () =>
+    get().layoutVersion === 0 &&
+    get().challenge === null &&
+    get().verification === null &&
+    !hasUnsavedWork(get(), startSeed.baseline),
 
   resultsAreStale: () => {
     const recorded = get().verifiedFingerprint;
