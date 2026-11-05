@@ -1,7 +1,7 @@
 import { isClientKind, isComputeKind } from "@/lib/catalog";
 import type { FeatureBlock } from "@/lib/types";
 import { CAPACITY } from "./capacities";
-import type { FailureGroup, FlowGraph, NodeSummary, QueueSummary, SimNode, Summary } from "./types";
+import type { FailureGroup, FlowGraph, NodeSummary, OutageSummary, QueueSummary, SimNode, Summary } from "./types";
 
 /** What the model counted over a run, for the summary. */
 export type Tally = {
@@ -29,7 +29,45 @@ export type Tally = {
     latency: Map<number, number>;
     perQueue: Record<string, QueueSummary & { consumers: string[] }>;
   } | null;
+  /** One per outage, in order, before its note (SPEC-loadsim-failures.md) */
+  outages: (Omit<OutageSummary, "note"> & { behindBalancer: boolean; replicas: number })[];
 };
+
+/** One outage's story, by the kind of component that was off. */
+function outageNote(
+  o: Tally["outages"][number],
+  label: (id: string) => string,
+  kind: (id: string) => string,
+): string {
+  const name = label(o.nodeId);
+  // "Sandbox workers were off", "Lab API 1 was off".
+  const verb = /[^s]s$/.test(name) ? "were" : "was";
+  const when = `${name} ${verb} off from ${clock(o.offAt)}${o.onAt === null ? "" : ` to ${clock(o.onAt)}`}.`;
+  const names = (ids: string[]) =>
+    ids.length <= 1 ? (ids[0] ?? "") : `${ids.slice(0, -1).join(", ")} and ${ids.at(-1)}`;
+  const takers = names(o.takeover.map((t) => label(t.nodeId)));
+  const peak = Math.max(0, ...o.takeover.map((t) => t.peakUtilisation));
+  const k = kind(o.nodeId);
+  if (k === "database") {
+    return o.replicas >= 2
+      ? `${when} Reads carried on from its replica; ${count(o.failedHere)} writes failed in the 30 s before the replica took over.`
+      : `${when} It had no replica, so ${count(o.failedHere)} requests failed.`;
+  }
+  if (k === "cache") {
+    const timedOut = o.failedElsewhere >= 0.5 ? `; ${count(o.failedElsewhere)} requests timed out there` : "";
+    return `${when} Every read went to ${takers}, which peaked at ${pct(peak)}% busy${timedOut}.`;
+  }
+  if (k === "task_worker") {
+    const waiting = Math.max(0, ...o.takeover.map((t) => t.peakWaiting));
+    return `${when} ${takers} grew to ${count(waiting)} waiting; no job was lost.`;
+  }
+  // A compute instance.
+  if (!o.behindBalancer || o.takeover.length === 0) {
+    return `${when} Nothing could take its requests, so ${count(o.failedHere)} failed.`;
+  }
+  const timedOut = o.failedElsewhere >= 0.5 ? `, and ${count(o.failedElsewhere)} requests timed out` : "";
+  return `${when} ${count(o.failedHere)} requests failed before the load balancer noticed; then ${takers} took its share and peaked at ${pct(peak)}% busy${timedOut}.`;
+}
 
 const count = (n: number) => Math.round(n).toLocaleString("en");
 
@@ -136,6 +174,15 @@ export function buildSummary(
     });
 
   const failed = tally.failures.reduce((s, f) => s + f.count, 0);
+  const outages: OutageSummary[] = tally.outages.map((o) => ({
+    nodeId: o.nodeId,
+    offAt: o.offAt,
+    onAt: o.onAt,
+    failedHere: o.failedHere,
+    failedElsewhere: o.failedElsewhere,
+    takeover: o.takeover,
+    note: outageNote(o, label, kind),
+  }));
   const jobs: Summary["jobs"] = tally.jobs
     ? {
         queued: tally.jobs.queued,
@@ -172,7 +219,13 @@ export function buildSummary(
     firstSaturation,
     busiest,
     notSimulated: graph.notSimulated,
-    notes: [...graph.notes, ...cacheNotes, ...(tally.jobs ? queueNotes(tally.jobs, label) : [])],
+    notes: [
+      ...outages.map((o) => o.note),
+      ...graph.notes,
+      ...cacheNotes,
+      ...(tally.jobs ? queueNotes(tally.jobs, label) : []),
+    ],
     jobs,
+    outages,
   };
 }

@@ -2,15 +2,18 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Power } from "lucide-react";
 import { isClientKind } from "@/lib/catalog";
 import { KIND_STYLES } from "@/components/simulator/design-node";
+import { canSwitchOff } from "@/lib/loadsim/outages";
 import type { LoadRun } from "@/lib/loadsim/types";
 import { usePlayback } from "./playback";
+import { formatClock } from "./playback-bar";
 import { useSim } from "./sim-context";
 
-export type GaugeBand = "ok" | "busy" | "saturated";
+export type GaugeBand = "ok" | "busy" | "saturated" | "off";
 
-const BAND_COLOURS: Record<GaugeBand, string> = { ok: "#059669", busy: "#d97706", saturated: "#dc2626" };
+const BAND_COLOURS: Record<GaugeBand, string> = { ok: "#059669", busy: "#d97706", saturated: "#dc2626", off: "#94a3b8" };
 
 export function gaugeBand(utilisation: number): GaugeBand {
   return utilisation >= 1 ? "saturated" : utilisation >= 0.7 ? "busy" : "ok";
@@ -26,6 +29,8 @@ export function nodeStatus({
   waiting = 0,
   unread = false,
   concurrency = 1,
+  off,
+  offSince = 0,
 }: {
   kind: string;
   utilisation: number;
@@ -38,8 +43,14 @@ export function nodeStatus({
   unread?: boolean;
   /** A worker's slots */
   concurrency?: number;
+  /** Switched off (SPEC-loadsim-failures.md): still sent requests, or noticed */
+  off?: "routed" | "noticed";
+  /** When it went off, in seconds */
+  offSince?: number;
 }): string {
   if (isClientKind(kind)) return `Sending ${Math.round(ratePerSecond).toLocaleString("en")} req/s`;
+  if (off === "routed") return "Off · still getting requests";
+  if (off === "noticed") return `Off since ${formatClock(offSince)}`;
   if (notSimulated) return "Not simulated yet";
   if (kind === "message_queue") {
     if (waiting < 0.5) return "Empty";
@@ -68,6 +79,8 @@ export function nodeStatusAt(
   notSimulated: boolean,
 ): string {
   const frame = run.frames[step]?.nodes[id];
+  const t = step * run.dtSeconds;
+  const outage = run.summary.outages.find((o) => o.nodeId === id && o.offAt <= t + 1e-9 && (o.onAt === null || t < o.onAt));
   return nodeStatus({
     kind,
     utilisation: frame?.utilisation ?? 0,
@@ -77,6 +90,8 @@ export function nodeStatusAt(
     waiting: frame?.backlog ?? 0,
     unread: (run.summary.jobs?.perQueue[id]?.neverDone ?? 0) >= 0.5,
     concurrency: run.workerSlots[id] ?? 1,
+    off: frame?.off,
+    offSince: outage?.offAt ?? 0,
   });
 }
 
@@ -85,16 +100,23 @@ export function LoadNodeBody({
   kind,
   utilisation,
   status,
+  off = false,
+  onToggle,
 }: {
   label: string;
   kind: string;
   utilisation: number;
   status: string;
+  /** Switched off now (SPEC-loadsim-failures.md) */
+  off?: boolean;
+  /** Switch it off, or bring it back; only components that can be switched off get the button */
+  onToggle?: () => void;
 }) {
   const style = KIND_STYLES[kind] ?? KIND_STYLES.vm!;
   const Icon = style.icon;
   // A worker running flat out behind a queue is doing its job: busy, not saturated.
-  const band = kind === "task_worker" && utilisation >= 1 ? "busy" : gaugeBand(utilisation);
+  const band: GaugeBand = off ? "off" : kind === "task_worker" && utilisation >= 1 ? "busy" : gaugeBand(utilisation);
+  const power = onToggle && canSwitchOff(kind);
   return (
     <div
       role="group"
@@ -122,13 +144,27 @@ export function LoadNodeBody({
           </div>
           <div style={{ marginTop: 2, color: "#475569", fontSize: 11 }}>{status}</div>
         </div>
+        {power ? (
+          <button
+            type="button"
+            // nodrag/nopan: pressing the button mustn't drag the node or pan the canvas.
+            className={`nodrag nopan shrink-0 rounded-md p-1 focus-visible:outline-2 focus-visible:outline-teal-700 ${
+              off ? "bg-slate-200 text-slate-700 hover:bg-slate-300" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            }`}
+            aria-label={`${off ? "Bring back" : "Switch off"} ${label}`}
+            title={off ? "Bring back" : "Switch off"}
+            onClick={onToggle}
+          >
+            <Power aria-hidden size={14} />
+          </button>
+        ) : null}
       </div>
       {isClientKind(kind) ? null : (
         <div style={{ padding: "0 12px 10px" }}>
           <div data-band={band} style={{ height: 6, borderRadius: 3, background: "#e2e8f0", overflow: "hidden" }}>
             <div
               style={{
-                width: `${Math.round(Math.min(Math.max(utilisation, 0), 1) * 100)}%`,
+                width: off ? "100%" : `${Math.round(Math.min(Math.max(utilisation, 0), 1) * 100)}%`,
                 height: "100%",
                 background: BAND_COLOURS[band],
               }}
@@ -147,14 +183,22 @@ type LoadNodeData = { label: string; kind: string };
 /** A design node on the simulation canvas, showing the current frame's load. */
 function LoadNodeComponent({ id, data }: NodeProps) {
   const { label, kind } = data as LoadNodeData;
-  const { run, failedSoFar, notSimulated } = useSim();
+  const { run, failedSoFar, notSimulated, toggle } = useSim();
   const step = usePlayback((s) => s.step);
   const frame = run.frames[step]?.nodes[id];
   const status = nodeStatusAt(run, id, kind, step, failedSoFar[id]?.[step] ?? 0, notSimulated.has(id));
+  const off = frame?.off !== undefined;
   return (
     <>
       <Handle type="target" position={Position.Left} style={hidden} isConnectable={false} />
-      <LoadNodeBody label={label} kind={kind} utilisation={frame?.utilisation ?? 0} status={status} />
+      <LoadNodeBody
+        label={label}
+        kind={kind}
+        utilisation={frame?.utilisation ?? 0}
+        status={status}
+        off={off}
+        onToggle={toggle ? () => toggle(id) : undefined}
+      />
       <Handle type="source" position={Position.Right} style={hidden} isConnectable={false} />
     </>
   );

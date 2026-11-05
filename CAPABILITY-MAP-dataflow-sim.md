@@ -5,13 +5,15 @@ Status: **approved** (2026-11-05). Built so far:
   briefs, specified together in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), with the
   plan and task notes in [tasks/dataflow-sim/](tasks/dataflow-sim/). The routing fix
   (`9aad70c`, [SPEC-loadsim-routing.md](SPEC-loadsim-routing.md)) followed.
-- **`loadsim-queues`** (branch `feat/loadsim-queues`):
-  [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md) and
+- **`loadsim-queues`** (`93669c9`): [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md) and
   [tasks/loadsim-queues/](tasks/loadsim-queues/). It added two more pilot briefs,
   `lab-autograder` and `lab-monitor`.
+- **`loadsim-failures`** (branch `feat/loadsim-failures`):
+  [SPEC-loadsim-failures.md](SPEC-loadsim-failures.md) and
+  [tasks/loadsim-failures/](tasks/loadsim-failures/).
 
 Each later module gets its own `SPEC-<module id>.md`. Next in the build order:
-`loadsim-cascades` and `loadsim-failures`.
+`loadsim-cascades`, then `loadsim-delivery`.
 
 ## Goal
 

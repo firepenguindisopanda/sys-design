@@ -1,6 +1,7 @@
 import { isClientKind, isComputeKind } from "@/lib/catalog";
 import { CAPACITY, computeBudgetMs, databaseBudgetMs, workerBudgetMs } from "./capacities";
 import { buildFlowGraph, databaseStations } from "./graph";
+import { nodeState, validateOutages, type NodeState } from "./outages";
 import { STEPS, arrivals } from "./scenario";
 import { buildSummary, type Tally } from "./summary";
 import type { FailureGroup, Frame, LoadInput, LoadRun, NodeSummary, Op, PathStep } from "./types";
@@ -101,7 +102,11 @@ function upstreamFirst(list: Station[], hops: Hop[], byRank: (a: Station, b: Sta
   return ordered;
 }
 
-export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadInput): LoadRun {
+export function simulateLoad({ nodes, edges, features, scenario, loads, outages = [], baseline: given }: LoadInput): LoadRun {
+  const invalid = validateOutages(nodes, outages);
+  if (invalid) throw new Error(invalid);
+  // Components with outages (SPEC-loadsim-failures.md); with none, nothing below changes.
+  const outageNodes = new Set(outages.map((o) => o.nodeId));
   const graph = buildFlowGraph(nodes, edges, features);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
@@ -197,6 +202,17 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         hop.costMs = ms;
         hop.baseMs += ms;
         hop.stations = databaseStations(step.nodeId, config, op);
+        // A database that goes off moves its writes to a replica, so its write hops need
+        // an entry for every copy; only the primary's carries writes until then.
+        if (op === "write" && outageNodes.has(step.nodeId) && config.replicas >= 2) {
+          const shards = Math.max(1, config.shards);
+          hop.stations = [];
+          for (let s = 0; s < shards; s++) {
+            for (let c = 0; c < config.replicas; c++) {
+              hop.stations.push({ id: `${step.nodeId}#s${s}c${c}`, fraction: c === 0 ? 1 / shards : 0 });
+            }
+          }
+        }
         for (const s of hop.stations) station(s.id, step.nodeId, databaseBudgetMs(), CAPACITY.databaseVcpus);
       }
       if (parent === -1) roots.push(index);
@@ -208,8 +224,14 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     add(cls.root, -1, 1, 0);
   });
 
+  /** Each hop's entries at its stations, so an outage can change their shares */
+  const entriesOf: { entry: { hop: number; fraction: number }; stationId: string }[][] = hops.map(() => []);
   hops.forEach((hop, index) => {
-    for (const s of hop.stations) stations.get(s.id)!.entries.push({ hop: index, fraction: s.fraction });
+    for (const s of hop.stations) {
+      const entry = { hop: index, fraction: s.fraction };
+      stations.get(s.id)!.entries.push(entry);
+      entriesOf[index].push({ entry, stationId: s.id });
+    }
   });
   const depthOf = new Map<string, number>();
   for (const hop of hops) depthOf.set(hop.nodeId, Math.max(depthOf.get(hop.nodeId) ?? 0, hop.depth));
@@ -225,7 +247,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
 
   // Totals for the summary.
   const perNode: Record<string, NodeSummary> = {};
-  for (const n of nodes) perNode[n.id] = { peakUtilisation: 0, peakBacklog: 0, served: 0, failed: 0, firstSaturatedAt: null };
+  for (const n of nodes) perNode[n.id] = { peakUtilisation: 0, peakBacklog: 0, served: 0, failed: 0, firstSaturatedAt: null, failedWhileOff: 0 };
   const timedOut = new Map<string, number>();
   const noRoute = new Map<number, number>();
   let unassigned = 0;
@@ -273,6 +295,90 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
   let jobsNeverDone = 0;
   const jobLatency = new Map<number, number>();
 
+  // Outages (SPEC-loadsim-failures.md). Shares that an outage changes are worked out again
+  // each step; with no outages they stay as the paths set them, and nothing else changes.
+  const fracNow = Float64Array.from(hops, (h) => h.fraction);
+  const remNow = Float64Array.from(hops, (h) => h.remainder);
+  /** Part of a hop's arrivals with nowhere to go this step: they fail as switched off */
+  const lostShare = new Float64Array(hops.length);
+  /** Balancer hops with no instance to send to this step, by the pool member to blame */
+  const poolDown = new Map<number, string>();
+  const downStations = new Set<string>();
+  const switchedOff = new Map<string, number>();
+  const behindBalancer = new Set(hops.filter((h) => h.parent >= 0 && kind(hops[h.parent].nodeId) === "load_balancer").map((h) => h.nodeId));
+  const outageHops = hops.map((_, i) => i).filter((i) => outageNodes.has(hops[i].nodeId));
+  const balancerHops = hops
+    .map((_, i) => i)
+    .filter((i) => kind(hops[i].nodeId) === "load_balancer" && hops[i].children.some((c) => outageNodes.has(hops[c].nodeId)));
+  const states = new Map<string, NodeState>();
+
+  const applyOutages = (stepIndex: number) => {
+    if (outageNodes.size === 0) return;
+    const t = stepIndex * dt;
+    for (const id of outageNodes) states.set(id, nodeState(outages, byId.get(id)!, t));
+    downStations.clear();
+    poolDown.clear();
+    // A balancer splits evenly over the instances it still sends to.
+    for (const index of balancerHops) {
+      const children = hops[index].children;
+      const live = children.filter((c) => !isComputeKind(kind(hops[c].nodeId)) || (states.get(hops[c].nodeId)?.routable ?? true));
+      for (const c of children) fracNow[c] = live.includes(c) ? 1 / live.length : 0;
+      if (live.length === 0 && children.length > 0) poolDown.set(index, hops[children[0]].nodeId);
+    }
+    for (const index of outageHops) {
+      const hop = hops[index];
+      const state = states.get(hop.nodeId)!;
+      const k = kind(hop.nodeId);
+      const config = byId.get(hop.nodeId)!.data.config;
+      if (isComputeKind(k) || k === "task_worker") {
+        if (state.down) downStations.add(hop.nodeId);
+      } else if (k === "cache") {
+        // A cache answers its hit ratio; the rest go on to the database.
+        remNow[index] = state.hitRatio;
+        const misses = hop.children.length;
+        for (const c of hop.children) fracNow[c] = misses > 0 ? (1 - state.hitRatio) / misses : 0;
+        if (state.down) downStations.add(hop.nodeId);
+      } else if (config.kind === "database") {
+        const shards = Math.max(1, config.shards);
+        const copies = Math.max(1, config.replicas);
+        const copyOf = (stationId: string) => Number(/c(\d+)$/.exec(stationId)![1]);
+        if (state.downCopy !== null) {
+          for (let s = 0; s < shards; s++) downStations.add(`${hop.nodeId}#s${s}c${state.downCopy}`);
+        }
+        lostShare[index] = 0;
+        if (hop.op === "write") {
+          // Writes go to the primary; while it's off with no replica in charge yet, a
+          // request's write has nowhere to go, but a worker's waits for it.
+          if (state.writesFail && !hop.job) lostShare[index] = 1;
+          for (const { entry, stationId } of entriesOf[index]) {
+            entry.fraction = lostShare[index] === 1 ? 0 : copyOf(stationId) === state.primaryCopy ? 1 / shards : 0;
+          }
+        } else {
+          const up = copies - (state.downCopy === null ? 0 : 1);
+          if (up === 0) lostShare[index] = 1;
+          for (const { entry, stationId } of entriesOf[index]) {
+            entry.fraction = up === 0 || copyOf(stationId) === state.downCopy ? 0 : 1 / (shards * up);
+          }
+        }
+      }
+    }
+  };
+
+  /** Switched-off failures per node, by step, for each outage's summary */
+  const offByStep = new Map<string, number[]>();
+  let currentStep = 0;
+  /** Requests that fail because a component is off */
+  const loseToOutage = (nodeId: string, count: number, hopIndex: number, frame: Frame) => {
+    if (count <= EPS) return;
+    switchedOff.set(nodeId, (switchedOff.get(nodeId) ?? 0) + count);
+    const series = offByStep.get(nodeId) ?? [];
+    series[currentStep] = (series[currentStep] ?? 0) + count;
+    offByStep.set(nodeId, series);
+    failedAt[hopIndex] += count;
+    frame.nodes[nodeId].failed += count;
+    perNode[nodeId].failedWhileOff += count;
+  };
+
   const runStep = (stepIndex: number, sent: number) => {
     volIn.fill(0);
     servedOut.fill(0);
@@ -280,11 +386,19 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     hops.forEach((h, i) => (stationsLeft[i] = h.stations.length));
     const frame: Frame = { nodes: {}, edges: {} };
     for (const n of nodes) frame.nodes[n.id] = { arrivals: 0, served: 0, failed: 0, backlog: 0, utilisation: 0 };
+    currentStep = stepIndex;
+    applyOutages(stepIndex);
+    for (const [id, state] of states) {
+      if (state.down) frame.nodes[id].off = behindBalancer.has(id) && state.routable ? "routed" : "noticed";
+    }
 
     // Hand a hop's served requests on to its children once all its stations are done.
     const finish = (index: number) => {
+      const blamed = poolDown.get(index);
+      if (blamed) loseToOutage(blamed, servedOut[index], index, frame);
       for (const child of hops[index].children) {
-        volIn[child] = servedOut[index] * hops[child].fraction;
+        volIn[child] = servedOut[index] * fracNow[child];
+        if (lostShare[child] > 0) loseToOutage(hops[child].nodeId, volIn[child] * lostShare[child], child, frame);
         if (stationsLeft[child] === 0) {
           servedOut[child] = volIn[child];
           finish(child);
@@ -308,7 +422,9 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     let saturatedNow: string | null = null;
     for (const s of order) {
       const queue = backlog.get(s.id)!;
-      const budgetStep = s.budgetMs * dt;
+      // A component that's off serves nothing; a cache that's off just passes reads on.
+      const isDown = downStations.has(s.id);
+      const budgetStep = isDown ? (kind(s.nodeId) === "cache" ? Infinity : 0) : s.budgetMs * dt;
       let offered = 0;
       let arrivingWork = 0;
       let arrivingRead = 0;
@@ -343,6 +459,16 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         frame.nodes[s.nodeId].served += out;
         remaining += queue[j] * hops[e.hop].costMs;
       });
+      // Requests at a component that's off fail, those waiting when it went off too; jobs
+      // wait for it to come back.
+      if (isDown && budgetStep === 0) {
+        s.entries.forEach((e, j) => {
+          if (exempt(e.hop) || queue[j] <= 0) return;
+          remaining -= queue[j] * hops[e.hop].costMs;
+          loseToOutage(s.nodeId, queue[j], e.hop, frame);
+          queue[j] = 0;
+        });
+      }
       // The client gives up after the timeout: at most that much work can wait here. A
       // request waits behind every job in front of it, but only requests are given up on.
       const limit = s.budgetMs * CAPACITY.timeoutSeconds;
@@ -441,7 +567,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       const wait = hop.stations.reduce((sum, st) => sum + st.fraction * (waitMs.get(st.id) ?? 0), 0);
       cumulative[index] = (hop.parent >= 0 ? cumulative[hop.parent] : 0) + hop.baseMs + wait;
       if (!hop.job) {
-        const answered = servedOut[index] * hop.remainder;
+        const answered = servedOut[index] * remNow[index];
         if (answered > EPS) {
           record(latency, cumulative[index], answered);
           served += answered;
@@ -467,7 +593,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
           }
         } else {
           if (isWorkerHop(hop)) perQueue.get(queueOf(index))!.done += out;
-          const finished = out * hop.remainder;
+          const finished = out * remNow[index];
           if (finished > EPS) {
             jobsDone += finished;
             record(jobLatency, jobTime[index], finished);
@@ -581,6 +707,11 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       failures.push({ nodeId, clientId: null, featureId: null, reason: "timed-out", count, text: `Timed out waiting at ${label(nodeId)}.` });
     }
   }
+  for (const [nodeId, count] of [...switchedOff].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (count > EPS) {
+      failures.push({ nodeId, clientId: null, featureId: null, reason: "switched-off", count, text: `Failed at ${label(nodeId)} while it was off.` });
+    }
+  }
   const noRouteGroups = new Map<string, FailureGroup>();
   for (const [i, count] of noRoute) {
     if (count <= EPS) continue;
@@ -607,6 +738,60 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     });
   }
 
+  // Each outage's story: what it lost, what it cost elsewhere against a run without
+  // outages, and what took its place.
+  let outageRecords: Tally["outages"] = [];
+  if (outages.length > 0) {
+    const baseline = given ?? simulateLoad({ nodes, edges, features, scenario, loads });
+    const stepOf = (seconds: number) => Math.min(frames.length, Math.max(0, Math.round(seconds / dt)));
+    const peakOf = (id: string, from: number, to: number) => {
+      let utilisation = 0;
+      let waiting = 0;
+      for (let i = from; i < to; i++) {
+        const f = frames[i].nodes[id];
+        if (f.utilisation > utilisation) utilisation = f.utilisation;
+        if (f.backlog > waiting) waiting = f.backlog;
+      }
+      return { nodeId: id, peakUtilisation: utilisation, peakWaiting: waiting };
+    };
+    const unique = (ids: string[]) => [...new Set(ids)].sort();
+    outageRecords = [...outages]
+      .sort((a, b) => a.offAt - b.offAt || a.nodeId.localeCompare(b.nodeId))
+      .map((o) => {
+        const from = stepOf(o.offAt);
+        const to = o.onAt === null ? frames.length : stepOf(o.onAt);
+        let failedHere = 0;
+        let elsewhere = 0;
+        for (let i = from; i < to; i++) {
+          failedHere += offByStep.get(o.nodeId)?.[i] ?? 0;
+          for (const n of nodes) {
+            if (n.id === o.nodeId) continue;
+            const timedOutThere = frames[i].nodes[n.id].failed - (offByStep.get(n.id)?.[i] ?? 0);
+            elsewhere += timedOutThere - (baseline.frames[i]?.nodes[n.id].failed ?? 0);
+          }
+        }
+        const k = kind(o.nodeId);
+        const takeoverIds = isComputeKind(k)
+          ? (graph.pools.find((pool) => pool.includes(o.nodeId)) ?? []).filter((id) => id !== o.nodeId)
+          : k === "cache"
+            ? unique(hops.filter((h) => h.parent >= 0 && hops[h.parent].nodeId === o.nodeId).map((h) => h.nodeId))
+            : k === "database"
+              ? [o.nodeId]
+              : unique(hops.filter((h) => h.nodeId === o.nodeId && isWorkerHop(h)).map((h) => hops[h.parent].nodeId));
+        const config = byId.get(o.nodeId)!.data.config;
+        return {
+          nodeId: o.nodeId,
+          offAt: o.offAt,
+          onAt: o.onAt,
+          failedHere,
+          failedElsewhere: Math.max(0, elsewhere),
+          takeover: takeoverIds.map((id) => peakOf(id, from, to)),
+          behindBalancer: behindBalancer.has(o.nodeId),
+          replicas: config.kind === "database" ? config.replicas : 0,
+        };
+      });
+  }
+
   const tally: Tally = {
     requests: scenario.requests,
     served,
@@ -619,6 +804,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     writeWork,
     cacheInFront,
     jobs,
+    outages: outageRecords,
   };
   return {
     scenario,

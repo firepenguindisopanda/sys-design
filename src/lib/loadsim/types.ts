@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { LoadShape } from "@/lib/challenges/types";
 import type { DesignNodeData, FeatureBlock } from "@/lib/types";
+import type { Outage } from "./outages";
 
 export type SimNode = Node<DesignNodeData>;
 
@@ -83,6 +84,11 @@ export type NodeFrame = {
    * step (or was served, while a backlog drains) over the work it could do.
    */
   utilisation: number;
+  /**
+   * Switched off (SPEC-loadsim-failures.md): "routed" while its load balancer still sends
+   * it requests, "noticed" after; absent while it is up.
+   */
+  off?: "routed" | "noticed";
 };
 
 export type EdgeFrame = {
@@ -97,7 +103,7 @@ export type Frame = {
   edges: Record<string, EdgeFrame>;
 };
 
-export type FailureReason = "timed-out" | "no-route";
+export type FailureReason = "timed-out" | "no-route" | "switched-off";
 
 export type FailureGroup = {
   /** Where they failed; null for requests with no route */
@@ -116,6 +122,8 @@ export type NodeSummary = {
   failed: number;
   /** Seconds into the run; null if it never saturated */
   firstSaturatedAt: number | null;
+  /** Requests that failed here while it was switched off */
+  failedWhileOff: number;
 };
 
 export type Summary = {
@@ -133,6 +141,21 @@ export type Summary = {
   notes: string[];
   /** Background jobs (SPEC-loadsim-queues.md); null when no request reaches a queue */
   jobs: JobsSummary | null;
+  /** One per outage, in order (SPEC-loadsim-failures.md) */
+  outages: OutageSummary[];
+};
+
+export type OutageSummary = {
+  nodeId: string;
+  offAt: number;
+  onAt: number | null;
+  /** Requests that failed at the component while it was off */
+  failedHere: number;
+  /** Requests that timed out elsewhere while it was off, beyond a run without the outage */
+  failedElsewhere: number;
+  /** What took its place: the rest of its pool, a cache's databases, a database itself, a worker's queue */
+  takeover: { nodeId: string; peakUtilisation: number; peakWaiting: number }[];
+  note: string;
 };
 
 /** One queue over the run. Times are seconds into the run. */
@@ -174,6 +197,13 @@ export type LoadInput = {
   features: FeatureBlock[];
   scenario: Scenario;
   loads: FeatureLoads;
+  /** Components the student switched off (SPEC-loadsim-failures.md); none if left out */
+  outages?: Outage[];
+  /**
+   * The same design and scenario run without outages, if the caller has it: used to tell
+   * what an outage cost elsewhere, instead of running the model a second time.
+   */
+  baseline?: LoadRun;
 };
 
 export type LoadRun = {

@@ -16,6 +16,8 @@ export type SimContextValue = {
   /** Ids of edges that carry traffic at some point in the run */
   activeEdges: Set<string>;
   animator: DotAnimator | null;
+  /** Switch a component off, or bring it back, at the current playback time (SPEC-loadsim-failures.md) */
+  toggle?: (nodeId: string) => void;
 };
 
 export const SimContext = createContext<SimContextValue | null>(null);

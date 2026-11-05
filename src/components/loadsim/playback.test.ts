@@ -50,6 +50,25 @@ describe("playback store", () => {
     expect(store.getState()).toMatchObject({ step: 0, playing: true });
   });
 
+  it("keeps its place and play state when the run changes length (SPEC-loadsim-failures.md)", () => {
+    const store = createPlaybackStore();
+    store.getState().reset(600);
+    store.getState().seek(240);
+    store.getState().resize(650);
+    expect(store.getState()).toMatchObject({ step: 240, playing: true, frameCount: 650 });
+    store.getState().pause();
+    store.getState().resize(620);
+    expect(store.getState()).toMatchObject({ step: 240, playing: false, frameCount: 620 });
+  });
+
+  it("clamps its place when the run gets shorter than it", () => {
+    const store = createPlaybackStore();
+    store.getState().reset(650);
+    store.getState().seek(640);
+    store.getState().resize(600);
+    expect(store.getState()).toMatchObject({ step: 599, frameCount: 600 });
+  });
+
   it("keeps the chosen speed across resets", () => {
     const store = createPlaybackStore();
     store.getState().setSpeed(4);

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { defaultScenario } from "@/lib/loadsim/scenario";
+import { simulateLoad } from "@/lib/loadsim/model";
+import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
 import { LoadNodeBody, gaugeBand, nodeStatus, nodeStatusAt } from "./load-node";
 
@@ -71,6 +72,28 @@ describe("nodeStatus", () => {
     );
   });
 
+  it("says when a component is off (SPEC-loadsim-failures.md)", () => {
+    const api = { ...base, kind: "paas", utilisation: 0.4 };
+    expect(nodeStatus({ ...api, off: "routed", offSince: 252 })).toBe("Off · still getting requests");
+    expect(nodeStatus({ ...api, off: "noticed", offSince: 252 })).toBe("Off since 4:12");
+  });
+
+  it("reads a real run's outage (an API instance off at 1:00)", () => {
+    const built = fixtureDesign("link-shortener", "good");
+    const run = simulateLoad({
+      nodes: built.nodes,
+      edges: built.edges,
+      features: built.features,
+      scenario: defaultScenario(built.brief),
+      loads: featureLoads(built.features, built.brief),
+      outages: [{ nodeId: "api-1", offAt: 60, onAt: null }],
+    });
+    const step = (s: number) => Math.round(s / run.dtSeconds);
+    expect(nodeStatusAt(run, "api-1", "paas", step(62), 0, false)).toBe("Off · still getting requests");
+    expect(nodeStatusAt(run, "api-1", "paas", step(90), 0, false)).toBe("Off since 1:00");
+    expect(nodeStatusAt(run, "api-1", "paas", step(30), 0, false)).toMatch(/% busy$/);
+  });
+
   it("shows a light load as at least 1%", () => {
     expect(nodeStatus({ ...base, utilisation: 0.002, ratePerSecond: 1 })).toBe("1% busy");
   });
@@ -93,6 +116,28 @@ describe("LoadNodeBody", () => {
     expect(half).toContain('data-band="ok"');
     const over = renderToStaticMarkup(<LoadNodeBody label="API" kind="paas" utilisation={1.5} status="Saturated" />);
     expect(over).toContain("width:100%");
+  });
+
+  it("has a power button for a component that can be switched off, kept off the drag handle", () => {
+    const on = renderToStaticMarkup(
+      <LoadNodeBody label="Lab API 1" kind="paas" utilisation={0.4} status="40% busy" off={false} onToggle={() => {}} />,
+    );
+    expect(on).toMatch(/<button[^>]*aria-label="Switch off Lab API 1"/);
+    expect(on).toMatch(/<button[^>]*class="[^"]*\bnodrag\b/);
+    const offNow = renderToStaticMarkup(
+      <LoadNodeBody label="Lab API 1" kind="paas" utilisation={0} status="Off since 4:12" off onToggle={() => {}} />,
+    );
+    expect(offNow).toMatch(/<button[^>]*aria-label="Bring back Lab API 1"/);
+    expect(offNow).toContain('data-band="off"');
+  });
+
+  it("has no power button for a managed service", () => {
+    for (const kind of ["load_balancer", "message_queue", "cdn"]) {
+      const html = renderToStaticMarkup(
+        <LoadNodeBody label="Managed" kind={kind} utilisation={0.1} status="10% busy" off={false} onToggle={() => {}} />,
+      );
+      expect(html).not.toContain("<button");
+    }
   });
 
   it("has no gauge for a client", () => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultScenario } from "@/lib/loadsim/scenario";
+import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
+import { simulateLoad } from "@/lib/loadsim/model";
+import type { Outage } from "@/lib/loadsim/outages";
 
 // Calibration of the load simulation on its two pilot briefs (SPEC-dataflow-sim.md), each
 // under its brief's default scenario. Capacities are realistic, and each brief's `dbMs`
@@ -132,5 +134,95 @@ describe("lab-monitor: batched writes", () => {
     // Found in Task 5: at the brief's realistic load the database is under 1% busy, and the
     // cache note read "peaked at 0% busy … bring it to about 0%".
     expect(run("lab-monitor", "bad-no-cache").notes.some((n) => n.includes("A cache in front"))).toBe(false);
+  });
+});
+
+// SPEC-loadsim-failures.md: the pilot table, each under its brief's default load.
+describe("switching components off", () => {
+  function runWith(briefId: string, fixture: string, outages: Outage[]) {
+    const built = fixtureDesign(briefId, fixture);
+    return simulateLoad({
+      nodes: built.nodes,
+      edges: built.edges,
+      features: built.features,
+      scenario: defaultScenario(built.brief),
+      loads: featureLoads(built.features, built.brief),
+      outages,
+    }).summary;
+  }
+  const switchedOffAt = (s: ReturnType<typeof runWith>, nodeId: string) =>
+    s.failures.filter((f) => f.reason === "switched-off" && f.nodeId === nodeId).reduce((n, f) => n + f.count, 0);
+
+  it("link-shortener/good: an API instance off during the spike saturates the other (N+1)", () => {
+    // Decided in Task 3: each instance runs at 65% in the spike, so one alone needs 130%.
+    const s = runWith("link-shortener", "good", [{ nodeId: "api-1", offAt: 120, onAt: null }]);
+    expect(switchedOffAt(s, "api-1")).toBeGreaterThan(0);
+    expect(s.perNode["api-2"].peakUtilisation).toBeGreaterThanOrEqual(1);
+    expect(s.failures.some((f) => f.reason === "timed-out" && f.nodeId === "api-2")).toBe(true);
+  });
+
+  it("link-shortener/good: an API instance off after the spike fails only for the health check", () => {
+    const s = runWith("link-shortener", "good", [{ nodeId: "api-1", offAt: 400, onAt: null }]);
+    expect(switchedOffAt(s, "api-1")).toBeGreaterThan(0);
+    expect(s.perNode["api-2"].peakUtilisation).toBeLessThan(1);
+    expect(s.served / s.requests).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it("link-shortener/bad-no-load-balancer: an API instance off fails everything that needs it", () => {
+    const outage = [{ nodeId: "api-2", offAt: 120, onAt: null }];
+    const bad = runWith("link-shortener", "bad-no-load-balancer", outage);
+    const good = runWith("link-shortener", "good", [{ nodeId: "api-2", offAt: 120, onAt: null }]);
+    expect(switchedOffAt(bad, "api-2")).toBeGreaterThan(10 * switchedOffAt(good, "api-2"));
+  });
+
+  it("link-shortener: a database off loses writes for the failover with a replica, everything without", () => {
+    const outage = [{ nodeId: "db", offAt: 120, onAt: 180 }];
+    const good = runWith("link-shortener", "good", outage);
+    const single = runWith("link-shortener", "bad-single-db-replica", outage);
+    expect(switchedOffAt(good, "db")).toBeGreaterThan(0);
+    expect(switchedOffAt(single, "db")).toBeGreaterThan(5 * switchedOffAt(good, "db"));
+  });
+
+  it("course-registration/good: the cache off saturates the database", () => {
+    const s = runWith("course-registration", "good", [{ nodeId: "cache", offAt: 120, onAt: null }]);
+    const calm = run("course-registration", "good");
+    expect(s.perNode.db.peakUtilisation).toBeGreaterThanOrEqual(1);
+    expect(calm.perNode.db.peakUtilisation).toBeLessThan(1);
+  });
+
+  it("course-registration/good: the cache back at 4:00 leaves the database busy while it warms up", () => {
+    const built = fixtureDesign("course-registration", "good");
+    const r = simulateLoad({
+      nodes: built.nodes,
+      edges: built.edges,
+      features: built.features,
+      scenario: defaultScenario(built.brief),
+      loads: featureLoads(built.features, built.brief),
+      outages: [{ nodeId: "cache", offAt: 120, onAt: 240 }],
+    });
+    const dbAt = (seconds: number) => r.frames[Math.round(seconds / r.dtSeconds)].nodes.db.arrivals;
+    // Still in the spike (it lasts 5 minutes): just after 4:00 the database has far more
+    // reads than once the cache has warmed up.
+    expect(dbAt(244)).toBeGreaterThan(2 * dbAt(280));
+  });
+
+  it("lab-autograder/good: the workers off from 40:00 to 50:00 let the queue grow, and lose nothing", () => {
+    const s = runWith("lab-autograder", "good", [{ nodeId: "sandbox", offAt: 2400, onAt: 3000 }]);
+    const calm = run("lab-autograder", "good");
+    const jobs = s.jobs!;
+    expect(jobs.perQueue.jobs.peakBacklog).toBeGreaterThan(calm.jobs!.perQueue.jobs.peakBacklog);
+    expect(jobs.neverDone).toBeLessThan(0.5);
+    expect(Math.abs(jobs.done + jobs.stillWaiting - jobs.queued)).toBeLessThan(0.5);
+  });
+
+  it("every pilot with no outages is unchanged", () => {
+    for (const [briefId, fixture] of [
+      ["link-shortener", "good"],
+      ["course-registration", "good"],
+      ["lab-autograder", "good"],
+      ["lab-monitor", "good"],
+    ]) {
+      expect(JSON.stringify(runWith(briefId, fixture, []))).toBe(JSON.stringify(run(briefId, fixture)));
+    }
   });
 });

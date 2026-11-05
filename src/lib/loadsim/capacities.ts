@@ -32,6 +32,14 @@ export const CAPACITY = {
   worker: { handlingMs: 5 },
 };
 
+/**
+ * How long recovery takes when a component is switched off (SPEC-loadsim-failures.md),
+ * typical of managed cloud services: a load balancer's health check marks an instance
+ * down (or back) after 10 s; a replica takes over a database's writes after 30 s; a cache
+ * that comes back empty is full again after 30 s.
+ */
+export const FAILOVER = { healthCheckSeconds: 10, databaseFailoverSeconds: 30, cacheWarmUpSeconds: 30 };
+
 /** Work a task worker can do each second. */
 export function workerBudgetMs(concurrency: number): number {
   return Math.max(1, concurrency) * 1000;

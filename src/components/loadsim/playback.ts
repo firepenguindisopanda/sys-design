@@ -18,6 +18,8 @@ export type PlaybackState = {
   frameCount: number;
   /** A new run: back to the start, playing */
   reset: (frameCount: number) => void;
+  /** A new run of a different length from the same moment (an outage changed): keep the place and play state */
+  resize: (frameCount: number) => void;
   play: () => void;
   pause: () => void;
   toggle: () => void;
@@ -45,6 +47,10 @@ export function createPlaybackStore(): StoreApi<PlaybackState> {
       speed: 1,
       frameCount: 0,
       reset: (frameCount) => set({ frameCount, position: 0, step: 0, playing: frameCount > 1 }),
+      resize: (frameCount) => {
+        const position = Math.min(Math.max(get().position, 0), Math.max(0, frameCount - 1));
+        set({ frameCount, position, step: Math.floor(position) });
+      },
       play: () => set({ playing: true, ...(get().step >= last() ? at(0) : {}) }),
       pause: () => set({ playing: false }),
       toggle: () => (get().playing ? get().pause() : get().play()),

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { defaultScenario } from "@/lib/loadsim/scenario";
+import { simulateLoad } from "@/lib/loadsim/model";
+import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
 import { NodeStatsTable } from "./node-stats-table";
 import { RunSummary, announcementFor } from "./run-summary";
@@ -112,6 +113,31 @@ describe("NodeStatsTable", () => {
     expect(t).toContain(Math.round(q.peakBacklog).toLocaleString("en"));
     expect(t).toContain(clock(q.fellBehindAt!));
     expect(t).not.toContain("not simulated");
+  });
+});
+
+describe("with an outage (SPEC-loadsim-failures.md)", () => {
+  const built = fixtureDesign("link-shortener", "good");
+  const run = simulateLoad({
+    nodes: built.nodes,
+    edges: built.edges,
+    features: built.features,
+    scenario: defaultScenario(built.brief),
+    loads: featureLoads(built.features, built.brief),
+    outages: [{ nodeId: "api-1", offAt: 60, onAt: 180 }],
+  });
+
+  it("puts the outage's note first in the summary", () => {
+    const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+    expect(t).toContain(run.summary.outages[0].note);
+    expect(t.indexOf(run.summary.outages[0].note)).toBeLessThan(t.indexOf("Not simulated yet"));
+  });
+
+  it("adds a Failed while off column to the table", () => {
+    const html = renderToStaticMarkup(<NodeStatsTable run={run} nodes={built.nodes} />);
+    expect(html).toMatch(/<th[^>]*scope="col"[^>]*>Failed while off<\/th>/);
+    const count = Math.round(run.summary.perNode["api-1"].failedWhileOff).toLocaleString("en");
+    expect(text(html)).toMatch(new RegExp(`Link API 1 .*\\b${count}\\b`));
   });
 });
 

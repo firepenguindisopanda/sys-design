@@ -18,7 +18,7 @@ export function NodeStatsTable({ run, nodes }: { run: LoadRun; nodes: SimNode[] 
       </caption>
       <thead className="bg-slate-50 text-slate-500">
         <tr>
-          {["Component", "Peak busy", "Peak waiting", "Served", "Failed", "First saturated"].map((h) => (
+          {["Component", "Peak busy", "Peak waiting", "Served", "Failed", "Failed while off", "First saturated"].map((h) => (
             <th key={h} scope="col" className="px-3 py-1.5 font-medium">
               {h}
             </th>
@@ -41,6 +41,9 @@ export function NodeStatsTable({ run, nodes }: { run: LoadRun; nodes: SimNode[] 
               <td className="px-3 py-1.5 tabular-nums">{count(s.peakBacklog)}</td>
               <td className="px-3 py-1.5 tabular-nums">{count(s.served)}</td>
               <td className={`px-3 py-1.5 tabular-nums ${s.failed >= 0.5 ? "text-red-700" : ""}`}>{count(s.failed)}</td>
+              <td className={`px-3 py-1.5 tabular-nums ${s.failedWhileOff >= 0.5 ? "text-red-700" : ""}`}>
+                {count(s.failedWhileOff)}
+              </td>
               <td className="px-3 py-1.5 tabular-nums">
                 {saturatedAt === null ? "—" : formatClock(saturatedAt)}
               </td>

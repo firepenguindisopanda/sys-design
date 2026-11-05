@@ -30,7 +30,16 @@ const nodeTypes = { load: LoadNode } as NodeTypes;
 const edgeTypes = { flow: FlowEdge } as EdgeTypes;
 
 /** The design as drawn, with each node's load and each edge's flow; nodes can be moved, nothing else changes. */
-export function SimCanvas({ design, run }: { design: SimDesign; run: LoadRun }) {
+export function SimCanvas({
+  design,
+  run,
+  onToggle,
+}: {
+  design: SimDesign;
+  run: LoadRun;
+  /** Switch a component off, or bring it back (SPEC-loadsim-failures.md) */
+  onToggle?: (nodeId: string) => void;
+}) {
   const playback = useContext(PlaybackContext) as StoreApi<PlaybackState>;
   const reducedMotion = useReducedMotion();
   const maxRate = useMemo(() => maxEdgeRate(run), [run]);
@@ -69,8 +78,9 @@ export function SimCanvas({ design, run }: { design: SimDesign; run: LoadRun }) 
         run.frames.flatMap((f) => Object.entries(f.edges).filter(([, e]) => e.volume > 0).map(([id]) => id)),
       ),
       animator,
+      toggle: onToggle,
     }),
-    [run, maxRate, animator],
+    [run, maxRate, animator, onToggle],
   );
 
   // Students can drag nodes to tidy the layout; the moves stay on this page.
