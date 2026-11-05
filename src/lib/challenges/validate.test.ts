@@ -442,6 +442,22 @@ describe("validateBrief: load block", () => {
     expect(validateBrief(rawBrief(), FILE).load).toBeUndefined();
   });
 
+  it("reads a feature's batch (SPEC-loadsim-queues.md)", () => {
+    const b = rawBrief();
+    b.load = { features: { "create-link": { writeShare: 1, batch: 10 } } };
+    expect(validateBrief(b, FILE).load).toEqual({ features: { "create-link": { writeShare: 1, batch: 10 } } });
+  });
+
+  it.each([
+    ["zero", 0],
+    ["a fraction", 1.5],
+    ["over 1,000", 1001],
+  ])("rejects a batch of %s with its path", (_, batch) => {
+    expect(briefError((b) => (b.load = { features: { redirect: { batch } } }))).toMatch(
+      new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.batch[:.]`),
+    );
+  });
+
   it.each([
     ["an unknown requirement id", (b: Record<string, any>) => (b.load = { features: { nope: { dbMs: 2 } } }), "load.features.nope"],
     ["a write share above 1", (b: Record<string, any>) => (b.load = { features: { redirect: { writeShare: 1.5 } } }), "load.features.redirect.writeShare"],

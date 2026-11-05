@@ -17,9 +17,25 @@ export const CAPACITY = {
   clientRoundTripMs: { desktop: 20, mobile: 40, iot: 50 } as Record<string, number>,
   /** Each hop inside the system */
   internalHopMs: 1,
-  /** A request waiting longer than this at one component is given up on */
+  /** A request waiting longer than this at one component is given up on; jobs never are */
   timeoutSeconds: 5,
+  /**
+   * A managed queue (SPEC-loadsim-queues.md): 3,000 messages/s, in line with a FIFO queue
+   * with batching; no campus brief comes near it. Putting a job on it takes 2 ms.
+   */
+  queue: { budgetMs: 1000, costMs: 1000 / 3000, enqueueMs: 2 },
+  /**
+   * A task worker runs `concurrency` jobs at once, flat out (no utilisation ceiling: the
+   * queue in front absorbs the waiting). Each job costs this much handling plus its share
+   * of the feature's slow work.
+   */
+  worker: { handlingMs: 5 },
 };
+
+/** Work a task worker can do each second. */
+export function workerBudgetMs(concurrency: number): number {
+  return Math.max(1, concurrency) * 1000;
+}
 
 /** Work a compute instance can do each second. */
 export function computeBudgetMs(vcpus: number): number {

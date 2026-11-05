@@ -53,6 +53,7 @@ export function featureLoads(features: FeatureBlock[], brief: Brief | null): Fea
       writeShare: set?.writeShare ?? fallbackShare,
       readDbMs: set?.dbMs ?? DEFAULT_READ_DB_MS,
       writeDbMs: set?.dbMs ?? DEFAULT_WRITE_DB_MS,
+      batch: set?.batch ?? 1,
     };
   }
   return loads;

@@ -50,6 +50,17 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 300
 
+load:
+  # The last hour before a lab closes: about 400 students resubmitting as they fix failing
+  # tests, roughly 3,200 submissions, rising towards the deadline (SPEC-loadsim-queues.md).
+  requests: 17600
+  windowSeconds: 3600
+  shape: ramp
+  features:
+    browse-exercises: { writeShare: 0, dbMs: 3 }
+    submit-solution: { writeShare: 1, dbMs: 8 }
+    view-result: { writeShare: 0, dbMs: 3 }
+
 rules:
   - id: grading-queued
     title: Submissions queued for grading

@@ -1,5 +1,5 @@
 import { isClientKind, isComputeKind } from "@/lib/catalog";
-import { CAPACITY, computeBudgetMs, databaseBudgetMs } from "./capacities";
+import { CAPACITY, computeBudgetMs, databaseBudgetMs, workerBudgetMs } from "./capacities";
 import { buildFlowGraph, databaseStations } from "./graph";
 import { STEPS, arrivals } from "./scenario";
 import { buildSummary, type Tally } from "./summary";
@@ -54,6 +54,10 @@ type Hop = {
   op: Op;
   featureId: string;
   depth: number;
+  /** Part of a background job (SPEC-loadsim-queues.md) */
+  job: boolean;
+  /** The queue hop where a request becomes a job: the client is answered here */
+  answers: boolean;
 };
 
 type Station = {
@@ -140,6 +144,8 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       const fromClient = parent >= 0 && hops[parent].parent === -1;
       const hopMs =
         step.edgeId === null ? 0 : fromClient ? (CAPACITY.clientRoundTripMs[clientKind] ?? 30) : CAPACITY.internalHopMs;
+      const job = !!step.job;
+      const op = step.op ?? cls.op;
       const hop: Hop = {
         classIndex,
         nodeId: step.nodeId,
@@ -151,13 +157,26 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         costMs: 0,
         baseMs: hopMs,
         stations: [],
-        op: cls.op,
+        op,
         featureId: cls.featureId,
         depth,
+        job,
+        answers: job && (parent < 0 || !hops[parent].job),
       };
       hops.push(hop);
-      // A CDN or static hosting node that requests pass through costs what a balancer does.
-      if (k === "load_balancer" || k === "cdn" || k === "static_hosting") {
+      if (job && config?.kind === "message_queue") {
+        hop.costMs = CAPACITY.queue.costMs;
+        hop.baseMs += CAPACITY.queue.enqueueMs;
+        hop.stations = [{ id: step.nodeId, fraction: 1 }];
+        station(step.nodeId, step.nodeId, CAPACITY.queue.budgetMs);
+      } else if (job && config?.kind === "task_worker") {
+        const ms = CAPACITY.worker.handlingMs + (step.slowMs ?? 0);
+        hop.costMs = ms;
+        hop.baseMs += ms;
+        hop.stations = [{ id: step.nodeId, fraction: 1 }];
+        station(step.nodeId, step.nodeId, workerBudgetMs(config.concurrency), Math.max(1, config.concurrency));
+      } else if (k === "load_balancer" || k === "cdn" || k === "static_hosting") {
+        // A CDN or static hosting node that requests pass through costs what a balancer does.
         hop.costMs = CAPACITY.loadBalancer.costMs;
         hop.baseMs += CAPACITY.loadBalancer.timeMs;
         hop.stations = [{ id: step.nodeId, fraction: 1 }];
@@ -173,10 +192,11 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         hop.stations = [{ id: step.nodeId, fraction: 1 }];
         station(step.nodeId, step.nodeId, CAPACITY.cache.budgetMs);
       } else if (config?.kind === "database") {
-        const ms = cls.op === "write" ? load.writeDbMs : load.readDbMs;
+        // A worker's write can be one of a batch; writes in the request never are.
+        const ms = op === "write" ? load.writeDbMs / (job ? Math.max(1, load.batch) : 1) : load.readDbMs;
         hop.costMs = ms;
         hop.baseMs += ms;
-        hop.stations = databaseStations(step.nodeId, config, cls.op);
+        hop.stations = databaseStations(step.nodeId, config, op);
         for (const s of hop.stations) station(s.id, step.nodeId, databaseBudgetMs(), CAPACITY.databaseVcpus);
       }
       if (parent === -1) roots.push(index);
@@ -225,6 +245,33 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
   const failedAt = new Float64Array(hops.length);
   const stationsLeft = new Int32Array(hops.length);
   const waitMs = new Map<string, number>();
+
+  // Background jobs (SPEC-loadsim-queues.md). A job never times out: the worker retries.
+  const exempt = (index: number) => hops[index].job && !hops[index].answers;
+  const isQueueHop = (h: Hop) => h.job && kind(h.nodeId) === "message_queue";
+  const isWorkerHop = (h: Hop) => h.job && kind(h.nodeId) === "task_worker";
+  const hasJobs = hops.some((h) => h.answers);
+  const queueIds = [...new Set(hops.filter(isQueueHop).map((h) => h.nodeId))].sort();
+  /** The queue each worker hop takes its jobs from */
+  const queueOf = (index: number) => hops[hops[index].parent].nodeId;
+  const consumersOf = new Map<string, Set<string>>(queueIds.map((q) => [q, new Set<string>()]));
+  hops.forEach((h, i) => {
+    if (isWorkerHop(h)) consumersOf.get(queueOf(i))!.add(h.nodeId);
+  });
+  const perQueue = new Map(
+    queueIds.map((q) => [q, { queued: 0, done: 0, neverDone: 0, waiting: [] as number[], fellBehindStep: null as number | null }]),
+  );
+  /**
+   * First in, first out at each worker: jobs that have arrived so far, step by step, and
+   * jobs taken so far. A job taken now arrived when the arrivals first reached the number
+   * taken, so its wait is the time since then. Requests use the backlog's drain time, which
+   * is close enough for waits capped at 5 s, but jobs can wait minutes.
+   */
+  const fifo = new Map<string, { arrived: number[]; taken: number }>();
+  let jobsQueued = 0;
+  let jobsDone = 0;
+  let jobsNeverDone = 0;
+  const jobLatency = new Map<number, number>();
 
   const runStep = (stepIndex: number, sent: number) => {
     volIn.fill(0);
@@ -296,18 +343,26 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         frame.nodes[s.nodeId].served += out;
         remaining += queue[j] * hops[e.hop].costMs;
       });
-      // The client gives up after the timeout: at most that much work can wait here.
+      // The client gives up after the timeout: at most that much work can wait here. A
+      // request waits behind every job in front of it, but only requests are given up on.
       const limit = s.budgetMs * CAPACITY.timeoutSeconds;
       if (remaining > limit * (1 + EPS) + EPS) {
-        const drop = (remaining - limit) / remaining;
+        let requestWork = 0;
         s.entries.forEach((e, j) => {
-          const lost = queue[j] * drop;
-          queue[j] -= lost;
-          failedAt[e.hop] += lost;
-          frame.nodes[s.nodeId].failed += lost;
-          timedOut.set(s.nodeId, (timedOut.get(s.nodeId) ?? 0) + lost);
+          if (!exempt(e.hop)) requestWork += queue[j] * hops[e.hop].costMs;
         });
-        remaining = limit;
+        if (requestWork > EPS) {
+          const drop = Math.min(1, (remaining - limit) / requestWork);
+          s.entries.forEach((e, j) => {
+            if (exempt(e.hop)) return;
+            const lost = queue[j] * drop;
+            queue[j] -= lost;
+            remaining -= lost * hops[e.hop].costMs;
+            failedAt[e.hop] += lost;
+            frame.nodes[s.nodeId].failed += lost;
+            timedOut.set(s.nodeId, (timedOut.get(s.nodeId) ?? 0) + lost);
+          });
+        }
       }
       // Demand against capacity: what arrived, or what was served while a backlog drains.
       // Work already waiting isn't counted again, so an overloaded node reads 130%, not 400%.
@@ -317,9 +372,37 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       // with how busy the station is, in units of its average time per request.
       const meanServiceMs = present > EPS ? offered / present : 0;
       const queueingMs = queueingFactor(utilisation, s.servers) * meanServiceMs;
-      waitMs.set(s.id, (remaining / s.budgetMs) * 1000 + queueingMs);
+      if (kind(s.nodeId) === "task_worker") {
+        const f = fifo.get(s.id) ?? { arrived: [], taken: 0 };
+        fifo.set(s.id, f);
+        let arrivedNow = 0;
+        let takenNow = 0;
+        s.entries.forEach((e) => {
+          arrivedNow += volIn[e.hop] * e.fraction;
+          takenNow += servedOut[e.hop];
+        });
+        f.arrived.push((f.arrived.at(-1) ?? 0) + arrivedNow);
+        f.taken += takenNow;
+        // The first step whose arrivals reach what's been taken: binary search.
+        let lo = 0;
+        let hi = f.arrived.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (f.arrived[mid] >= f.taken - EPS) hi = mid;
+          else lo = mid + 1;
+        }
+        waitMs.set(s.id, Math.max((f.arrived.length - 1 - lo) * dt * 1000, queueingMs));
+      } else {
+        waitMs.set(s.id, (remaining / s.budgetMs) * 1000 + queueingMs);
+      }
       const nodeFrame = frame.nodes[s.nodeId];
-      nodeFrame.backlog += queue.reduce((sum, q) => sum + q, 0);
+      const isWorker = kind(s.nodeId) === "task_worker";
+      if (isWorker) {
+        // Jobs wait for a worker on the queue they came from, so that's where they show.
+        s.entries.forEach((e, j) => (frame.nodes[queueOf(e.hop)].backlog += queue[j]));
+      } else {
+        nodeFrame.backlog += queue.reduce((sum, q) => sum + q, 0);
+      }
       if (utilisation > nodeFrame.utilisation) nodeFrame.utilisation = utilisation;
       const summary = perNode[s.nodeId];
       if (utilisation > summary.peakUtilisation) summary.peakUtilisation = utilisation;
@@ -328,7 +411,15 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       }
       if (offered > EPS && utilisation >= 1 - EPS) {
         summary.firstSaturatedAt ??= stepIndex * dt;
-        if (!firstSaturation && (saturatedNow === null || s.nodeId < saturatedNow)) saturatedNow = s.nodeId;
+        // A worker running flat out is what a queue is for, so it's never the headline.
+        const headline = !isWorker && kind(s.nodeId) !== "message_queue";
+        if (headline && !firstSaturation && (saturatedNow === null || s.nodeId < saturatedNow)) saturatedNow = s.nodeId;
+        if (isWorker) {
+          for (const e of s.entries) {
+            const q = perQueue.get(queueOf(e.hop))!;
+            q.fellBehindStep ??= stepIndex;
+          }
+        }
       }
 
       for (const e of s.entries) {
@@ -337,23 +428,64 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     }
     if (!firstSaturation && saturatedNow) firstSaturation = { nodeId: saturatedNow, atSeconds: stepIndex * dt };
 
-    // Latency of what was answered this step: each hop's base time plus its wait now.
+    // Latency of what was answered this step: each hop's base time plus its wait now. A
+    // request handed to a queue is answered there; its job's time starts from that point.
     const cumulative = new Float64Array(hops.length);
+    const jobTime = new Float64Array(hops.length);
+    const record = (map: Map<number, number>, ms: number, count: number) => {
+      const key = Math.round(ms * 10) / 10;
+      map.set(key, (map.get(key) ?? 0) + count);
+    };
     for (const index of byDepth) {
       const hop = hops[index];
       const wait = hop.stations.reduce((sum, st) => sum + st.fraction * (waitMs.get(st.id) ?? 0), 0);
       cumulative[index] = (hop.parent >= 0 ? cumulative[hop.parent] : 0) + hop.baseMs + wait;
-      const answered = servedOut[index] * hop.remainder;
-      if (answered > EPS) {
-        const key = Math.round(cumulative[index] * 10) / 10;
-        latency.set(key, (latency.get(key) ?? 0) + answered);
-        served += answered;
+      if (!hop.job) {
+        const answered = servedOut[index] * hop.remainder;
+        if (answered > EPS) {
+          record(latency, cumulative[index], answered);
+          served += answered;
+        }
+      } else {
+        const out = servedOut[index];
+        if (hop.answers) {
+          if (out > EPS) {
+            record(latency, cumulative[index], out);
+            served += out;
+          }
+          jobsQueued += out;
+          jobTime[index] = 0;
+        } else {
+          jobTime[index] = jobTime[hop.parent] + hop.baseMs + wait;
+        }
+        if (isQueueHop(hop)) {
+          const q = perQueue.get(hop.nodeId)!;
+          q.queued += out;
+          if (hop.children.length === 0) {
+            q.neverDone += out;
+            jobsNeverDone += out;
+          }
+        } else {
+          if (isWorkerHop(hop)) perQueue.get(queueOf(index))!.done += out;
+          const finished = out * hop.remainder;
+          if (finished > EPS) {
+            jobsDone += finished;
+            record(jobLatency, jobTime[index], finished);
+          }
+        }
       }
       if (hop.edgeId) {
         const edge = (frame.edges[hop.edgeId] ??= { volume: 0, failedShare: 0 });
-        edge.volume += volIn[index];
+        // Into a worker: the jobs it takes, so a growing backlog shows as more dots into
+        // the queue than out of it. Everywhere else: what arrives.
+        edge.volume += isWorkerHop(hop) ? servedOut[index] : volIn[index];
         edge.failedShare += failedAt[index]; // a count for now; made a share below
       }
+    }
+    // Jobs nobody will ever take stay on their queue.
+    for (const [id, q] of perQueue) {
+      frame.nodes[id].backlog += q.neverDone;
+      q.waiting.push(frame.nodes[id].backlog);
     }
     for (const edge of Object.values(frame.edges)) {
       edge.failedShare = edge.volume > EPS ? Math.min(1, edge.failedShare / edge.volume) : edge.failedShare > EPS ? 1 : 0;
@@ -368,16 +500,79 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
   };
 
   steps.forEach((sent, i) => runStep(i, sent));
-  const waiting = () => [...backlog.values()].reduce((sum, q) => sum + q.reduce((a, b) => a + b, 0), 0);
-  for (let i = 0; i < MAX_DRAIN_STEPS && waiting() > EPS; i++) runStep(STEPS + i, 0);
-  // Anything still waiting after the drain fails where it waits (the timeout keeps this rare).
+  /** What still waits anywhere: requests, or jobs */
+  const waiting = (jobs: boolean) => {
+    let sum = 0;
+    for (const s of stations.values()) {
+      const queue = backlog.get(s.id)!;
+      s.entries.forEach((e, j) => {
+        if (exempt(e.hop) === jobs) sum += queue[j];
+      });
+    }
+    return sum;
+  };
+  // Drain: requests until they clear, as before; jobs for at most one more window.
+  for (let i = 0; ; i++) {
+    const requests = i < MAX_DRAIN_STEPS && waiting(false) > EPS;
+    const jobs = i < STEPS && waiting(true) > EPS;
+    if (!requests && !jobs) break;
+    runStep(STEPS + i, 0);
+  }
+  // A request still waiting then fails where it waits (the timeout keeps this rare); a job
+  // still waiting is counted as still waiting.
+  let jobsStillWaiting = 0;
+  const stillWaitingAt = new Map<string, number>();
   for (const s of stations.values()) {
-    const left = backlog.get(s.id)!.reduce((a, b) => a + b, 0);
+    const queue = backlog.get(s.id)!;
+    let left = 0;
+    s.entries.forEach((e, j) => {
+      if (!exempt(e.hop)) left += queue[j];
+      else if (queue[j] > EPS) {
+        jobsStillWaiting += queue[j];
+        // Waiting for a worker counts on that worker's queue. A job waiting at a later
+        // stage's queue or a database was already done by an earlier queue's workers.
+        if (isWorkerHop(hops[e.hop])) {
+          const q = queueOf(e.hop);
+          stillWaitingAt.set(q, (stillWaitingAt.get(q) ?? 0) + queue[j]);
+        }
+      }
+    });
     if (left > EPS) {
       timedOut.set(s.nodeId, (timedOut.get(s.nodeId) ?? 0) + left);
       perNode[s.nodeId].failed += left;
     }
   }
+
+  const jobs: Tally["jobs"] = hasJobs
+    ? {
+        queued: jobsQueued,
+        done: jobsDone,
+        stillWaiting: jobsStillWaiting,
+        neverDone: jobsNeverDone,
+        latency: jobLatency,
+        perQueue: Object.fromEntries(
+          [...perQueue].map(([id, q]) => {
+            const peakBacklog = Math.max(0, ...q.waiting);
+            const peakStep = peakBacklog > 0.5 ? q.waiting.indexOf(peakBacklog) : -1;
+            const emptyStep = peakStep < 0 ? -1 : q.waiting.findIndex((w, i) => i > peakStep && w < 0.5);
+            return [
+              id,
+              {
+                queued: q.queued,
+                done: q.done,
+                stillWaiting: stillWaitingAt.get(id) ?? 0,
+                neverDone: q.neverDone,
+                peakBacklog,
+                peakAt: peakStep < 0 ? null : peakStep * dt,
+                emptyAt: emptyStep < 0 ? null : emptyStep * dt,
+                fellBehindAt: q.fellBehindStep === null ? null : q.fellBehindStep * dt,
+                consumers: [...consumersOf.get(id)!].sort(),
+              },
+            ];
+          }),
+        ),
+      }
+    : null;
 
   const label = (id: string) => byId.get(id)?.data.label ?? id;
   const failures: FailureGroup[] = [];
@@ -423,6 +618,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     readWork,
     writeWork,
     cacheInFront,
+    jobs,
   };
   return {
     scenario,
@@ -431,5 +627,8 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     frames,
     summary: buildSummary(tally, nodes, features, graph),
     graph,
+    workerSlots: Object.fromEntries(
+      nodes.flatMap((n) => (n.data.config.kind === "task_worker" ? [[n.id, Math.max(1, n.data.config.concurrency)]] : [])),
+    ),
   };
 }

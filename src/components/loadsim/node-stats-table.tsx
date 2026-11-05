@@ -29,6 +29,9 @@ export function NodeStatsTable({ run, nodes }: { run: LoadRun; nodes: SimNode[] 
         {rows.map((n) => {
           const s = run.summary.perNode[n.id];
           const idle = notSimulated.has(n.id);
+          // A queue saturates when its workers fall behind (SPEC-loadsim-queues.md).
+          const queue = run.summary.jobs?.perQueue[n.id];
+          const saturatedAt = queue ? queue.fellBehindAt : s.firstSaturatedAt;
           return (
             <tr key={n.id} className="border-t border-slate-100">
               <th scope="row" className="px-3 py-1.5 font-medium text-slate-900">
@@ -39,7 +42,7 @@ export function NodeStatsTable({ run, nodes }: { run: LoadRun; nodes: SimNode[] 
               <td className="px-3 py-1.5 tabular-nums">{count(s.served)}</td>
               <td className={`px-3 py-1.5 tabular-nums ${s.failed >= 0.5 ? "text-red-700" : ""}`}>{count(s.failed)}</td>
               <td className="px-3 py-1.5 tabular-nums">
-                {s.firstSaturatedAt === null ? "—" : formatClock(s.firstSaturatedAt)}
+                {saturatedAt === null ? "—" : formatClock(saturatedAt)}
               </td>
             </tr>
           );

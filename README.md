@@ -77,15 +77,23 @@ npm test
 - **Each component's gauge** says how busy it is in words: "80% busy", "Saturated · 5,965 failed".
 - **Afterwards,** a summary and a per-component table say what was served, what failed and why, typical and slowest answer times, and what a cache would save.
 
+**Queues and workers.** When a compute instance has an edge to a message queue, its writes, and every request of a feature with slow work, go on the queue as jobs:
+- The student gets an answer as soon as the job is on the queue.
+- The queue's workers take jobs as fast as their slots allow, so a spike shows as a queue that fills up ("312 waiting") and drains later.
+- Each worker writes its results to the database, or passes the job to the next stage.
+- When requests stop arriving, playback keeps going until the queues are empty, for at most one more window.
+- A Background jobs summary says how many jobs were done, still waiting or never done, and how long they took. A queue nobody reads says so.
+- A brief can let workers batch their database writes (`batch` in its `load` block).
+
 It uses its own load model with realistic capacities, separate from the Run simulation checks, and gives no pass/fail. So the two can disagree: a design without a cache can fail the throughput check but survive the load, just busier and slower.
 
 **On the page:**
 - You can change the requests, window and shape, and play back at 1×, 2× or 4×.
 - You can drag nodes to tidy the layout; the moves stay on that page and never change your design.
 - With reduced motion turned on, edges show their rates as text instead of moving dots.
-- The page lists the parts of your design it doesn't simulate yet: queues, workers, files, push and autoscaling.
+- The page lists the parts of your design it doesn't simulate yet: pub/sub topics, files, push, external API calls, slow work done inside a request, and autoscaling.
 
-The design reaches the page through the tab's session storage, so reloading `/simulate` keeps it, and reloading an untouched editor brings back the design last sent to it. A brief can set its own default load and realistic per-query database costs in an optional `load` block (see [docs/challenges/brief-format.md](docs/challenges/brief-format.md)). The design and plans are in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md) and [CAPABILITY-MAP-dataflow-sim.md](CAPABILITY-MAP-dataflow-sim.md).
+The design reaches the page through the tab's session storage, so reloading `/simulate` keeps it, and reloading an untouched editor brings back the design last sent to it. A brief can set its own default load and realistic per-query database costs in an optional `load` block (see [docs/challenges/brief-format.md](docs/challenges/brief-format.md)). The design and plans are in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md) and [CAPABILITY-MAP-dataflow-sim.md](CAPABILITY-MAP-dataflow-sim.md).
 
 ## Screenshots and recordings
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, fixtureDesign, requirement } from "@/test/loadsim-designs";
 import { buildFlowGraph, databaseStations, reachShares } from "./graph";
-import type { FlowGraph } from "./types";
+import type { FlowGraph, PathStep } from "./types";
 
 function graphOf(built: ReturnType<typeof fixtureDesign> | ReturnType<typeof design>): FlowGraph {
   return buildFlowGraph(built.nodes, built.edges, built.features);
@@ -104,7 +104,8 @@ describe("which clients send requests (SPEC-loadsim-routing.md)", () => {
     expect(sends(g, "iot")).toBe(false);
     expect(sends(g, "desktop")).toBe(true);
     expect(g.notes).toContain(
-      "Campus IoT only talks to Upload events (queue), which isn't simulated yet, so it sends no requests here.",
+      // Reworded in SPEC-loadsim-queues.md: queues are simulated behind compute now.
+      "Campus IoT only talks to Upload events (queue), and requests straight from a client to it aren't simulated yet, so it sends no requests here.",
     );
   });
 
@@ -160,6 +161,144 @@ describe("which clients send requests (SPEC-loadsim-routing.md)", () => {
   });
 });
 
+describe("jobs: queues and workers (SPEC-loadsim-queues.md)", () => {
+  /** Every root-to-leaf path, as node ids, with `*` on steps that are part of the job. */
+  function paths(cls: { root: PathStep | null }): string[][] {
+    const out: string[][] = [];
+    const walk = (step: PathStep, acc: string[]) => {
+      const here = [...acc, step.job ? `${step.nodeId}*` : step.nodeId];
+      if (step.next.length === 0) out.push(here);
+      for (const n of step.next) walk(n.step, here);
+    };
+    if (cls.root) walk(cls.root, []);
+    return out;
+  }
+  /** Each worker's share of the slow work on a class's paths, by node id. */
+  function slowMs(cls: { root: PathStep | null }): Record<string, number> {
+    const found: Record<string, number> = {};
+    const walk = (step: PathStep) => {
+      if (step.slowMs !== undefined) found[step.nodeId] = step.slowMs;
+      for (const n of step.next) walk(n.step);
+    };
+    if (cls.root) walk(cls.root);
+    return found;
+  }
+
+  it("puts enrolment writes on the queue and leaves reads on the cache path (course registration)", () => {
+    const g = graphOf(fixtureDesign("course-registration", "good"));
+    for (const p of paths(classOf(g, "phone", "enrol", "write"))) {
+      expect(p).toEqual(["phone", "lb", expect.stringMatching(/^api-[12]$/), "claims*", "allocator*", "db*"]);
+    }
+    for (const p of paths(classOf(g, "phone", "browse-sections", "read"))) {
+      expect(p.some((id) => id.endsWith("*"))).toBe(false);
+      expect(p).toContain("cache");
+    }
+    // Enrol's reads have no slow work, so they aren't jobs.
+    expect(paths(classOf(g, "phone", "enrol", "read")).flat().some((id) => id.endsWith("*"))).toBe(false);
+  });
+
+  it("makes every request of a slow-work feature a job, reads included (autograder)", () => {
+    const g = graphOf(fixtureDesign("lab-autograder", "good"));
+    for (const op of ["read", "write"] as const) {
+      const cls = classOf(g, "laptop", "submit-solution", op);
+      for (const p of paths(cls)) expect(p.slice(-3)).toEqual(["jobs*", "sandbox*", "db*"]);
+      expect(slowMs(cls)).toEqual({ sandbox: 3000 });
+    }
+    // Browse exercises has no slow work: its reads stay off the queue.
+    expect(paths(classOf(g, "laptop", "browse-exercises", "read")).flat()).not.toContain("jobs*");
+  });
+
+  it("ends a job at a queue nobody reads", () => {
+    const g = graphOf(fixtureDesign("lab-autograder", "bad-no-worker"));
+    for (const p of paths(classOf(g, "laptop", "submit-solution", "write"))) expect(p.at(-1)).toBe("jobs*");
+  });
+
+  it("ends a job at a worker with nowhere to put results, with a note", () => {
+    const g = graphOf(fixtureDesign("lab-autograder", "bad-results-not-stored"));
+    for (const p of paths(classOf(g, "laptop", "submit-solution", "write"))) expect(p.at(-1)).toBe("sandbox*");
+    expect(g.notes).toContain("Sandbox workers' results go nowhere: no database.");
+  });
+
+  it("ends a job at push workers without the 'results go nowhere' note (notifications)", () => {
+    const g = graphOf(fixtureDesign("notification-system", "good"));
+    const sends = g.classes.filter((c) => c.clientId === "staff-pc" && paths(c).flat().includes("worker*"));
+    expect(sends.length).toBeGreaterThan(0);
+    for (const c of sends) for (const p of paths(c)) expect(p.at(-1)).toBe("worker*");
+    expect(g.notes.some((n) => n.includes("results go nowhere"))).toBe(false);
+  });
+
+  it("passes a job through every stage and splits the slow work between them (link checker)", () => {
+    const g = graphOf(fixtureDesign("course-link-checker", "good"));
+    const cls = classOf(g, "lecturer-pc", "start-check", "write");
+    for (const p of paths(cls)) {
+      expect(p.slice(-5)).toEqual(["pages*", "fetchers*", "links*", "checkers*", "db*"]);
+    }
+    expect(slowMs(cls)).toEqual({ fetchers: 30000, checkers: 30000 });
+  });
+
+  it("doesn't follow a pub/sub topic: writes go to the database as before (chat)", () => {
+    const g = graphOf(fixtureDesign("chat-app", "good"));
+    expect(g.classes.flatMap((c) => paths(c)).flat()).not.toContain("bus*");
+    expect(g.classes.flatMap((c) => paths(c)).flat()).not.toContain("bus");
+    // Send message's writes still go from the chat servers straight to the database.
+    const writes = g.classes.filter((c) => c.featureId === "send-message" && c.op === "write" && c.outcome === "routed");
+    expect(writes.length).toBeGreaterThan(0);
+    for (const c of writes) {
+      for (const p of paths(c)) {
+        expect(p.at(-1)).toBe("db");
+        expect(p.at(-2)).toMatch(/^chat-[12]$/);
+      }
+    }
+  });
+
+  it("uses each instance's own queue edges: an instance without one keeps the old path", () => {
+    // p1 and p2 share a balancer, but only p1 has an edge to the queue.
+    const built = design(
+      [requirement("save", { targetRpm: 60, computeMsPerRequest: 10 })],
+      [
+        ["desktop", "desktop"],
+        ["lb", "load_balancer"],
+        ["p1", "paas"],
+        ["p2", "paas"],
+        ["q", "message_queue"],
+        ["w", "task_worker"],
+        ["db", "database"],
+      ],
+      ["desktop -> lb : http", "lb -> p1 : http", "lb -> p2 : http", "p1 -> q : http", "q -> w : http", "w -> db : db", "p1 -> db : db", "p2 -> db : db"],
+      { save: "p1" },
+    );
+    const byInstance = Object.fromEntries(paths(classOf(graphOf(built), "desktop", "save", "write")).map((p) => [p[2], p]));
+    expect(byInstance.p1).toEqual(["desktop", "lb", "p1", "q*", "w*", "db*"]);
+    expect(byInstance.p2).toEqual(["desktop", "lb", "p2", "db"]);
+  });
+
+  it("splits a queue's jobs evenly between its workers", () => {
+    const built = design(
+      [requirement("save", { targetRpm: 60, computeMsPerRequest: 10 })],
+      [
+        ["desktop", "desktop"],
+        ["vm", "vm"],
+        ["q", "message_queue"],
+        ["w1", "task_worker"],
+        ["w2", "task_worker"],
+        ["db", "database"],
+      ],
+      ["desktop -> vm : http", "vm -> q : http", "q -> w1 : http", "q -> w2 : http", "w1 -> db : db", "w2 -> db : db"],
+      { save: "vm" },
+    );
+    const shares = reachShares(classOf(graphOf(built), "desktop", "save", "write"));
+    expect(shares.q).toBeCloseTo(1, 9);
+    expect(shares.w1).toBeCloseTo(0.5, 9);
+    expect(shares.w2).toBeCloseTo(0.5, 9);
+    expect(shares.db).toBeCloseTo(1, 9);
+  });
+
+  it("gives a design without a queue exactly the paths it had (link shortener)", () => {
+    // Recorded before loadsim-queues; any change here means a no-queue design moved.
+    expect(JSON.stringify(graphOf(fixtureDesign("link-shortener", "good")).classes)).toMatchSnapshot();
+  });
+});
+
 describe("data stages", () => {
   it("sends reads through the cache, misses to the database, and writes straight to it", () => {
     const g = graphOf(fixtureDesign("link-shortener", "good"));
@@ -209,10 +348,24 @@ describe("data stages", () => {
 describe("what isn't simulated yet", () => {
   const ids = (g: FlowGraph) => g.notSimulated.map((n) => n.id).sort();
 
-  it("names the queue, the worker and autoscaling in the registration design", () => {
-    const g = graphOf(fixtureDesign("course-registration", "good"));
-    expect(ids(g)).toEqual(["allocator", "autoscaling", "claims"]);
-    expect(g.notSimulated.find((n) => n.id === "claims")!.text).toContain("Seat claims");
+  it("names only autoscaling in the registration design, now its queue and worker are simulated", () => {
+    // SPEC-loadsim-queues.md: before, this listed `claims` and `allocator` too.
+    expect(ids(graphOf(fixtureDesign("course-registration", "good")))).toEqual(["autoscaling"]);
+  });
+
+  it("doesn't list slow work that a queue's workers do, only slow work inside the request", () => {
+    // Found in the Task 7 browser check: the autograder listed Submit solution's slow work.
+    const queued = graphOf(fixtureDesign("lab-autograder", "good"));
+    expect(queued.notSimulated.find((n) => n.id === "submit-solution")).toBeUndefined();
+    const inline = graphOf(fixtureDesign("lab-autograder", "bad-sync-grading"));
+    expect(inline.notSimulated.find((n) => n.id === "submit-solution")?.text).toBe(
+      "Submit solution: its slow work isn't simulated yet.",
+    );
+  });
+
+  it("names a pub/sub topic as not simulated", () => {
+    const g = graphOf(fixtureDesign("chat-app", "good"));
+    expect(g.notSimulated.find((n) => n.id === "bus")?.text).toBe("Room events (pub/sub): not simulated yet.");
   });
 
   it("names only autoscaling in the link shortener", () => {

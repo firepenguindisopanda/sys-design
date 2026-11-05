@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { defaultScenario } from "@/lib/loadsim/scenario";
-import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
+import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
 import { NodeStatsTable } from "./node-stats-table";
 import { RunSummary, announcementFor } from "./run-summary";
 
@@ -23,14 +23,40 @@ describe("RunSummary", () => {
     const { run } = runOf("course-registration", "bad-no-cache");
     const t = text(renderToStaticMarkup(<RunSummary run={run} />));
     expect(t).toContain("Served");
-    expect(t).toContain("91.5%");
+    // 91.5% before SPEC-loadsim-queues.md: enrolment writes now wait as jobs instead of timing out.
+    expect(t).toContain("92.6%");
     expect(t).toContain("Failed");
     expect(t).toContain("Timed out waiting at Registration DB.");
     expect(t).toContain("Registration DB saturated at 0:00");
     expect(t).toContain("p50");
     expect(t).toContain("p95");
     expect(t).toContain("Not simulated yet");
-    expect(t).toContain("Seat claims (queue)");
+    // Since SPEC-loadsim-queues.md the queue and worker are simulated; autoscaling isn't.
+    expect(t).toContain("Autoscaling isn't simulated yet");
+    expect(t).not.toContain("Seat claims (queue)");
+  });
+
+  it("has a Background jobs block with the counts, times and the queue's story", () => {
+    const { run } = runOf("lab-autograder", "good");
+    const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+    expect(t).toContain("Background jobs");
+    expect(t).toMatch(/Queued [\d,]+/);
+    expect(t).toMatch(/Done [\d,]+/);
+    expect(t).toContain("Typical time to done");
+    expect(t).toContain("Slowest 5%");
+    expect(t).toMatch(/Sandbox workers fell behind at \d+:\d\d\. The queue peaked at [\d,]+ jobs and was empty again by \d+:\d\d\./);
+  });
+
+  it("says when jobs are never done", () => {
+    const { run } = runOf("lab-autograder", "bad-no-worker");
+    const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+    expect(t).toMatch(/Never done [\d,]+/);
+    expect(t).toMatch(/Grading jobs has no worker reading it, so [\d,]+ jobs were never done\./);
+  });
+
+  it("has no Background jobs block without jobs", () => {
+    const { run } = runOf("link-shortener", "good");
+    expect(text(renderToStaticMarkup(<RunSummary run={run} />))).not.toContain("Background jobs");
   });
 
   it("names the busiest component and the cache estimate when nothing saturates", () => {
@@ -76,6 +102,17 @@ describe("NodeStatsTable", () => {
     const t = text(renderToStaticMarkup(<NodeStatsTable run={run} nodes={built.nodes} />));
     expect(t).toMatch(/Registration DB 129% .* 0:00/);
   });
+
+  it("gives a queue its peak backlog and when its workers fell behind", () => {
+    const { built, run } = runOf("lab-autograder", "good");
+    const q = run.summary.jobs!.perQueue.jobs;
+    const t = text(renderToStaticMarkup(<NodeStatsTable run={run} nodes={built.nodes} />));
+    const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    expect(t).toContain(`Grading jobs`);
+    expect(t).toContain(Math.round(q.peakBacklog).toLocaleString("en"));
+    expect(t).toContain(clock(q.fellBehindAt!));
+    expect(t).not.toContain("not simulated");
+  });
 });
 
 describe("announcementFor", () => {
@@ -88,7 +125,58 @@ describe("announcementFor", () => {
 
   it("announces the end of playback with the share served", () => {
     const last = run.frames.length - 1;
-    expect(announcementFor(last - 1, last, run)).toBe("Playback finished: 91.5% of requests served.");
+    // With enrolments on a queue (SPEC-loadsim-queues.md), the jobs done are announced too.
+    expect(announcementFor(last - 1, last, run)).toBe(
+      "Playback finished: 92.6% of requests served, 15,000 of 15,000 jobs done.",
+    );
     expect(announcementFor(last, last, run)).toBeNull();
+  });
+});
+
+describe("announcementFor, with background jobs (SPEC-loadsim-queues.md)", () => {
+  // One worker slot at 100 ms a job against 20 jobs a second for a minute: about 600 jobs
+  // are still waiting when requests stop, so the run drains for about another minute.
+  const backlog = () =>
+    runDesign(
+      design(
+        [
+          requirement("grade", {
+            targetRpm: 60,
+            computeMsPerRequest: 10,
+            backgroundWorkMs: 95,
+            resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0 },
+          }),
+        ],
+        [
+          ["desktop", "desktop"],
+          ["vm", "vm", { capacity: { vcpus: 2 } }],
+          ["q", "message_queue"],
+          ["w", "task_worker", { concurrency: 1 }],
+        ],
+        ["desktop -> vm : http", "vm -> q : http", "q -> w : http"],
+        { grade: "vm" },
+      ),
+      { requests: 1200, windowSeconds: 60, shape: "steady" },
+    );
+
+  it("says when requests stop and the queues start to drain", () => {
+    const run = backlog();
+    const end = run.windowSteps;
+    expect(announcementFor(end - 1, end, run)).toBe("Requests stopped arriving; the queues are draining.");
+    expect(announcementFor(end, end + 1, run)).toBeNull();
+  });
+
+  it("adds the jobs done to the end of playback", () => {
+    const run = backlog();
+    const last = run.frames.length - 1;
+    expect(announcementFor(last - 1, last, run)).toBe(
+      "Playback finished: 100% of requests served, 1,200 of 1,200 jobs done.",
+    );
+  });
+
+  it("says nothing about draining when nothing waits on a queue", () => {
+    const { run } = runOf("link-shortener", "good");
+    const end = run.windowSteps;
+    expect(announcementFor(end - 1, end, run) ?? "").not.toContain("draining");
   });
 });

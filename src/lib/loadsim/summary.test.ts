@@ -15,7 +15,7 @@ const dbBound = design(
   ["desktop -> vm : http", "vm -> db : db"],
   { browse: "vm" },
 );
-const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100 } };
+const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100, batch: 1 } };
 
 describe("first saturation", () => {
   it("explains a database saturated by reads with no cache in front", () => {

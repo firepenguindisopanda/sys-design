@@ -1,10 +1,17 @@
 # Capability Map: load simulation page
 
-Status: **approved** (2026-11-05). **Slice 1 is built** on `feat/dataflow-sim` (not yet
-committed): `loadsim-model`, `loadsim-page` and `brief-load` for two pilot briefs,
-specified together in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), with the plan and
-task notes in [tasks/dataflow-sim/](tasks/dataflow-sim/). Each later module gets its own
-`SPEC-<module id>.md`.
+Status: **approved** (2026-11-05). Built so far:
+- **Slice 1** (`5252cee`): `loadsim-model`, `loadsim-page` and `brief-load` for two pilot
+  briefs, specified together in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), with the
+  plan and task notes in [tasks/dataflow-sim/](tasks/dataflow-sim/). The routing fix
+  (`9aad70c`, [SPEC-loadsim-routing.md](SPEC-loadsim-routing.md)) followed.
+- **`loadsim-queues`** (branch `feat/loadsim-queues`):
+  [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md) and
+  [tasks/loadsim-queues/](tasks/loadsim-queues/). It added two more pilot briefs,
+  `lab-autograder` and `lab-monitor`.
+
+Each later module gets its own `SPEC-<module id>.md`. Next in the build order:
+`loadsim-cascades` and `loadsim-failures`.
 
 ## Goal
 

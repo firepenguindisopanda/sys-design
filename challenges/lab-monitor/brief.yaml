@@ -52,6 +52,17 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 380
 
+load:
+  # 500 machines reporting every 20 s (25 readings a second, all day), with dashboard views
+  # and alert settings in proportion. Workers insert readings 50 rows at a time; a lab's
+  # last-hour dashboard reads about 9,000 rows (SPEC-loadsim-queues.md).
+  requests: 32800
+  windowSeconds: 1200
+  shape: steady
+  features:
+    report-metrics: { writeShare: 1, dbMs: 8, batch: 50 }
+    view-dashboard: { writeShare: 0, dbMs: 20 }
+
 rules:
   - id: ingest-queued
     title: Readings go on a queue

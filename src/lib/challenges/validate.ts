@@ -4,6 +4,7 @@ import type { ComponentKind, EdgeProtocol, NonFunctionalRequirements } from "@/l
 import type {
   Brief,
   BriefLoad,
+  BriefLoadFeature,
   BriefRequirement,
   CompactDesign,
   CompactEdge,
@@ -171,8 +172,8 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
     load.features = {};
     for (const [id, value] of Object.entries(features)) {
       const p = r.at(fp, id);
-      const f = r.obj(value, p, ["writeShare", "dbMs"]);
-      const entry: { writeShare?: number; dbMs?: number } = {};
+      const f = r.obj(value, p, ["writeShare", "dbMs", "batch"]);
+      const entry: BriefLoadFeature = {};
       if (f.writeShare !== undefined) {
         const share = r.num(f.writeShare, r.at(p, "writeShare"));
         entry.writeShare = share <= 1 ? share : r.fail(r.at(p, "writeShare"), "expected a share from 0 to 1");
@@ -181,6 +182,7 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
         const ms = r.num(f.dbMs, r.at(p, "dbMs"));
         entry.dbMs = ms > 0 ? ms : r.fail(r.at(p, "dbMs"), "expected a number > 0");
       }
+      if (f.batch !== undefined) entry.batch = intIn(f.batch, r.at(p, "batch"), 1, 1_000);
       load.features[id] = entry;
     }
   }

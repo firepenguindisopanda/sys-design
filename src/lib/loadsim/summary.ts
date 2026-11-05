@@ -1,7 +1,7 @@
 import { isClientKind, isComputeKind } from "@/lib/catalog";
 import type { FeatureBlock } from "@/lib/types";
 import { CAPACITY } from "./capacities";
-import type { FailureGroup, FlowGraph, NodeSummary, SimNode, Summary } from "./types";
+import type { FailureGroup, FlowGraph, NodeSummary, QueueSummary, SimNode, Summary } from "./types";
 
 /** What the model counted over a run, for the summary. */
 export type Tally = {
@@ -19,7 +19,40 @@ export type Tally = {
   writeWork: Record<string, number>;
   /** Databases some reads reach through a cache */
   cacheInFront: Set<string>;
+  /** Background jobs (SPEC-loadsim-queues.md); null when no request reaches a queue */
+  jobs: {
+    queued: number;
+    done: number;
+    stillWaiting: number;
+    neverDone: number;
+    /** Time from queued to done in ms (rounded to 0.1) → jobs */
+    latency: Map<number, number>;
+    perQueue: Record<string, QueueSummary & { consumers: string[] }>;
+  } | null;
 };
+
+const count = (n: number) => Math.round(n).toLocaleString("en");
+
+/** Each queue's story in one note: never done, or how its workers fell behind and caught up. */
+function queueNotes(jobs: NonNullable<Tally["jobs"]>, label: (id: string) => string): string[] {
+  const notes: string[] = [];
+  for (const id of Object.keys(jobs.perQueue).sort()) {
+    const q = jobs.perQueue[id];
+    if (q.neverDone >= 0.5) {
+      notes.push(`${label(id)} has no worker reading it, so ${count(q.neverDone)} jobs were never done.`);
+      continue;
+    }
+    if (q.fellBehindAt === null || q.peakAt === null) continue;
+    const workers = q.consumers.map(label);
+    const who = workers.length <= 1 ? (workers[0] ?? label(id)) : `${workers.slice(0, -1).join(", ")} and ${workers.at(-1)}`;
+    const end =
+      q.emptyAt !== null
+        ? `was empty again by ${clock(q.emptyAt)}.`
+        : `${count(q.stillWaiting)} were still waiting at the end.`;
+    notes.push(`${who} fell behind at ${clock(q.fellBehindAt)}. The queue peaked at ${count(q.peakBacklog)} jobs and ${end}`);
+  }
+  return notes;
+}
 
 const clock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -76,7 +109,8 @@ export function buildSummary(
   let busiest: Summary["busiest"] = null;
   if (!firstSaturation) {
     const top = Object.entries(tally.perNode)
-      .filter(([id, s]) => !isClientKind(kind(id)) && s.peakUtilisation > 0)
+      // Queues and workers have their own story in the jobs notes.
+      .filter(([id, s]) => !isClientKind(kind(id)) && !["message_queue", "task_worker"].includes(kind(id)) && s.peakUtilisation > 0)
       .sort((a, b) => b[1].peakUtilisation - a[1].peakUtilisation || a[0].localeCompare(b[0]))[0];
     if (top) {
       const [nodeId, s] = top;
@@ -87,7 +121,12 @@ export function buildSummary(
   // A flaw that costs capacity without failures still shows: what a cache would save.
   const cacheNotes = nodes
     .map((n) => n.id)
+    // A database under 1% busy has nothing for a cache to save worth saying.
     .filter((id) => uncachedReads(id) && id !== firstSaturation?.nodeId && tally.peak[id])
+    .filter((id) => {
+      const { readWork, writeWork, budgetWork } = tally.peak[id];
+      return pct((readWork + writeWork) / budgetWork) >= 1;
+    })
     .sort()
     .map((id) => {
       const { readWork, writeWork, budgetWork } = tally.peak[id];
@@ -97,6 +136,31 @@ export function buildSummary(
     });
 
   const failed = tally.failures.reduce((s, f) => s + f.count, 0);
+  const jobs: Summary["jobs"] = tally.jobs
+    ? {
+        queued: tally.jobs.queued,
+        done: tally.jobs.done,
+        stillWaiting: tally.jobs.stillWaiting,
+        neverDone: tally.jobs.neverDone,
+        p50Ms: percentile(tally.jobs.latency, 0.5),
+        p95Ms: percentile(tally.jobs.latency, 0.95),
+        perQueue: Object.fromEntries(
+          Object.entries(tally.jobs.perQueue).map(([id, q]) => [
+            id,
+            {
+              queued: q.queued,
+              done: q.done,
+              stillWaiting: q.stillWaiting,
+              neverDone: q.neverDone,
+              peakBacklog: q.peakBacklog,
+              peakAt: q.peakAt,
+              emptyAt: q.emptyAt,
+              fellBehindAt: q.fellBehindAt,
+            },
+          ]),
+        ),
+      }
+    : null;
   return {
     requests: tally.requests,
     served: tally.served,
@@ -108,6 +172,7 @@ export function buildSummary(
     firstSaturation,
     busiest,
     notSimulated: graph.notSimulated,
-    notes: [...graph.notes, ...cacheNotes],
+    notes: [...graph.notes, ...cacheNotes, ...(tally.jobs ? queueNotes(tally.jobs, label) : [])],
+    jobs,
   };
 }

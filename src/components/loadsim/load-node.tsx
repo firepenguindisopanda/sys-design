@@ -4,6 +4,7 @@ import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { isClientKind } from "@/lib/catalog";
 import { KIND_STYLES } from "@/components/simulator/design-node";
+import type { LoadRun } from "@/lib/loadsim/types";
 import { usePlayback } from "./playback";
 import { useSim } from "./sim-context";
 
@@ -22,19 +23,61 @@ export function nodeStatus({
   failedSoFar,
   ratePerSecond,
   notSimulated,
+  waiting = 0,
+  unread = false,
+  concurrency = 1,
 }: {
   kind: string;
   utilisation: number;
   failedSoFar: number;
   ratePerSecond: number;
   notSimulated: boolean;
+  /** A queue's jobs waiting now (SPEC-loadsim-queues.md) */
+  waiting?: number;
+  /** A queue no worker reads */
+  unread?: boolean;
+  /** A worker's slots */
+  concurrency?: number;
 }): string {
   if (isClientKind(kind)) return `Sending ${Math.round(ratePerSecond).toLocaleString("en")} req/s`;
   if (notSimulated) return "Not simulated yet";
+  if (kind === "message_queue") {
+    if (waiting < 0.5) return "Empty";
+    const text = `${Math.round(waiting).toLocaleString("en")} waiting`;
+    return unread ? `${text} · nobody reads it` : text;
+  }
+  if (kind === "task_worker" && utilisation > 0) {
+    // A worker behind a queue runs flat out by design: "100% busy", never "Saturated".
+    const slots = Math.min(concurrency, Math.max(1, Math.ceil(utilisation * concurrency - 1e-9)));
+    const busy = utilisation >= 1 ? 100 : Math.min(99, Math.max(1, Math.round(utilisation * 100)));
+    return `${busy}% busy · ${slots} of ${concurrency} slots`;
+  }
   const failed = failedSoFar >= 0.5 ? ` · ${Math.round(failedSoFar).toLocaleString("en")} failed` : "";
   if (utilisation <= 0) return `No traffic${failed}`;
   if (utilisation >= 1) return `Saturated${failed}`;
   return `${Math.min(99, Math.max(1, Math.round(utilisation * 100)))}% busy${failed}`;
+}
+
+/** The gauge text for one node at one step of a run. */
+export function nodeStatusAt(
+  run: LoadRun,
+  id: string,
+  kind: string,
+  step: number,
+  failedSoFar: number,
+  notSimulated: boolean,
+): string {
+  const frame = run.frames[step]?.nodes[id];
+  return nodeStatus({
+    kind,
+    utilisation: frame?.utilisation ?? 0,
+    failedSoFar,
+    ratePerSecond: (frame?.arrivals ?? 0) / run.dtSeconds,
+    notSimulated,
+    waiting: frame?.backlog ?? 0,
+    unread: (run.summary.jobs?.perQueue[id]?.neverDone ?? 0) >= 0.5,
+    concurrency: run.workerSlots[id] ?? 1,
+  });
 }
 
 export function LoadNodeBody({
@@ -50,7 +93,8 @@ export function LoadNodeBody({
 }) {
   const style = KIND_STYLES[kind] ?? KIND_STYLES.vm!;
   const Icon = style.icon;
-  const band = gaugeBand(utilisation);
+  // A worker running flat out behind a queue is doing its job: busy, not saturated.
+  const band = kind === "task_worker" && utilisation >= 1 ? "busy" : gaugeBand(utilisation);
   return (
     <div
       role="group"
@@ -106,13 +150,7 @@ function LoadNodeComponent({ id, data }: NodeProps) {
   const { run, failedSoFar, notSimulated } = useSim();
   const step = usePlayback((s) => s.step);
   const frame = run.frames[step]?.nodes[id];
-  const status = nodeStatus({
-    kind,
-    utilisation: frame?.utilisation ?? 0,
-    failedSoFar: failedSoFar[id]?.[step] ?? 0,
-    ratePerSecond: (frame?.arrivals ?? 0) / run.dtSeconds,
-    notSimulated: notSimulated.has(id),
-  });
+  const status = nodeStatusAt(run, id, kind, step, failedSoFar[id]?.[step] ?? 0, notSimulated.has(id));
   return (
     <>
       <Handle type="target" position={Position.Left} style={hidden} isConnectable={false} />

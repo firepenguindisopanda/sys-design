@@ -19,6 +19,8 @@ export type FeatureLoad = {
   writeShare: number;
   readDbMs: number;
   writeDbMs: number;
+  /** Writes a worker groups into one database write; API writes are never batched */
+  batch: number;
 };
 
 /** By feature id */
@@ -35,6 +37,15 @@ export type PathStep = {
   /** The edge the request arrived by; null for the client it starts from */
   edgeId: string | null;
   next: { fraction: number; step: PathStep }[];
+  /**
+   * Part of a background job (SPEC-loadsim-queues.md): the queue the request was handed to
+   * and everything after it. The client is answered once the job is on the queue.
+   */
+  job?: boolean;
+  /** On a worker: its share of the feature's slow work, in ms per job */
+  slowMs?: number;
+  /** On a job's database step: a job writes its result, whatever the request was */
+  op?: Op;
 };
 
 /** Requests from one client for one feature, reads or writes. */
@@ -120,6 +131,41 @@ export type Summary = {
   busiest: { nodeId: string; peakUtilisation: number; note: string } | null;
   notSimulated: NotSimulated[];
   notes: string[];
+  /** Background jobs (SPEC-loadsim-queues.md); null when no request reaches a queue */
+  jobs: JobsSummary | null;
+};
+
+/** One queue over the run. Times are seconds into the run. */
+export type QueueSummary = {
+  /** Jobs put on this queue */
+  queued: number;
+  /** Jobs its workers finished */
+  done: number;
+  /** Jobs still waiting for its workers when the run ended */
+  stillWaiting: number;
+  /** Jobs put on it with no worker to read them */
+  neverDone: number;
+  peakBacklog: number;
+  peakAt: number | null;
+  /** When it was empty again after its peak; null if it never was */
+  emptyAt: number | null;
+  /** When its workers first ran at 100%; null if they never did */
+  fellBehindAt: number | null;
+};
+
+export type JobsSummary = {
+  /** Requests handed to a queue: each one is a job */
+  queued: number;
+  /** Jobs that reached the end of their path */
+  done: number;
+  /** Jobs still waiting anywhere when the run ended */
+  stillWaiting: number;
+  /** Jobs put on a queue with no worker */
+  neverDone: number;
+  /** Time from being queued to done */
+  p50Ms: number;
+  p95Ms: number;
+  perQueue: Record<string, QueueSummary>;
 };
 
 export type LoadInput = {
@@ -138,4 +184,6 @@ export type LoadRun = {
   frames: Frame[];
   summary: Summary;
   graph: FlowGraph;
+  /** Each task worker's slots (its concurrency), for the gauge's "k of c slots" */
+  workerSlots: Record<string, number>;
 };

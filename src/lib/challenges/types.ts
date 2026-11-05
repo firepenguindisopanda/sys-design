@@ -75,7 +75,14 @@ export type BriefLoad = {
   windowSeconds?: number;
   shape?: LoadShape;
   /** By requirement id */
-  features?: Record<string, { writeShare?: number; dbMs?: number }>;
+  features?: Record<string, BriefLoadFeature>;
+};
+
+export type BriefLoadFeature = {
+  writeShare?: number;
+  dbMs?: number;
+  /** Writes a worker groups into one database write (SPEC-loadsim-queues.md); 1 to 1,000 */
+  batch?: number;
 };
 
 export type Brief = {

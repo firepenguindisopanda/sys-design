@@ -10,8 +10,8 @@ function run(briefId: string, fixture: string) {
   return runDesign(built, defaultScenario(built.brief), { brief: built.brief }).summary;
 }
 
-describe("both pilot briefs have a default load scenario", () => {
-  it.each(["link-shortener", "course-registration"])("%s", (briefId) => {
+describe("every pilot brief has a default load scenario", () => {
+  it.each(["link-shortener", "course-registration", "lab-autograder", "lab-monitor"])("%s", (briefId) => {
     expect(fixtureDesign(briefId, "good").brief.load).toBeDefined();
   });
 });
@@ -66,5 +66,71 @@ describe("link-shortener: no load balancer", () => {
     const s = run("link-shortener", "bad-no-load-balancer");
     const phone = s.failures.find((f) => f.reason === "no-route" && f.clientId === "phone" && f.featureId === "redirect");
     expect(phone?.count).toBeGreaterThan(0);
+  });
+});
+
+// SPEC-loadsim-queues.md: the pilot table. Calibrated in Task 5 with realistic figures only.
+describe("course-registration: enrolments on a queue", () => {
+  it("does every enrolment job in the reference design", () => {
+    const jobs = run("course-registration", "good").jobs!;
+    expect(jobs.queued).toBeGreaterThan(0);
+    expect(jobs.stillWaiting + jobs.neverDone).toBeLessThan(0.5);
+  });
+
+  it("has no jobs without the queue, so it now differs from the reference design", () => {
+    expect(run("course-registration", "bad-direct-enrol").jobs).toBeNull();
+  });
+});
+
+describe("lab-autograder: a deadline rush", () => {
+  let cached: ReturnType<typeof run> | null = null;
+  const reference = () => (cached ??= run("lab-autograder", "good"));
+
+  it("backs up the grading queue while the workers run flat out, then drains it", () => {
+    const good = reference();
+    const q = good.jobs!.perQueue.jobs;
+    expect(q.peakBacklog).toBeGreaterThan(0);
+    expect(q.fellBehindAt).not.toBeNull();
+    expect(q.emptyAt).not.toBeNull();
+    expect(good.perNode.sandbox.peakUtilisation).toBeGreaterThanOrEqual(1);
+  });
+
+  it("grades every submission, the slowest after more than a minute", () => {
+    const jobs = reference().jobs!;
+    expect(jobs.stillWaiting + jobs.neverDone).toBeLessThan(0.5);
+    expect(jobs.p95Ms).toBeGreaterThan(60_000);
+  });
+
+  it("serves the students' requests in the reference design", () => {
+    const good = reference();
+    expect(good.served / good.requests).toBeGreaterThanOrEqual(0.99);
+  });
+
+  it("never grades anything without a worker", () => {
+    const jobs = run("lab-autograder", "bad-no-worker").jobs!;
+    expect(jobs.done).toBeLessThan(0.5);
+    expect(Math.abs(jobs.neverDone - jobs.queued)).toBeLessThan(0.5);
+  });
+
+  it("says when results go nowhere", () => {
+    expect(run("lab-autograder", "bad-results-not-stored").notes).toContain(
+      "Sandbox workers' results go nowhere: no database.",
+    );
+  });
+});
+
+describe("lab-monitor: batched writes", () => {
+  it("works the database far less when workers batch the readings", () => {
+    const good = run("lab-monitor", "good");
+    const direct = run("lab-monitor", "bad-direct-writes");
+    expect(good.jobs!.queued).toBeGreaterThan(0);
+    expect(direct.jobs).toBeNull();
+    expect(good.perNode.db.peakUtilisation).toBeLessThan(direct.perNode.db.peakUtilisation / 3);
+  });
+
+  it("doesn't offer a cache for a database that's barely busy", () => {
+    // Found in Task 5: at the brief's realistic load the database is under 1% busy, and the
+    // cache note read "peaked at 0% busy … bring it to about 0%".
+    expect(run("lab-monitor", "bad-no-cache").notes.some((n) => n.includes("A cache in front"))).toBe(false);
   });
 });

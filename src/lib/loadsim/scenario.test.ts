@@ -99,4 +99,14 @@ describe("featureLoads", () => {
     expect(loads.redirect).toMatchObject({ writeShare: 0, readDbMs: 2, writeDbMs: 2 });
     expect(loads["create-link"]).toMatchObject({ writeShare: 1, readDbMs: 3, writeDbMs: 8 });
   });
+
+  it("defaults batch to 1 and takes it from the brief's load block (SPEC-loadsim-queues.md)", () => {
+    const brief = briefById("link-shortener");
+    const features = design(brief.functionalRequirements, [], [], {}).features;
+    expect(featureLoads(features, null).redirect.batch).toBe(1);
+    const batched = { ...brief, load: { features: { "create-link": { batch: 10 } } } };
+    const loads = featureLoads(features, batched);
+    expect(loads["create-link"].batch).toBe(10);
+    expect(loads.redirect.batch).toBe(1);
+  });
 });

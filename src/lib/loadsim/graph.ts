@@ -84,7 +84,7 @@ const evenly = (steps: PathStep[]) => steps.map((step) => ({ fraction: 1 / steps
 
 /** Nodes requests pass through on the way to compute, splitting evenly over the routes on. */
 const PASS_THROUGH = new Set(["load_balancer", "cdn", "static_hosting"]);
-/** Parts this version doesn't simulate; a client that only talks to these sends nothing here. */
+/** Parts a client's own requests can't reach yet; a client that only talks to these sends nothing here. */
 const OFF_MODEL = new Set(["message_queue", "task_worker", "object_storage", "external_api"]);
 
 export type ClientRole = { role: "sender" } | { role: "receiver" | "off-model"; note: string };
@@ -113,10 +113,12 @@ export function clientRoles(nodes: SimNode[], edges: Edge[]): Map<string, Client
       const targets = [...new Set(links.map((l) => l.to))].sort();
       const named = targets.map((id) => `${byId.get(id)!.data.label} (${KIND_WORDS[kind(id)]})`);
       const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
-      const verb = named.length === 1 ? "isn't" : "aren't";
+      // Queues and workers are simulated behind compute (SPEC-loadsim-queues.md), but a
+      // client sending straight to one isn't, so the note says what isn't simulated.
+      const what = named.length === 1 ? "it" : "them";
       roles.set(client.id, {
         role: "off-model",
-        note: `${client.data.label} only talks to ${list}, which ${verb} simulated yet, so it sends no requests here.`,
+        note: `${client.data.label} only talks to ${list}, and requests straight from a client to ${what} aren't simulated yet, so it sends no requests here.`,
       });
     } else {
       roles.set(client.id, { role: "sender" });
@@ -144,9 +146,67 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
   const poolOf = new Map(pools.flatMap((pool) => pool.map((id) => [id, pool] as const)));
   /** Compute nodes, by feature name, where a storing feature's requests find no database */
   const noDatabase = new Map<string, Set<string>>();
+  /** Workers that finish a storing feature's jobs with no outgoing edge at all */
+  const resultsNowhere = new Set<string>();
+  const isQueue = (id: string) => {
+    const config = byId.get(id)?.data.config;
+    return config?.kind === "message_queue" && config.mode !== "pubsub";
+  };
+  const consumers = (queueId: string) => links(queueId).filter((l) => kind(l.to) === "task_worker");
+
+  /**
+   * A job from the queue on (SPEC-loadsim-queues.md): split evenly over the queue's
+   * workers; each worker passes it on to a later stage, or writes the result, or ends it.
+   * A queue with no worker is a leaf: its jobs are never done.
+   */
+  function jobFrom(queueId: string, edgeId: string, feature: FeatureBlock, seen: Set<string>): PathStep {
+    const inner = new Set(seen).add(queueId);
+    const workers = consumers(queueId).filter((l) => !inner.has(l.to));
+    return {
+      nodeId: queueId,
+      edgeId,
+      job: true,
+      next: evenly(workers.map((l) => workerStep(l.to, l.edgeId, feature, inner))),
+    };
+  }
+
+  function workerStep(workerId: string, edgeId: string, feature: FeatureBlock, seen: Set<string>): PathStep {
+    const inner = new Set(seen).add(workerId);
+    const out = links(workerId);
+    const stages = out.filter((l) => isQueue(l.to) && !inner.has(l.to) && consumers(l.to).length > 0);
+    let next: PathStep[] = [];
+    if (stages.length > 0) {
+      next = stages.map((l) => jobFrom(l.to, l.edgeId, feature, inner));
+    } else if (feature.resources.storageGb > 0) {
+      const dbs = out.filter((l) => kind(l.to) === "database");
+      next = dbs.map((l) => ({ nodeId: l.to, edgeId: l.edgeId, job: true, op: "write" as const, next: [] }));
+      if (dbs.length === 0 && out.length === 0) resultsNowhere.add(workerId);
+    }
+    return { nodeId: workerId, edgeId, job: true, slowMs: 0, next: evenly(next) };
+  }
+
+  /** Each worker's equal share of the slow work, over the most stages on any branch. */
+  function splitSlowWork(step: PathStep, slowMs: number) {
+    const stages = (s: PathStep): number =>
+      (s.slowMs !== undefined ? 1 : 0) + Math.max(0, ...s.next.map((n) => stages(n.step)));
+    const share = slowMs / Math.max(1, stages(step));
+    const walk = (s: PathStep) => {
+      if (s.slowMs !== undefined) s.slowMs = share;
+      for (const n of s.next) walk(n.step);
+    };
+    walk(step);
+  }
 
   /** After compute: reads check a cache first, then a database; writes go to a database. */
   function dataSteps(computeId: string, feature: FeatureBlock, op: Op): PathStep["next"] {
+    // Writes, and every request of a feature with slow work, go on this instance's queues.
+    const slowMs = feature.backgroundWorkMs ?? 0;
+    const queues = links(computeId).filter((l) => isQueue(l.to));
+    if ((op === "write" || slowMs > 0) && queues.length > 0) {
+      const jobs = queues.map((l) => jobFrom(l.to, l.edgeId, feature, new Set([computeId])));
+      for (const j of jobs) splitSlowWork(j, slowMs);
+      return evenly(jobs);
+    }
     if (feature.resources.storageGb <= 0) return [];
     const caches = links(computeId).filter((l) => kind(l.to) === "cache");
     const dbs = links(computeId).filter((l) => kind(l.to) === "database");
@@ -231,8 +291,15 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
       const at = where.length === 1 ? where[0] : `${where.slice(0, -1).join(", ")} or ${where.at(-1)}`;
       return `${name}'s data has no database to go to from ${at}, so those requests end there.`;
     });
+  const possessive = (name: string) => (name.endsWith("s") ? `${name}'` : `${name}'s`);
+  const workerNotes = [...resultsNowhere].sort().map((id) => `${possessive(label(id))} results go nowhere: no database.`);
   const carrying = new Set(classes.flatMap((c) => Object.keys(reachShares(c))));
-  return { pools, classes, notSimulated: notSimulated(nodes, edges, features, carrying), notes: [...roleNotes, ...dataNotes] };
+  return {
+    pools,
+    classes,
+    notSimulated: notSimulated(nodes, edges, features, carrying, slowWorkOnQueues(classes)),
+    notes: [...roleNotes, ...dataNotes, ...workerNotes],
+  };
 }
 
 /**
@@ -240,18 +307,43 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
  * hosting node that requests pass through keeps its file note under another id, so its
  * gauge shows how busy it is rather than "Not simulated yet".
  */
-function notSimulated(nodes: SimNode[], edges: Edge[], features: FeatureBlock[], carrying: Set<string>): NotSimulated[] {
+/** Features whose every routed request reaches a queue: their slow work is a worker's job. */
+function slowWorkOnQueues(classes: FlowClass[]): Set<string> {
+  const reachesJob = (step: PathStep | null): boolean => !!step && (!!step.job || step.next.some((n) => reachesJob(n.step)));
+  const byFeature = new Map<string, boolean>();
+  for (const c of classes) {
+    if (c.outcome !== "routed") continue;
+    byFeature.set(c.featureId, (byFeature.get(c.featureId) ?? true) && reachesJob(c.root));
+  }
+  return new Set([...byFeature].filter(([, all]) => all).map(([id]) => id));
+}
+
+function notSimulated(
+  nodes: SimNode[],
+  edges: Edge[],
+  features: FeatureBlock[],
+  carrying: Set<string>,
+  queuedSlowWork: Set<string>,
+): NotSimulated[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const label = (id: string) => byId.get(id)?.data.label ?? id;
   const list: NotSimulated[] = [];
 
+  // Queues in queue mode, and the workers they feed, are simulated (SPEC-loadsim-queues.md).
+  const queueMode = (id: string) => {
+    const config = byId.get(id)?.data.config;
+    return config?.kind === "message_queue" && config.mode !== "pubsub";
+  };
+  const fedByQueue = new Set(edges.filter((e) => queueMode(e.source)).map((e) => e.target));
   for (const n of nodes) {
     const k = n.data.componentKind;
     const word = KIND_WORDS[k];
     if (!word) continue;
+    if (k === "message_queue" && queueMode(n.id)) continue;
+    if (k === "task_worker" && fedByQueue.has(n.id)) continue;
     const text =
       k === "message_queue"
-        ? `${n.data.label} (queue): not simulated yet. Work it would carry goes straight to the database in this version.`
+        ? `${n.data.label} (pub/sub): not simulated yet.`
         : k === "task_worker"
           ? `${n.data.label} (worker): not simulated yet.`
           : k === "external_api"
@@ -290,7 +382,7 @@ function notSimulated(nodes: SimNode[], edges: Edge[], features: FeatureBlock[],
 
   for (const f of features) {
     const parts = [
-      f.backgroundWorkMs ? "slow work" : null,
+      f.backgroundWorkMs && !queuedSlowWork.has(f.id) ? "slow work" : null,
       f.pollingRpm ? "polling" : null,
       f.fileRpm ? "file requests" : null,
     ].filter((p): p is string => p !== null);

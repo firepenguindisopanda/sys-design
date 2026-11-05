@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { LoadNodeBody, gaugeBand, nodeStatus } from "./load-node";
+import { defaultScenario } from "@/lib/loadsim/scenario";
+import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
+import { LoadNodeBody, gaugeBand, nodeStatus, nodeStatusAt } from "./load-node";
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
 
@@ -34,6 +36,39 @@ describe("nodeStatus", () => {
     expect(nodeStatus({ ...base, kind: "mobile", ratePerSecond: 83.4 })).toBe("Sending 83 req/s");
     expect(nodeStatus({ ...base, kind: "message_queue", notSimulated: true })).toBe("Not simulated yet");
     expect(nodeStatus(base)).toBe("No traffic");
+  });
+
+  it("says how many jobs wait on a queue, and when nobody reads it (SPEC-loadsim-queues.md)", () => {
+    const queue = { ...base, kind: "message_queue" };
+    expect(nodeStatus({ ...queue, waiting: 0 })).toBe("Empty");
+    expect(nodeStatus({ ...queue, waiting: 0.3 })).toBe("Empty");
+    expect(nodeStatus({ ...queue, waiting: 312.4 })).toBe("312 waiting");
+    expect(nodeStatus({ ...queue, waiting: 3400, unread: true })).toBe("3,400 waiting · nobody reads it");
+  });
+
+  it("says how busy a worker is and how many of its slots are in use", () => {
+    const worker = { ...base, kind: "task_worker", concurrency: 4 };
+    expect(nodeStatus({ ...worker, utilisation: 1.6 })).toBe("100% busy · 4 of 4 slots");
+    expect(nodeStatus({ ...worker, utilisation: 0.5 })).toBe("50% busy · 2 of 4 slots");
+    expect(nodeStatus({ ...worker, utilisation: 0.1 })).toBe("10% busy · 1 of 4 slots");
+    expect(nodeStatus({ ...worker, utilisation: 0 })).toBe("No traffic");
+  });
+
+  it("reads a real run's queue and worker frames (autograder)", () => {
+    const run = (fixture: string) => {
+      const built = fixtureDesign("lab-autograder", fixture);
+      return runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+    };
+    const good = run("good");
+    const peakStep = good.frames.findIndex((f) => f.nodes.jobs.backlog === Math.max(...good.frames.map((g) => g.nodes.jobs.backlog)));
+    expect(nodeStatusAt(good, "jobs", "message_queue", peakStep, 0, false)).toMatch(/^[\d,]+ waiting$/);
+    expect(nodeStatusAt(good, "jobs", "message_queue", good.frames.length - 1, 0, false)).toBe("Empty");
+    expect(nodeStatusAt(good, "sandbox", "task_worker", peakStep, 0, false)).toBe("100% busy · 4 of 4 slots");
+
+    const unread = run("bad-no-worker");
+    expect(nodeStatusAt(unread, "jobs", "message_queue", unread.frames.length - 1, 0, false)).toMatch(
+      /^[\d,]+ waiting · nobody reads it$/,
+    );
   });
 
   it("shows a light load as at least 1%", () => {

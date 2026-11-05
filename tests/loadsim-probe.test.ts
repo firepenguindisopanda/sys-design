@@ -28,6 +28,16 @@ it.runIf(process.env.LOADSIM_PROBE)("print load simulation results", () => {
         .map(([id, n]) => `${id} ${pct(n.peakUtilisation)}`)
         .join(", ");
       console.log(`  peak utilisation: ${peaks}`);
+      if (s.jobs) {
+        const j = s.jobs;
+        const queues = Object.entries(j.perQueue)
+          .map(([id, q]) => `${id} peak ${Math.round(q.peakBacklog)}${q.emptyAt === null ? "" : ` empty at ${q.emptyAt.toFixed(0)} s`}`)
+          .join(", ");
+        console.log(
+          `  jobs: queued ${Math.round(j.queued)}, done ${Math.round(j.done)}, still waiting ${Math.round(j.stillWaiting)}, ` +
+            `never done ${Math.round(j.neverDone)}, p50 ${j.p50Ms} ms, p95 ${j.p95Ms} ms; ${queues}`,
+        );
+      }
       for (const f of s.failures) console.log(`  failed ${Math.round(f.count)}: ${f.text}`);
       for (const n of s.notes) console.log(`  note: ${n}`);
     }

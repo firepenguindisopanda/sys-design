@@ -219,6 +219,17 @@ LOADSIM_PROBE=1 LOADSIM_BRIEFS=<id> npx vitest run tests/loadsim-probe.test.ts -
   (`storageGb` above 0) and 0 for one that doesn't.
 - **`dbMs`:** the database time one request costs, for its reads and writes. If it's left
   out, it's 3 ms for reads and 8 ms for writes.
+- **`batch`:** how many writes a task worker groups into one database write (a whole number
+  from 1 to 1,000; default 1). It applies only to the writes a worker makes after taking
+  a job off a queue (`SPEC-loadsim-queues.md`), so each job's write costs `dbMs ÷ batch`.
+  Writes made by the API in the request are never batched. Use it where batching is
+  realistic for the data: metric readings or log lines can be grouped by tens or
+  hundreds, but a seat claim or a payment is written on its own. For example, in
+  `lab-monitor`:
+
+  ```yaml
+  report-metrics: { writeShare: 1, dbMs: 8, batch: 50 }
+  ```
 - **`dbMs` is always a realistic cost for that query.** A heavy query (a join over
   sections and enrolments) can cost tens of milliseconds. A key lookup costs a few. Don't
   raise it to make a bad design fail: where a flaw only costs speed, the page should show
