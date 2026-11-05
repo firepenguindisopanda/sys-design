@@ -82,6 +82,49 @@ export function reachShares(cls: FlowClass): Record<string, number> {
 
 const evenly = (steps: PathStep[]) => steps.map((step) => ({ fraction: 1 / steps.length, step }));
 
+/** Nodes requests pass through on the way to compute, splitting evenly over the routes on. */
+const PASS_THROUGH = new Set(["load_balancer", "cdn", "static_hosting"]);
+/** Parts this version doesn't simulate; a client that only talks to these sends nothing here. */
+const OFF_MODEL = new Set(["message_queue", "task_worker", "object_storage", "external_api"]);
+
+export type ClientRole = { role: "sender" } | { role: "receiver" | "off-model"; note: string };
+
+/**
+ * Which clients send requests (SPEC-loadsim-routing.md). A client whose every edge is a
+ * server push into it only receives; one whose every request edge goes to parts not
+ * simulated yet is off the model. Every other client sends, including one with no edges
+ * or one wired straight to a database: those are flaws, and their requests fail.
+ */
+export function clientRoles(nodes: SimNode[], edges: Edge[]): Map<string, ClientRole> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
+  const out = adjacency(edges);
+  const roles = new Map<string, ClientRole>();
+  for (const client of nodes.filter((n) => isClientKind(n.data.componentKind))) {
+    const touching = edges.filter((e) => e.source === client.id || e.target === client.id);
+    const isPushIn = (e: Edge) => {
+      const { protocol } = getEdgeData(e);
+      return e.target === client.id && (protocol === "sse" || protocol === "web_push");
+    };
+    const links = (out.get(client.id) ?? []).filter((l) => byId.has(l.to));
+    if (touching.length > 0 && touching.every(isPushIn)) {
+      roles.set(client.id, { role: "receiver", note: `${client.data.label} only receives pushes, so it sends no requests here.` });
+    } else if (links.length > 0 && links.every((l) => OFF_MODEL.has(kind(l.to)))) {
+      const targets = [...new Set(links.map((l) => l.to))].sort();
+      const named = targets.map((id) => `${byId.get(id)!.data.label} (${KIND_WORDS[kind(id)]})`);
+      const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+      const verb = named.length === 1 ? "isn't" : "aren't";
+      roles.set(client.id, {
+        role: "off-model",
+        note: `${client.data.label} only talks to ${list}, which ${verb} simulated yet, so it sends no requests here.`,
+      });
+    } else {
+      roles.set(client.id, { role: "sender" });
+    }
+  }
+  return roles;
+}
+
 const KIND_WORDS: Partial<Record<string, string>> = {
   message_queue: "queue",
   task_worker: "worker",
@@ -132,7 +175,7 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
     if (isComputeKind(k)) {
       return hosts.has(nodeId) ? { nodeId, edgeId, next: dataSteps(nodeId, feature, op) } : null;
     }
-    if (k !== "load_balancer") return null;
+    if (!PASS_THROUGH.has(k)) return null;
     const inner = new Set(seen).add(nodeId);
     const next = links(nodeId)
       .map((l) => routeFrom(l.to, l.edgeId, hosts, feature, op, inner))
@@ -140,7 +183,10 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
     return next.length > 0 ? { nodeId, edgeId, next: evenly(next) } : null;
   }
 
-  const clients = nodes.filter((n) => isClientKind(n.data.componentKind)).sort((a, b) => a.id.localeCompare(b.id));
+  const roles = clientRoles(nodes, edges);
+  const clients = nodes
+    .filter((n) => roles.get(n.id)?.role === "sender")
+    .sort((a, b) => a.id.localeCompare(b.id));
   const classes: FlowClass[] = [];
   for (const client of clients) {
     for (const feature of [...features].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -175,18 +221,26 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
     }
   }
 
-  const notes = [...noDatabase.entries()]
+  const roleNotes = [...roles.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .flatMap(([, r]) => (r.role === "sender" ? [] : [r.note]));
+  const dataNotes = [...noDatabase.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([name, ids]) => {
       const where = [...ids].sort().map(label);
       const at = where.length === 1 ? where[0] : `${where.slice(0, -1).join(", ")} or ${where.at(-1)}`;
       return `${name}'s data has no database to go to from ${at}, so those requests end there.`;
     });
-  return { pools, classes, notSimulated: notSimulated(nodes, edges, features), notes };
+  const carrying = new Set(classes.flatMap((c) => Object.keys(reachShares(c))));
+  return { pools, classes, notSimulated: notSimulated(nodes, edges, features, carrying), notes: [...roleNotes, ...dataNotes] };
 }
 
-/** The parts of a design this version of the model ignores, in words. */
-function notSimulated(nodes: SimNode[], edges: Edge[], features: FeatureBlock[]): NotSimulated[] {
+/**
+ * The parts of a design this version of the model ignores, in words. A CDN or static
+ * hosting node that requests pass through keeps its file note under another id, so its
+ * gauge shows how busy it is rather than "Not simulated yet".
+ */
+function notSimulated(nodes: SimNode[], edges: Edge[], features: FeatureBlock[], carrying: Set<string>): NotSimulated[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const label = (id: string) => byId.get(id)?.data.label ?? id;
   const list: NotSimulated[] = [];
@@ -203,7 +257,7 @@ function notSimulated(nodes: SimNode[], edges: Edge[], features: FeatureBlock[])
           : k === "external_api"
             ? `${n.data.label} (external API): calls to it aren't simulated yet.`
             : `${n.data.label} (${word}): file traffic isn't simulated yet.`;
-    list.push({ id: n.id, text });
+    list.push({ id: carrying.has(n.id) ? `${n.id}:files` : n.id, text });
   }
 
   const scaling = nodes.filter((n) => ["paas", "functions", "edge"].includes(n.data.componentKind));

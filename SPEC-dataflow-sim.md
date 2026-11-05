@@ -68,6 +68,9 @@ Requests are split:
   object storage and external APIs, plus push edges (SSE, Web Push). A client edge
   straight to a database or cache carries no requests either. Each one ignored for the
   current design is named in `notSimulated`.
+  - *Since `SPEC-loadsim-routing.md`:* requests pass through CDNs and static hosting on the
+    way to compute. A client that only receives pushes, or only talks to queues, workers,
+    object storage or external APIs, sends no requests.
 
 **Capacities: a new, realistic table** (`capacities.ts`). These are starting figures for
 small cloud instances. The calibration task (Tests, below) may tune them within the ranges

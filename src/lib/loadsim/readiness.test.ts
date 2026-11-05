@@ -28,6 +28,21 @@ describe("missingForLoad", () => {
     expect(missingForLoad(d.nodes, d.edges, d.features)).toEqual(["Connect a client to your design."]);
   });
 
+  it("asks for a client that sends requests when every client only receives pushes", () => {
+    const d = design(
+      [requirement("a", { targetRpm: 1, computeMsPerRequest: 10 })],
+      [
+        ["phone", "mobile"],
+        ["vm", "vm"],
+      ],
+      ["vm -> phone : web_push"],
+      { a: "vm" },
+    );
+    expect(missingForLoad(d.nodes, d.edges, d.features)).toEqual([
+      "Connect a client to compute or a load balancer. Your clients only receive pushes or talk to parts not simulated yet.",
+    ]);
+  });
+
   it("asks for a placed feature when none is placed", () => {
     const d = fixtureDesign("link-shortener", "good");
     const unplaced = d.features.map((f) => ({ ...f, placedOnNodeId: null }));

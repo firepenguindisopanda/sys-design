@@ -76,6 +76,90 @@ describe("routes", () => {
   });
 });
 
+describe("which clients send requests (SPEC-loadsim-routing.md)", () => {
+  const ping = () => requirement("ping", { targetRpm: 60, computeMsPerRequest: 10, ...stateless });
+  const sends = (g: FlowGraph, clientId: string) => g.classes.some((c) => c.clientId === clientId);
+
+  it("leaves out a client that only receives pushes, with a note", () => {
+    const g = graphOf(fixtureDesign("lab-monitor", "good"));
+    expect(sends(g, "phone")).toBe(false);
+    expect(sends(g, "lab-pc")).toBe(true);
+    expect(sends(g, "laptop")).toBe(true);
+    expect(g.notes).toContain("Technician phone only receives pushes, so it sends no requests here.");
+  });
+
+  it("leaves out a client that only talks to parts not simulated yet, with a note", () => {
+    const built = design(
+      [ping()],
+      [
+        ["desktop", "desktop"],
+        ["iot", "iot", {}, "Campus IoT"],
+        ["vm", "vm"],
+        ["q", "message_queue", {}, "Upload events"],
+      ],
+      ["desktop -> vm : http", "iot -> q : websocket", "vm -> q : http"],
+      { ping: "vm" },
+    );
+    const g = graphOf(built);
+    expect(sends(g, "iot")).toBe(false);
+    expect(sends(g, "desktop")).toBe(true);
+    expect(g.notes).toContain(
+      "Campus IoT only talks to Upload events (queue), which isn't simulated yet, so it sends no requests here.",
+    );
+  });
+
+  it("still sends from a client with no edges, and fails its requests", () => {
+    const built = design(
+      [ping()],
+      [
+        ["desktop", "desktop"],
+        ["phone", "mobile"],
+        ["vm", "vm"],
+      ],
+      ["desktop -> vm : http"],
+      { ping: "vm" },
+    );
+    expect(classOf(graphOf(built), "phone", "ping", "read").outcome).toBe("no-route");
+  });
+
+  it("still sends from a client wired only to a database, and fails its requests", () => {
+    const built = design(
+      [ping()],
+      [
+        ["desktop", "desktop"],
+        ["phone", "mobile"],
+        ["vm", "vm"],
+        ["db", "database"],
+      ],
+      ["desktop -> vm : http", "phone -> db : db", "vm -> db : db"],
+      { ping: "vm" },
+    );
+    expect(classOf(graphOf(built), "phone", "ping", "read").outcome).toBe("no-route");
+  });
+
+  it("passes requests through a CDN and static hosting on the way to compute", () => {
+    const built = design(
+      [ping()],
+      [
+        ["phone", "mobile"],
+        ["cdn", "cdn"],
+        ["static", "static_hosting"],
+        ["lb", "load_balancer"],
+        ["vm", "vm"],
+      ],
+      ["phone -> cdn : http", "cdn -> static : http", "static -> lb : http", "lb -> vm : http"],
+      { ping: "vm" },
+    );
+    const g = graphOf(built);
+    const cls = classOf(g, "phone", "ping", "read");
+    expect(cls.outcome).toBe("routed");
+    const shares = reachShares(cls);
+    for (const id of ["cdn", "static", "lb", "vm"]) expect(shares[id]).toBeCloseTo(1, 9);
+    // A CDN doesn't pool the compute behind it.
+    expect(g.pools).toEqual([["vm"]]);
+  });
+});
+
 describe("data stages", () => {
   it("sends reads through the cache, misses to the database, and writes straight to it", () => {
     const g = graphOf(fixtureDesign("link-shortener", "good"));

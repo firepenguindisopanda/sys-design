@@ -65,6 +65,38 @@ type Station = {
   entries: { hop: number; fraction: number }[];
 };
 
+/**
+ * Stations in an order where every station comes after the ones that hand it requests, so
+ * a request is offered on before it's served downstream. A station processed too early
+ * would let later arrivals through without using its capacity. Ties, and any cycle across
+ * classes, fall back to `byRank`.
+ */
+function upstreamFirst(list: Station[], hops: Hop[], byRank: (a: Station, b: Station) => number): Station[] {
+  // The stations a hop's requests come from: its parent's, or further up past hops with none.
+  const fromStations = (index: number): string[] => {
+    const parent = hops[index].parent;
+    if (parent < 0) return [];
+    return hops[parent].stations.length > 0 ? hops[parent].stations.map((s) => s.id) : fromStations(parent);
+  };
+  const feeds = new Map<string, Set<string>>(list.map((s) => [s.id, new Set<string>()]));
+  hops.forEach((hop, index) => {
+    for (const from of fromStations(index)) {
+      for (const to of hop.stations) if (from !== to.id) feeds.get(from)!.add(to.id);
+    }
+  });
+  const waitingOn = new Map(list.map((s) => [s.id, 0]));
+  for (const targets of feeds.values()) for (const t of targets) waitingOn.set(t, waitingOn.get(t)! + 1);
+  const left = [...list].sort(byRank);
+  const ordered: Station[] = [];
+  while (left.length > 0) {
+    const i = Math.max(0, left.findIndex((s) => waitingOn.get(s.id) === 0));
+    const [next] = left.splice(i, 1);
+    ordered.push(next);
+    for (const t of feeds.get(next.id)!) waitingOn.set(t, waitingOn.get(t)! - 1);
+  }
+  return ordered;
+}
+
 export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadInput): LoadRun {
   const graph = buildFlowGraph(nodes, edges, features);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -73,6 +105,8 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
   const steps = arrivals(scenario, STEPS);
   const dt = scenario.windowSeconds / STEPS;
   const clients = nodes.filter((n) => isClientKind(n.data.componentKind));
+  // Clients that send requests; receivers and off-the-model clients have no classes.
+  const senders = new Set(graph.classes.map((c) => c.clientId)).size;
 
   // Each class's share of every request.
   const classShare = graph.classes.map((c) => {
@@ -80,10 +114,10 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
     if (!load) return 0;
     const hasWrites = graph.classes.some((o) => o.clientId === c.clientId && o.featureId === c.featureId && o.op === "write");
     const opShare = !hasWrites ? 1 : c.op === "write" ? load.writeShare : 1 - load.writeShare;
-    return (load.share * opShare) / clients.length;
+    return (load.share * opShare) / senders;
   });
-  // Requests no class carries: no client, or no features.
-  const unassignedShare = clients.length === 0 || features.length === 0 ? 1 : 0;
+  // Requests no class carries: no client sends, or no features.
+  const unassignedShare = senders === 0 || features.length === 0 ? 1 : 0;
 
   // Flatten each routed class's path into hops, and set up the stations they use.
   const hops: Hop[] = [];
@@ -122,7 +156,8 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
         depth,
       };
       hops.push(hop);
-      if (k === "load_balancer") {
+      // A CDN or static hosting node that requests pass through costs what a balancer does.
+      if (k === "load_balancer" || k === "cdn" || k === "static_hosting") {
         hop.costMs = CAPACITY.loadBalancer.costMs;
         hop.baseMs += CAPACITY.loadBalancer.timeMs;
         hop.stations = [{ id: step.nodeId, fraction: 1 }];
@@ -158,12 +193,11 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
   });
   const depthOf = new Map<string, number>();
   for (const hop of hops) depthOf.set(hop.nodeId, Math.max(depthOf.get(hop.nodeId) ?? 0, hop.depth));
-  const order = [...stations.values()].sort(
-    (a, b) =>
-      rankOf(kind(a.nodeId)) - rankOf(kind(b.nodeId)) ||
-      (depthOf.get(a.nodeId) ?? 0) - (depthOf.get(b.nodeId) ?? 0) ||
-      a.id.localeCompare(b.id),
-  );
+  const byRank = (a: Station, b: Station) =>
+    rankOf(kind(a.nodeId)) - rankOf(kind(b.nodeId)) ||
+    (depthOf.get(a.nodeId) ?? 0) - (depthOf.get(b.nodeId) ?? 0) ||
+    a.id.localeCompare(b.id);
+  const order = upstreamFirst([...stations.values()], hops, byRank);
   const byDepth = hops.map((_, i) => i).sort((a, b) => hops[a].depth - hops[b].depth || a - b);
 
   // State carried between steps: what waits at each station, per hop.
@@ -369,7 +403,12 @@ export function simulateLoad({ nodes, edges, features, scenario, loads }: LoadIn
       featureId: null,
       reason: "no-route",
       count: unassigned,
-      text: clients.length === 0 ? "No client is connected, so nothing sends requests." : "There are no features to request.",
+      text:
+        clients.length === 0
+          ? "No client is connected, so nothing sends requests."
+          : features.length === 0
+            ? "There are no features to request."
+            : "No client sends requests: they only receive pushes or talk to parts not simulated yet.",
     });
   }
 

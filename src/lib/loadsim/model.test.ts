@@ -3,6 +3,7 @@ import { challenges, design, fixtureDesign, requirement, runDesign } from "@/tes
 import { buildDesign } from "@/lib/challenges/design";
 import { queueingFactor } from "./model";
 import { defaultScenario } from "./scenario";
+import type { Scenario } from "./types";
 
 const stateless = { resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0 } };
 
@@ -31,6 +32,42 @@ describe("conservation", () => {
     expect(Math.abs(summary.served + summary.failed - summary.requests)).toBeLessThan(0.5);
     const grouped = summary.failures.reduce((s, f) => s + f.count, 0);
     expect(Math.abs(grouped - summary.failed)).toBeLessThan(0.5);
+  });
+});
+
+describe("nodes requests pass through (SPEC-loadsim-routing.md)", () => {
+  // An overloaded one-vCPU VM must serve the same share whatever sits in front of it.
+  // Stations used to run in a fixed kind order, so a CDN ran after the VM and its
+  // requests reached the VM after the VM's turn, skipping its capacity.
+  const overload: Scenario = { requests: 200000, windowSeconds: 600, shape: "steady" };
+  const ping = requirement("ping", { targetRpm: 60, computeMsPerRequest: 10, ...stateless });
+  const served = (edges: string[]) => {
+    const built = design(
+      [ping],
+      [
+        ["d", "desktop"],
+        ["cdn", "cdn"],
+        ["static", "static_hosting"],
+        ["lb2", "load_balancer"],
+        ["lb", "load_balancer"],
+        ["vm", "vm", { capacity: { vcpus: 1 } }],
+      ],
+      edges,
+      { ping: "vm" },
+    );
+    const s = runDesign(built, overload).summary;
+    return s.served / s.requests;
+  };
+  const direct = served(["d -> lb : http", "lb -> vm : http"]);
+
+  it.each([
+    ["a CDN", ["d -> cdn : http", "cdn -> lb : http", "lb -> vm : http"]],
+    ["a CDN and static hosting", ["d -> cdn : http", "cdn -> static : http", "static -> lb : http", "lb -> vm : http"]],
+    ["a CDN beside the direct route", ["d -> lb : http", "d -> cdn : http", "cdn -> lb : http", "lb -> vm : http"]],
+    ["a second load balancer", ["d -> lb2 : http", "lb2 -> lb : http", "lb -> vm : http"]],
+  ])("serves the same share through %s", (_, edges) => {
+    expect(direct).toBeLessThan(0.5);
+    expect(served(edges)).toBeCloseTo(direct, 6);
   });
 });
 
