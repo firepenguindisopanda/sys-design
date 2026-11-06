@@ -46,6 +46,20 @@ nfr:
   minAvailabilityPct: 99.5
   maxMonthlyCostUsd: 160
 
+load:
+  # The first morning of semester, when reading lists come out: students add their books
+  # and look at the price histories, most of them in a rush. The brief's 360 requests a
+  # minute over 20 minutes (SPEC-brief-load-rollout.md).
+  requests: 7200
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # Store the watch: one insert. The bookstore call is the feature's backgroundWorkMs
+    # (2,000 ms), a wait, so it has no apiMs and isn't counted twice.
+    add-watch: { writeShare: 1, dbMs: 5, slowWork: wait }
+    # One book's prices this semester: a range scan over a few dozen rows.
+    price-history: { writeShare: 0, dbMs: 8 }
+
 rules:
   - id: api-on-functions
     title: API runs on cloud functions

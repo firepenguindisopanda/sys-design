@@ -177,12 +177,50 @@ settle the scenario rule first.
 time. The course assistant uses the time to the first streamed words, about 1,000 ms.
 
 **Acceptance criteria:**
-- [ ] Each brief's pilot expectations pass.
-- [ ] `textbook-price-watch/bad-inline-check` shows its slower answers.
-- [ ] Each commit's load-probe diff moves only that brief.
+- [x] Each brief's pilot expectations pass. The course assistant's slowest 5% may take
+  1,000 ms plus its model call (decided below).
+- [x] `textbook-price-watch/bad-inline-check` shows its slower answers.
+- [x] Each commit's load-probe diff moves only that brief. (Still uncommitted. Together,
+  only the seven briefs with blocks moved.)
 
 **Verification:**
-- [ ] Standing checks for each brief.
+- [x] Standing checks: 1,452 passed. The 21 failures are the tests for the Tasks 5–6
+  briefs. `tsc` and lint are clean, and the engine probe is unchanged.
+
+**Notes (2026-11-06):**
+
+| Brief | Scenario | Reference design | What the flawed designs show |
+|---|---|---|---|
+| `printing-credits` | Coursework due: 10,400 over 20 min, spike | 100%, p50 54 ms, p95 473 ms (top-ups wait for the provider), APIs 8%, database 2% | All look the same without an outage, except `bad-client-calls-provider`: p95 73 ms. Its API never calls the provider, so it looks faster. With the database off 2:00–3:00, `bad-single-db-replica` fails 320 requests ("It had no replica"), and the good design 120 writes, in the 30 s before its replica takes over |
+| `course-assistant` | Evening before an exam: 14,000 over 20 min, steady | 100%, p50 39 ms, **p95 1,061 ms**, APIs 9%, database 3% | All look the same. `bad-no-streaming` does, as open question 3 expected |
+| `textbook-price-watch` | First morning of semester: 7,200 over 20 min, spike | 100%, p95 75 ms, functions 30%. Checkers 100% busy in the rush: the queue peaks at 1 job and is empty by 5:00, with job p95 11 s | `bad-inline-check`: p95 2,078 ms. Its functions don't run out of slots (about 4 held), so the flaw shows as slower answers only |
+
+- **The figures:**
+  - `apiMs` 400 ms for creating a payment page, and 1,000 ms for the model's first words;
+  - the price watch has no `apiMs`: its `backgroundWorkMs` (2,000 ms) is the bookstore call;
+  - `dbMs` runs from 4 ms (a balance by key) to 8 ms (a payment and its credits in one
+    transaction, or a question and its answer stored).
+- **The course assistant's conflict:** 43% of its requests ask a question, so the slowest
+  5% all wait for the model's first words. With `apiMs: 1000` (open question 3), p95 is
+  1,061 ms, over the pilot expectation of 1,000 ms. The two approved points couldn't both
+  hold.
+  - **Decided:** the figure stays at 1,000 ms. The course assistant's slowest 5% must stay
+    under 1,000 ms plus its model call, so 2,000 ms. The other eleven keep 1,000 ms. The
+    spec's pilot expectations say so, and the test reads the allowance from the brief's
+    `apiMs`.
+  - **Rejected:** 800 ms would have passed (about 860 ms), but only because it was picked
+    to.
+- **The price watch's checkers:** four of them, at 2 s a check, take exactly the 2 checks
+  a second the rush brings. The queue absorbs the rest, as the brief describes. The
+  11 s job time is the queueing formula at its 95% cap (about 4.5 × 2,000 ms of
+  waiting), not a backlog. The page notes "Price checkers fell behind at 0:00", and the
+  queue is empty again by 5:00.
+- **Pinned in tests:** `bad-inline-check`'s p95 is over 2,000 ms, against under 100 ms
+  for the good design.
+- **The printing-credits outage** isn't a test, for the auction's reason. It was checked
+  by hand (above).
+- **A stale comment:** `scenario.test.ts` says "No brief sets apiMs in this module". Its
+  check, on the autograder only, still holds. The comment is left for Task 7's docs pass.
 
 **Dependencies:** Task 1
 

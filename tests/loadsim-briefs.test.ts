@@ -13,6 +13,7 @@ const BRIEFS = [
   "course-assistant",
   "printing-credits",
   "shuttle-tracker",
+  "textbook-price-watch",
 ];
 
 // The course assistant's slowest 5% all wait for the model's first words, since 43% of its
@@ -91,6 +92,16 @@ describe("flaws the load page shows", () => {
     expect(summaryOf("shuttle-tracker", "bad-no-cache").notes).toContain(
       "Routes DB peaked at 2% busy, mostly with Live map reads. A cache in front would bring it to about 1%.",
     );
+  });
+
+  // One request in six adds a watch, so the slowest 5% are those waiting the bookstore's
+  // 2,000 ms (backgroundWorkMs): about 2,080 ms, against 75 ms with the queue.
+  it("textbook-price-watch/bad-inline-check: checking prices inside the request slows the slowest answers", () => {
+    const bad = summaryOf("textbook-price-watch", "bad-inline-check").p95Ms;
+    const good = summaryOf("textbook-price-watch", "good").p95Ms;
+    expect(bad).toBeGreaterThan(good + 1000);
+    expect(bad).toBeGreaterThan(2000);
+    expect(good).toBeLessThan(100);
   });
 
   it("course-assistant: the AI call takes about 1,000 ms, the time to the first streamed words (open question 3)", () => {
