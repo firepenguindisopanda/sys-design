@@ -42,6 +42,19 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 300
 
+load:
+  # An evening before a project deadline: groups chatting steadily, and members opening
+  # rooms to catch up. The brief's 1,200 requests a minute, held for 20 minutes
+  # (SPEC-brief-load-rollout.md).
+  requests: 24000
+  windowSeconds: 1200
+  shape: steady
+  features:
+    # Store one message: a single insert, indexed by room and time.
+    send-message: { writeShare: 1, dbMs: 5 }
+    # One page of a room's messages, newest first: a short range scan on that index.
+    load-history: { writeShare: 0, dbMs: 8 }
+
 rules:
   - id: realtime-websocket
     title: Clients connect over WebSocket

@@ -8,6 +8,7 @@ import { briefById, fixtureDesign, runDesign } from "@/test/loadsim-designs";
 // load. The four earlier pilots are in loadsim-pilots.test.ts.
 const BRIEFS = [
   "campus-food-guide",
+  "chat-app",
 ];
 
 // Each run once, on first use, so a failing brief can't stop the others loading.
