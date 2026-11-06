@@ -14,7 +14,7 @@ design:
     - { id: db, kind: database, label: Lectures DB, config: { replicas: 2 } }
     - { id: videos, kind: database, label: Recordings DB, config: { replicas: 2 } }
     - { id: jobs, kind: message_queue, label: Conversion jobs }
-    - { id: converters, kind: task_worker, label: Video converters }
+    - { id: converters, kind: task_worker, label: Video converters, config: { concurrency: 24 } }
   edges:
     - lecturer-pc -> lb : http
     - laptop -> lb : http

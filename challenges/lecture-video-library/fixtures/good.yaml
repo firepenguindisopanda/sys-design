@@ -1,7 +1,7 @@
 description: >-
   Reference design. Two API instances behind a load balancer store each recording in
   object storage, its details in a replicated database with a cache, and put a
-  conversion job on a queue. Workers take the jobs, write the converted videos back
+  conversion job on a queue. 24 workers take the jobs, write the converted videos back
   to object storage and mark the lecture ready. Students stream through a CDN in
   front of object storage.
 design:
@@ -17,7 +17,7 @@ design:
     - { id: db, kind: database, label: Lectures DB, config: { replicas: 2 } }
     - { id: videos, kind: object_storage, label: Recordings, config: { storageGb: 2000 } }
     - { id: jobs, kind: message_queue, label: Conversion jobs }
-    - { id: converters, kind: task_worker, label: Video converters }
+    - { id: converters, kind: task_worker, label: Video converters, config: { concurrency: 24 } }
   edges:
     - lecturer-pc -> lb : http
     - laptop -> lb : http

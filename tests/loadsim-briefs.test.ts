@@ -14,6 +14,7 @@ const BRIEFS = [
   "course-assistant",
   "course-link-checker",
   "file-storage",
+  "lecture-video-library",
   "printing-credits",
   "shuttle-tracker",
   "textbook-price-watch",
@@ -136,6 +137,17 @@ describe("flaws the load page shows", () => {
     expect(s.perNode["api-1"].firstSaturatedAt).toBeGreaterThan(600);
     expect(s.perNode["api-2"].firstSaturatedAt).toBeNull();
     expect(failedThere(s, ["api-1"], ["timed-out"])).toBeGreaterThan(0.04 * s.requests);
+  });
+
+  it("lecture-video-library/bad-sync-transcode: transcoding inside the request fails every upload", () => {
+    const built = fixtureDesign("lecture-video-library", "bad-sync-transcode");
+    const scenario = defaultScenario(built.brief);
+    const uploads = scenario.requests * featureLoads(built.features, built.brief)["upload-recording"].share;
+    const s = summaryOf("lecture-video-library", "bad-sync-transcode");
+    expect(failedThere(s, computeIds("lecture-video-library", "bad-sync-transcode"), ["too-slow"])).toBeGreaterThan(0.9 * uploads);
+    // Three minutes of CPU per upload fills both APIs (they share the load balancer's pool)
+    // more than ten times over, so browsing and watching fail too: almost nothing is served.
+    expect(s.served / s.requests).toBeLessThan(0.01);
   });
 
   // One request in six adds a watch, so the slowest 5% are those waiting the bookstore's

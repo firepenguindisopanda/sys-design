@@ -52,6 +52,24 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 440
 
+load:
+  # An evening in the week before exams: students revising, browsing their courses and
+  # streaming lectures steadily, while lecturers upload the last recordings. The brief's
+  # 1,310 requests a minute, held for 20 minutes (SPEC-brief-load-rollout.md).
+  requests: 26200
+  windowSeconds: 1200
+  shape: steady
+  features:
+    # Record the lecture: one insert. The recording itself goes to object storage.
+    # Converting it into a few qualities takes several minutes, as the summary says:
+    # 180,000 ms here (backgroundWorkMs is 60,000). It's CPU work.
+    upload-recording: { writeShare: 1, dbMs: 5, slowWork: cpu, slowMs: 180000 }
+    # A course's lectures that are ready, with title, date and length: a list of a few
+    # dozen rows.
+    browse-lectures: { writeShare: 0, dbMs: 8 }
+    # Check the student may watch it: one row by key.
+    watch-lecture: { writeShare: 0, dbMs: 3 }
+
 rules:
   - id: recordings-in-object-storage
     title: Recordings stored in object storage
