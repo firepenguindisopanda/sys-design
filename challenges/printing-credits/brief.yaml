@@ -52,6 +52,24 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 240
 
+load:
+  # The morning a coursework is due: students check their balance at the printers and
+  # top up when it runs short, with the provider confirming each payment a moment later.
+  # The brief's 520 requests a minute over 20 minutes, most of them in the rush
+  # (SPEC-brief-load-rollout.md).
+  requests: 10400
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # Record the payment as pending: one insert. Asking the provider for a payment page
+    # takes about 400 ms, the time a card provider's API usually needs to create one.
+    start-payment: { writeShare: 1, dbMs: 5, apiMs: 400 }
+    # Mark the payment paid and add the credits, in one transaction. The provider calls
+    # in, so this feature makes no outside call of its own.
+    payment-confirmed: { writeShare: 1, dbMs: 8 }
+    # One student's balance by key, plus their last few top-ups.
+    view-balance: { writeShare: 0, dbMs: 4 }
+
 rules:
   - id: provider-from-server
     title: The server calls the payment provider

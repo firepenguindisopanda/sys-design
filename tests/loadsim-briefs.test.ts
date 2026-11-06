@@ -10,6 +10,7 @@ const BRIEFS = [
   "campus-food-guide",
   "chat-app",
   "club-auction",
+  "printing-credits",
   "shuttle-tracker",
 ];
 
@@ -74,7 +75,6 @@ describe("flaws the load page shows", () => {
       "Vendors DB peaked at 9% busy, mostly with Browse vendors reads. A cache in front would bring it to about 2%.",
     );
   });
-
 
   // Shuttle: one-row reads, so even without its cache the database stays under 3% busy.
   it("shuttle-tracker/bad-no-cache: the database is about four times busier, and the note says a cache would help", () => {
