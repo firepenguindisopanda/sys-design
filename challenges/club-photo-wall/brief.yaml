@@ -53,6 +53,23 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 340
 
+load:
+  # The evening after the societies' ball: members posting their photos and everyone
+  # scrolling the walls, most of it in the first rush. The brief's 1,140 requests a minute
+  # over 20 minutes (SPEC-brief-load-rollout.md).
+  requests: 22800
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # Record the photo and its caption: one insert. Making the thumbnails resizes a
+    # several-megabyte photo, so slow work done in the request is CPU
+    # (SPEC-loadsim-cascades.md); on the queue, the workers do it either way.
+    post-photo: { writeShare: 1, dbMs: 5, slowWork: cpu }
+    # The latest photos for one society or the campus: an indexed list of a few dozen rows.
+    browse-wall: { writeShare: 0, dbMs: 10 }
+    # One photo's details by key.
+    view-photo: { writeShare: 0, dbMs: 3 }
+
 rules:
   - id: direct-upload
     title: Phones upload straight to storage

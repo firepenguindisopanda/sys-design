@@ -10,6 +10,7 @@ const BRIEFS = [
   "campus-food-guide",
   "chat-app",
   "club-auction",
+  "club-photo-wall",
   "course-assistant",
   "file-storage",
   "printing-credits",
@@ -39,6 +40,12 @@ const summaryOf = (briefId: string, fixture: string): Summary => runOf(briefId, 
 /** Requests that failed for one of these reasons at these nodes */
 function failedThere(s: Summary, nodeIds: string[], reasons: FailureReason[]) {
   return s.failures.filter((f) => f.nodeId !== null && nodeIds.includes(f.nodeId) && reasons.includes(f.reason)).reduce((n, f) => n + f.count, 0);
+}
+/** The busiest compute instance's peak */
+function computePeak(briefId: string, fixture: string) {
+  const built = fixtureDesign(briefId, fixture);
+  const s = summaryOf(briefId, fixture);
+  return Math.max(...built.nodes.filter((n) => isComputeKind(n.data.componentKind)).map((n) => s.perNode[n.id]?.peakUtilisation ?? 0));
 }
 const computeIds = (briefId: string, fixture: string) =>
   fixtureDesign(briefId, fixture).nodes.filter((n) => isComputeKind(n.data.componentKind)).map((n) => n.id);
@@ -100,6 +107,16 @@ describe("flaws the load page shows", () => {
     expect(summaryOf("shuttle-tracker", "bad-no-cache").notes).toContain(
       "Routes DB peaked at 2% busy, mostly with Live map reads. A cache in front would bring it to about 1%.",
     );
+  });
+
+  // Both APIs share the load balancer's pool, so three seconds of CPU per photo fills them
+  // both in the rush: 162% busy against 19%, and about 19% of all requests time out.
+  it("club-photo-wall/bad-sync-thumbnails: thumbnails inside the request fill the API's CPU", () => {
+    expect(computePeak("club-photo-wall", "bad-sync-thumbnails")).toBeGreaterThan(computePeak("club-photo-wall", "good") + 0.3);
+    expect(computePeak("club-photo-wall", "bad-sync-thumbnails")).toBeGreaterThan(1.5);
+    expect(computePeak("club-photo-wall", "good")).toBeLessThan(0.25);
+    const s = summaryOf("club-photo-wall", "bad-sync-thumbnails");
+    expect(failedThere(s, computeIds("club-photo-wall", "bad-sync-thumbnails"), ["timed-out"])).toBeGreaterThan(0.15 * s.requests);
   });
 
   // API 1, shrunk to 1 vCPU, holds uploads (150 ms of CPU each) and lists. The ramp fills it

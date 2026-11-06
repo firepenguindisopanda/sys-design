@@ -236,13 +236,39 @@ time. The course assistant uses the time to the first streamed words, about 1,00
 photo wall's thumbnails are marked `slowWork: cpu`.
 
 **Acceptance criteria:**
-- [ ] Each brief's pilot expectations pass.
-- [ ] `file-storage/bad-capacity-overflow` saturates, and
+- [x] Each brief's pilot expectations pass.
+- [x] `file-storage/bad-capacity-overflow` saturates, and
   `club-photo-wall/bad-sync-thumbnails` fills the API's CPU, with numbers pinned.
-- [ ] Each commit's load-probe diff moves only that brief.
+- [x] Each commit's load-probe diff moves only that brief. (Still uncommitted. Against
+  the Task 4 probe, only these two moved.)
 
 **Verification:**
-- [ ] Standing checks for each brief.
+- [x] Standing checks: 1,461 passed. The 12 failures are the tests for the Task 6 briefs.
+  `tsc` and lint are clean, and the engine probe is unchanged.
+
+**Notes (2026-11-06):**
+
+| Brief | Scenario | Reference design | What the flawed designs show |
+|---|---|---|---|
+| `file-storage` | The last 20 min before a deadline: 20,400, ramp | 100%, p50 108 ms, p95 211 ms, APIs 75% at the deadline, database 2.5% | `bad-capacity-overflow`: API 1 saturates at 13:20, and 1,092 requests (5.4%) time out there. The other three look like the good design: files in the database wait for `loadsim-delivery`, and `bad-no-metadata-db` only ends its requests at the API |
+| `club-photo-wall` | The evening after the societies' ball: 22,800, spike | 100%, p95 70 ms, APIs 19%. Thumbnail workers 100% busy in the rush: the queue peaks at 1 job and is empty by 5:00, with job p95 16 s | `bad-sync-thumbnails`: both APIs 162% busy from 0:00 and 4,350 requests (19%) time out. The others look the same: files and uploads wait for `loadsim-delivery` |
+
+- **The figures:**
+  - `dbMs` runs from 3 ms (a file's access check, a photo by key) to 15 ms (an
+    assignment's few hundred submissions, sorted);
+  - files and photos go to object storage, so no figure counts them;
+  - the thumbnails keep their `backgroundWorkMs` (3,000 ms). The plan gives `slowMs` only
+    to Task 6.
+- **The photo wall's flaw spreads:** both APIs sit behind the load balancer as one pool,
+  so the thumbnails fill both. Wall browsing times out too, not only posting.
+- **The thumbnail workers** fill exactly as the price watch's checkers do: four workers,
+  3 s a photo, and 1.33 photos a second in the rush. The page notes they fell behind at
+  0:00. The 16 s job time is the queueing formula at its 95% cap, not a backlog.
+- **Pinned in tests:**
+  - file storage: API 1 saturates after 10:00, API 2 never, and over 4% of requests
+    time out at API 1;
+  - photo wall: the APIs over 150% busy against under 25%, and over 15% of requests
+    time out at them.
 
 **Dependencies:** Task 1
 
