@@ -132,6 +132,10 @@ For each of the twelve briefs, under its default load:
 - **The reference design:** at least 99.9% served, the slowest 5% of answers under
   1,000 ms, no compute instance or database saturated, and every queue empty before the
   end.
+  - **The course assistant's slowest 5%:** under 1,000 ms plus its model call (`apiMs`),
+    so 2,000 ms. 43% of its requests ask a question, so its slowest 5% all wait for the
+    model's first words, and the call's figure stays honest (open question 3). Decided in
+    Task 4.
 - **Each flawed design in the "can show now" column** shows its flaw, with the number
   pinned in a test (for example "Alerts API 1 runs out of slots from 0:00").
 - **Each flawed design in the other columns:** the test checks nothing about it. The

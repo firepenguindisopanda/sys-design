@@ -41,6 +41,21 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 260
 
+load:
+  # The evening before an exam: students revising, asking about the notes and reopening
+  # earlier answers, steadily all evening. The brief's 700 requests a minute, held for
+  # 20 minutes (SPEC-brief-load-rollout.md).
+  requests: 14000
+  windowSeconds: 1200
+  shape: steady
+  features:
+    # Read the conversation so far and store the new question and answer. The model call
+    # takes about 1,000 ms: the time to the first streamed words, not the whole answer,
+    # since the load page doesn't simulate streaming (open question 3).
+    ask-question: { writeShare: 1, dbMs: 8, apiMs: 1000 }
+    # A student's conversation list, or one conversation's messages: a short indexed read.
+    history: { writeShare: 0, dbMs: 6 }
+
 rules:
   - id: llm-from-server
     title: The server calls the model API

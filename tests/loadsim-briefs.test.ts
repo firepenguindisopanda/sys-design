@@ -10,9 +10,17 @@ const BRIEFS = [
   "campus-food-guide",
   "chat-app",
   "club-auction",
+  "course-assistant",
   "printing-credits",
   "shuttle-tracker",
 ];
+
+// The course assistant's slowest 5% all wait for the model's first words, since 43% of its
+// requests ask a question: they get 1,000 ms plus that call (decided in Task 4). The
+// call's own figure stays honest, about 1,000 ms (open question 3).
+const MODEL_CALL_ALLOWED: Record<string, number> = {
+  "course-assistant": briefById("course-assistant").load?.features?.["ask-question"]?.apiMs ?? 0,
+};
 
 // Each run once, on first use, so a failing brief can't stop the others loading.
 const runs = new Map<string, LoadRun>();
@@ -44,8 +52,8 @@ describe.each(BRIEFS)("%s", (briefId) => {
       expect(s.served / s.requests).toBeGreaterThanOrEqual(0.999);
     });
 
-    it("answers the slowest 5% in under 1,000 ms", () => {
-      expect(summaryOf(briefId, "good").p95Ms).toBeLessThan(1000);
+    it("answers the slowest 5% in under 1,000 ms, plus the model call for the course assistant", () => {
+      expect(summaryOf(briefId, "good").p95Ms).toBeLessThan(1000 + (MODEL_CALL_ALLOWED[briefId] ?? 0));
     });
 
     it("saturates no compute instance or database", () => {
@@ -83,5 +91,11 @@ describe("flaws the load page shows", () => {
     expect(summaryOf("shuttle-tracker", "bad-no-cache").notes).toContain(
       "Routes DB peaked at 2% busy, mostly with Live map reads. A cache in front would bring it to about 1%.",
     );
+  });
+
+  it("course-assistant: the AI call takes about 1,000 ms, the time to the first streamed words (open question 3)", () => {
+    const apiMs = briefById("course-assistant").load?.features?.["ask-question"]?.apiMs;
+    expect(apiMs).toBeGreaterThanOrEqual(800);
+    expect(apiMs).toBeLessThanOrEqual(1200);
   });
 });
