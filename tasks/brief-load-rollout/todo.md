@@ -285,14 +285,61 @@ photo wall's thumbnails are marked `slowWork: cpu`.
 differs from `backgroundWorkMs`, for example about 200 ms for a push.
 
 **Acceptance criteria:**
-- [ ] Each reference design's queue is empty before the end.
-- [ ] `bad-sync-crawl`, `bad-sync-transcode`, `bad-sync-delivery` and `bad-no-worker` show
+- [x] Each reference design's queue is empty before the end, with more workers for two of
+  them (decided below).
+- [x] `bad-sync-crawl`, `bad-sync-transcode`, `bad-sync-delivery` and `bad-no-worker` show
   their flaws, with numbers pinned.
-- [ ] Each commit's load-probe diff moves only that brief.
-- [ ] Stop and report if no realistic `slowMs` lets a reference design drain.
+- [x] Each commit's load-probe diff moves only that brief. (Still uncommitted. Against
+  the Task 5 probe, only these three moved.)
+- [x] Stop and report if no realistic `slowMs` lets a reference design drain. Reported
+  for the link checker and the video library.
 
 **Verification:**
-- [ ] Standing checks for each brief.
+- [x] Standing checks: 1,473 passed, none failing. `tsc` and lint are clean. The engine
+  probe moves only in eight fixtures' costs.
+
+**Notes (2026-11-06):**
+
+| Brief | Scenario | Reference design | What the flawed designs show |
+|---|---|---|---|
+| `course-link-checker` | The morning after the nightly run: 4,600, spike | 100%, p95 52 ms. Fetchers 375% in the rush: the queue peaks at 280 checks and is empty by 37:28, with job p95 19 min | `bad-sync-crawl`: all 600 checks given up on at 5 s (87% served). `bad-single-stage` leaves 280 checks waiting (see below). The rest look the same |
+| `lecture-video-library` | An evening before exams: 26,200, steady | 100%, p95 65 ms, APIs 15%. Converters 125%: the queue peaks at 40 and is empty by 24:56, with job p95 7.7 min | `bad-sync-transcode`: both APIs 1,086% busy and almost nothing served (0%). Files and the CDN wait for `loadsim-delivery` |
+| `notification-system` | The morning the campus closes for snow: 33,000, spike | 100%, p95 64 ms, APIs 31%. Push workers 257% in the rush: the queue peaks at 9,555 and is empty by 25:38, with job p95 7.6 min | `bad-sync-delivery`: p50 241 ms against 60. `bad-no-worker`: all 31,320 jobs never done. Push in the wrong direction waits for `loadsim-delivery` |
+
+- **The stop-and-report:** a sweep of `slowMs` showed the notification queue drains at a
+  realistic push time, but the link checker's (60 s a course, the brief's own figure) and
+  the video library's (several minutes, as its summary says) don't with 4 workers.
+  - **Decided:** more workers, within budget. The link checker has 8 per stage ($296 of
+    $340), and the video library 24 converters ($417 of $440).
+  - **The flawed copies** that say "Good design …" got the same workers, so each differs
+    from the good design only in its flaw.
+  - The engine probe moves only in those eight fixtures' costs, and `challenges.test.ts`
+    still passes: every fixture's expectations hold.
+- **`slowMs`:**
+  - 180,000 ms for a conversion: the summary's "several minutes" (`backgroundWorkMs` is
+    60,000);
+  - 200 ms for a push (`backgroundWorkMs` is 2,000);
+  - the link checker keeps its `backgroundWorkMs`, 60,000 ms a course, split between its
+    two stages.
+- **The other figures:**
+  - `dbMs` runs from 3 ms (a lecture's access check) to 12 ms (a course's broken links
+    with their pages);
+  - `preferences` has `writeShare: 0.3`: about one visit in three changes them.
+- **`bad-single-stage` now leaves checks waiting.** It moves out of the spec's "Not a load
+  problem" column, but not for the flaw it's about (slow sites holding up the other
+  links). One set of 8 workers does both stages, against 8 + 8 in the good design. Not
+  pinned, since the reason isn't the flaw itself.
+- **The notification slot demo** (Task 2's consequence): under its own load,
+  `bad-sync-delivery` is about 180 ms slower, with no slot cascade. The generic-load
+  tests in `loadsim-pilots.test.ts` keep the cascade covered.
+- **Notifications' good design** writes no alerts to its database: its writes go on the
+  queue, and the push workers have no database edge. That's how the fixture is drawn, not
+  a load figure.
+- **Pinned in tests:**
+  - the crawl: over 99% of checks given up on;
+  - the transcode: under 1% served;
+  - the delivery: p50 over 200 ms, against under 100 ms;
+  - no worker: over 99% of jobs never done.
 
 **Dependencies:** Task 2
 

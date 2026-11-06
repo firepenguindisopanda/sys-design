@@ -15,6 +15,7 @@ const BRIEFS = [
   "course-link-checker",
   "file-storage",
   "lecture-video-library",
+  "notification-system",
   "printing-credits",
   "shuttle-tracker",
   "textbook-price-watch",
@@ -148,6 +149,23 @@ describe("flaws the load page shows", () => {
     // Three minutes of CPU per upload fills both APIs (they share the load balancer's pool)
     // more than ten times over, so browsing and watching fail too: almost nothing is served.
     expect(s.served / s.requests).toBeLessThan(0.01);
+  });
+
+  // Nine requests in ten fan out, so the median answer waits for a 200 ms push: about
+  // 241 ms, against 60 ms with the queue.
+  it("notification-system/bad-sync-delivery: sending pushes inside the request slows every answer", () => {
+    const bad = summaryOf("notification-system", "bad-sync-delivery").p50Ms;
+    const good = summaryOf("notification-system", "good").p50Ms;
+    expect(bad).toBeGreaterThan(good + 150);
+    expect(bad).toBeGreaterThan(200);
+    expect(good).toBeLessThan(100);
+  });
+
+  it("notification-system/bad-no-worker: nobody reads the queue, so its jobs are never done", () => {
+    const jobs = summaryOf("notification-system", "bad-no-worker").jobs!;
+    expect(jobs.neverDone).toBeGreaterThan(0.5);
+    // Every job: 31,320 of them.
+    expect(jobs.neverDone).toBeGreaterThan(0.99 * jobs.queued);
   });
 
   // One request in six adds a watch, so the slowest 5% are those waiting the bookstore's

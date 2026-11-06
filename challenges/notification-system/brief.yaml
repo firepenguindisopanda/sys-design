@@ -50,6 +50,23 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 300
 
+load:
+  # The morning the campus closes for snow: staff publish the closure and room changes,
+  # the alerts fan out to every phone, and students change what they get. The brief's
+  # 1,650 requests a minute over 20 minutes, most of them in the first rush
+  # (SPEC-brief-load-rollout.md).
+  requests: 33000
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # Store the alert: one insert.
+    publish-alert: { writeShare: 1, dbMs: 6 }
+    # Read a batch of recipients' push addresses, then send the pushes. A push to the
+    # phone's push service takes about 200 ms (backgroundWorkMs is 2,000).
+    fan-out: { writeShare: 0, dbMs: 8, slowMs: 200 }
+    # A student's subscriptions by key; about one visit in three changes them.
+    preferences: { writeShare: 0.3, dbMs: 4 }
+
 rules:
   - id: enqueue-delivery
     title: Deliveries go on a queue
