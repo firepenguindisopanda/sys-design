@@ -129,7 +129,7 @@ describe("nodeStatus", () => {
       ["desktop -> vm : http", "vm -> llm : http"],
       { ask: "vm" },
     );
-    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000 } };
+    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000, slowMs: null } };
     const run = runDesign(calls, { requests: 6000, windowSeconds: 60, shape: "steady" }, { loads });
     expect(nodeStatusAt(run, "vm", "vm", 400, 0, false)).toBe("Saturated · 80 of 80 slots");
   });

@@ -35,7 +35,8 @@ describe("arrivals", () => {
 describe("defaultScenario", () => {
   it("is 100,000 requests over 20 minutes with a spike without a brief load block", () => {
     expect(defaultScenario(null)).toEqual({ requests: 100_000, windowSeconds: 1200, shape: "spike" });
-    expect(defaultScenario(briefById("chat-app"))).toEqual({
+    // Every brief has a block since SPEC-brief-load-rollout.md, so one is taken away here.
+    expect(defaultScenario({ ...briefById("chat-app"), load: undefined })).toEqual({
       requests: 100_000,
       windowSeconds: 1200,
       shape: "spike",
@@ -107,6 +108,15 @@ describe("featureLoads", () => {
     const set = { ...brief, load: { features: { redirect: { slowWork: "cpu" as const, apiMs: 2000 } } } };
     expect(featureLoads(features, set).redirect).toMatchObject({ slowWork: "cpu", apiMs: 2000 });
     expect(featureLoads(features, set)["create-link"]).toMatchObject({ slowWork: "wait", apiMs: null });
+  });
+
+  it("defaults slowMs to none and takes it from the brief (SPEC-brief-load-rollout.md)", () => {
+    const brief = briefById("lab-autograder");
+    const features = design(brief.functionalRequirements, [], [], {}).features;
+    expect(featureLoads(features, null)["submit-solution"].slowMs).toBeNull();
+    const set = { ...brief, load: { features: { "submit-solution": { slowMs: 1500 } } } };
+    expect(featureLoads(features, set)["submit-solution"].slowMs).toBe(1500);
+    expect(featureLoads(features, set)["browse-exercises"].slowMs).toBeNull();
   });
 
   it("marks the autograder's grading as CPU work: it runs the student's code (SPEC-loadsim-cascades.md)", () => {

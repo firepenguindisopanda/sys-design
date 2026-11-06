@@ -56,6 +56,7 @@ export function featureLoads(features: FeatureBlock[], brief: Brief | null): Fea
       batch: set?.batch ?? 1,
       slowWork: set?.slowWork ?? "wait",
       apiMs: set?.apiMs ?? null,
+      slowMs: set?.slowMs ?? null,
     };
   }
   return loads;

@@ -248,6 +248,17 @@ LOADSIM_PROBE=1 LOADSIM_BRIEFS=<id> npx vitest run tests/loadsim-probe.test.ts -
   an external API. It adds to the answer time and holds a slot, with no limit on the
   provider. Without `apiMs`, calls to external APIs aren't simulated. Use the provider's
   realistic time: a payment or AI call can take seconds.
+- **`slowMs`:** how long the feature's slow work really takes on the load page, in ms (1 to
+  600,000; only for a feature with `backgroundWorkMs`). It defaults to `backgroundWorkMs`,
+  which the engine keeps using for its latency check (`SPEC-brief-load-rollout.md`). Set
+  it where the two differ: the engine's figure can stand for a whole batch of work, while
+  the load page needs one job's time. It applies wherever the work runs: a queue's
+  workers, or the instance itself when the request doesn't go to a queue. For example,
+  one push to a phone takes about 200 ms:
+
+  ```yaml
+  fan-out: { writeShare: 0, slowMs: 200, slowWork: wait }
+  ```
 - **Answers over 5 s fail.** Slow work or a call that alone takes 5 s or more fails every
   such request as too slow, however quiet the system is. Jobs on a queue never do.
 - **`dbMs` is always a realistic cost for that query.** A heavy query (a join over

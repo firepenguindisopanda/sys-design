@@ -15,7 +15,7 @@ const dbBound = design(
   ["desktop -> vm : http", "vm -> db : db"],
   { browse: "vm" },
 );
-const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100, batch: 1, slowWork: "wait", apiMs: null } };
+const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100, batch: 1, slowWork: "wait", apiMs: null, slowMs: null } };
 
 // The same, with two VMs behind a balancer: 20 database connections between them.
 const dbBoundPair = design(

@@ -14,6 +14,16 @@ function run(briefId: string, fixture: string) {
   return runDesign(built, defaultScenario(built.brief), { brief: built.brief }).summary;
 }
 
+/**
+ * A design under the generic default load, as if its brief had no `load` block: 100,000
+ * requests over 20 minutes in a spike, with default per-feature figures. The cascade demos
+ * below were written against it, before their briefs got their own blocks
+ * (SPEC-brief-load-rollout.md), and still test the same mechanics.
+ */
+function runGeneric(built: ReturnType<typeof fixtureDesign>) {
+  return runDesign(built, defaultScenario(null), { loads: featureLoads(built.features, { ...built.brief, load: undefined }) });
+}
+
 describe("every pilot brief has a default load scenario", () => {
   it.each(["link-shortener", "course-registration", "lab-autograder", "lab-monitor"])("%s", (briefId) => {
     expect(fixtureDesign(briefId, "good").brief.load).toBeDefined();
@@ -275,15 +285,15 @@ describe("slow work and cascades", () => {
     });
   });
 
-  describe("notification-system: sending pushes inside the request (no load block)", () => {
-    // The slot cascade's demo (moved here from the autograder in Task 1). In the spike,
+  describe("notification-system: sending pushes inside the request (generic default load)", () => {
+    // The slot cascade's demo (moved here from the autograder in Task 1). Under the generic
+    // default load (runGeneric), with the brief's 2 s of slow work per push. In the spike,
     // 166.7 req/s split over two instances: each gets 83.3, of which Fan out alert is
     // 1,500 ÷ 1,650, about 75.8. Each holds a slot for its 2 s of waiting plus 15 ms of
     // compute, so Fan out alone needs 75.8 × 2.02 ≈ 153 slots against 80. CPU is about
     // 95% offered, so slots bind from the first step. After the spike (55.6 req/s) Fan out
     // needs about 51 slots, so nothing binds once the backlog has drained.
-    const built = fixtureDesign("notification-system", "bad-sync-delivery");
-    const r = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+    const r = runGeneric(fixtureDesign("notification-system", "bad-sync-delivery"));
 
     it("runs both API instances out of slots from 0:00, only during the spike", () => {
       for (const id of ["api-1", "api-2"]) {
@@ -361,20 +371,20 @@ describe("slow work and cascades", () => {
     });
   });
 
-  describe("lecture-video-library: transcoding inside the request (no load block)", () => {
+  describe("lecture-video-library: transcoding inside the request (generic default load)", () => {
     it("fails every Upload recording request as too-slow: 60 s of slow work", () => {
       // Uploads alone, at under one a second, so nothing else is busy.
       const built = fixtureDesign("lecture-video-library", "bad-sync-transcode");
-      const loads = featureLoads(built.features, built.brief);
+      const loads = featureLoads(built.features, { ...built.brief, load: undefined });
       for (const id of Object.keys(loads)) loads[id] = { ...loads[id], share: id === "upload-recording" ? 1 : 0 };
       const s = runDesign(built, { requests: 1000, windowSeconds: 1200, shape: "steady" }, { loads }).summary;
       expect(s.served).toBeLessThan(0.5);
       expect(failedThere(s, ["api-1", "api-2"], ["too-slow"])).toBeCloseTo(1000, 0);
     });
 
-    it("fails them as too-slow at the API under the default load too", () => {
+    it("fails them as too-slow at the API under the generic default load too", () => {
       // 10 of 1,310 req/min are uploads: about 763 of the 100,000 requests.
-      const s = run("lecture-video-library", "bad-sync-transcode");
+      const s = runGeneric(fixtureDesign("lecture-video-library", "bad-sync-transcode")).summary;
       expect(failedThere(s, ["api-1", "api-2"], ["too-slow"])).toBeGreaterThan(0.9 * 763);
       expect(s.p95Ms).toBeLessThan(5000);
     });
@@ -396,7 +406,7 @@ describe("slow work and cascades", () => {
         ["desktop -> lb : http", "lb -> api-1 : http", "lb -> api-2 : http", "api-1 -> llm : http", "api-2 -> llm : http"],
         { ask: "api-1" },
       );
-    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000 } };
+    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000, slowMs: null } };
 
     it.each([8, 32])("caps each instance at about 40 req/s with %i vCPUs", (vcpus) => {
       const r = runDesign(callDesign(vcpus), { requests: 200 * 60, windowSeconds: 60, shape: "steady" }, { loads });

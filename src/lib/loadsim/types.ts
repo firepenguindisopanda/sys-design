@@ -26,6 +26,8 @@ export type FeatureLoad = {
   slowWork: SlowWork;
   /** An external API call in the request, in ms; null when the brief doesn't set one */
   apiMs: number | null;
+  /** The slow work's realistic time (SPEC-brief-load-rollout.md); null means `backgroundWorkMs` */
+  slowMs: number | null;
 };
 
 /** By feature id */

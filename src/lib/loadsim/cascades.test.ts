@@ -22,6 +22,7 @@ const load = (o: Partial<FeatureLoad> = {}): FeatureLoad => ({
   batch: 1,
   slowWork: "wait",
   apiMs: null,
+  slowMs: null,
   ...o,
 });
 

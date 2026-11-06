@@ -155,6 +155,17 @@ describe("queues and workers (SPEC-loadsim-queues.md)", () => {
     expect(summary.failed).toBeLessThan(0.5);
   });
 
+  it("works jobs at the slowMs the brief gives, not backgroundWorkMs (SPEC-brief-load-rollout.md)", () => {
+    // With slowMs 45 a job costs 5 + 45 = 50 ms, so the one slot does 20 a second: 18 a
+    // second never builds a backlog. With the 95 ms of backgroundWorkMs it would do 10.
+    const load = { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null, slowMs: null };
+    const quick = runDesign(backlogDesign(), minute(18), { loads: { grade: { ...load, slowMs: 45 } } });
+    expect(quick.summary.jobs!.perQueue.q.peakBacklog).toBeLessThan(1);
+    expect(quick.summary.perNode.w.peakUtilisation).toBeCloseTo(0.9, 6);
+    const slow = runDesign(backlogDesign(), minute(18), { loads: { grade: { ...load, slowMs: null } } });
+    expect(slow.summary.jobs!.perQueue.q.peakBacklog).toBeGreaterThan(400);
+  });
+
   it("never does the jobs on a queue nobody reads, and says so", () => {
     const built = fixtureDesign("lab-autograder", "bad-no-worker");
     const { summary } = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
@@ -183,7 +194,7 @@ describe("queues and workers (SPEC-loadsim-queues.md)", () => {
         { save: "vm", ...(reqs.length > 1 ? { look: "vm" } : {}) },
       );
     }
-    const allWrites = (batch: number) => ({ save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch, slowWork: "wait" as const, apiMs: null } });
+    const allWrites = (batch: number) => ({ save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch, slowWork: "wait" as const, apiMs: null, slowMs: null } });
 
     it("divides the database's write work by the batch", () => {
       const steady: Scenario = { requests: 3000, windowSeconds: 60, shape: "steady" };
@@ -210,8 +221,8 @@ describe("queues and workers (SPEC-loadsim-queues.md)", () => {
         ],
       );
       const loads = {
-        save: { share: 400 / 410, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null },
-        look: { share: 10 / 410, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null },
+        save: { share: 400 / 410, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null, slowMs: null },
+        look: { share: 10 / 410, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null, slowMs: null },
       };
       const { summary } = runDesign(built, { requests: 410 * 60, windowSeconds: 60, shape: "steady" }, { loads });
       const jobs = summary.jobs!;

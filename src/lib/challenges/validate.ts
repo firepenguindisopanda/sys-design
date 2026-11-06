@@ -156,7 +156,7 @@ function readRequirement(r: Reader, raw: unknown, path: string): BriefRequiremen
 }
 
 /** The load simulation's default scenario (SPEC-dataflow-sim.md); every field optional. */
-function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): BriefLoad {
+function readLoad(r: Reader, raw: unknown, frIds: string[], slowIds: ReadonlySet<string>, path: string): BriefLoad {
   const o = r.obj(raw, path, ["requests", "windowSeconds", "shape", "features"]);
   const intIn = (v: unknown, p: string, min: number, max: number): number =>
     Number.isInteger(v) && (v as number) >= min && (v as number) <= max
@@ -174,7 +174,7 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
     load.features = {};
     for (const [id, value] of Object.entries(features)) {
       const p = r.at(fp, id);
-      const f = r.obj(value, p, ["writeShare", "dbMs", "batch", "slowWork", "apiMs"]);
+      const f = r.obj(value, p, ["writeShare", "dbMs", "batch", "slowWork", "apiMs", "slowMs"]);
       const entry: BriefLoadFeature = {};
       if (f.writeShare !== undefined) {
         const share = r.num(f.writeShare, r.at(p, "writeShare"));
@@ -194,6 +194,15 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
           typeof ms === "number" && Number.isFinite(ms) && ms >= 1 && ms <= 60_000
             ? ms
             : r.fail(r.at(p, "apiMs"), "expected a number of ms from 1 to 60,000");
+      }
+      if (f.slowMs !== undefined) {
+        // Only a time for slow work the engine knows about (SPEC-brief-load-rollout.md).
+        if (!slowIds.has(id)) r.fail(r.at(p, "slowMs"), "only for a feature with backgroundWorkMs");
+        const ms = f.slowMs;
+        entry.slowMs =
+          typeof ms === "number" && Number.isFinite(ms) && ms >= 1 && ms <= 600_000
+            ? ms
+            : r.fail(r.at(p, "slowMs"), "expected a number of ms from 1 to 600,000");
       }
       load.features[id] = entry;
     }
@@ -325,7 +334,15 @@ export function validateBrief(raw: unknown, file: string): Brief {
     reflection: r.optList(o.reflection, "reflection").map((s, i) => r.str(s, r.at("reflection", i))),
     ...(o.load === undefined
       ? {}
-      : { load: readLoad(r, o.load, functionalRequirements.map((fr) => fr.id), "load") }),
+      : {
+          load: readLoad(
+            r,
+            o.load,
+            functionalRequirements.map((fr) => fr.id),
+            new Set(functionalRequirements.filter((fr) => fr.feature.backgroundWorkMs !== undefined).map((fr) => fr.id)),
+            "load",
+          ),
+        }),
   };
 }
 

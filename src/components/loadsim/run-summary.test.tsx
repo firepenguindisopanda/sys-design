@@ -223,6 +223,7 @@ describe("slow work and cascades (SPEC-loadsim-cascades.md)", () => {
     batch: 1,
     slowWork: "wait",
     apiMs: null,
+    slowMs: null,
     ...o,
   });
 

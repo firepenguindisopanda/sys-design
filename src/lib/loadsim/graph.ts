@@ -138,9 +138,17 @@ const KIND_WORDS: Partial<Record<string, string>> = {
 
 /**
  * `loads`, when given, say which features' external calls are simulated (those with
- * `apiMs`), so an external API they call is no longer listed as not simulated.
+ * `apiMs`), so an external API they call is no longer listed as not simulated, and how
+ * long slow work takes (`slowMs`).
  */
 export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: FeatureBlock[], loads?: FeatureLoads): FlowGraph {
+  /**
+   * How long a feature's slow work takes: the brief's `slowMs` where it sets one, else
+   * `backgroundWorkMs` (SPEC-brief-load-rollout.md). Whether there is slow work at all
+   * still comes from `backgroundWorkMs`, as in the engine.
+   */
+  const slowTimeOf = (feature: FeatureBlock) =>
+    (feature.backgroundWorkMs ?? 0) > 0 ? (loads?.[feature.id]?.slowMs ?? feature.backgroundWorkMs!) : 0;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
   const label = (id: string) => byId.get(id)?.data.label ?? id;
@@ -206,11 +214,10 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
   /** After compute: reads check a cache first, then a database; writes go to a database. */
   function dataSteps(computeId: string, feature: FeatureBlock, op: Op): PathStep["next"] {
     // Writes, and every request of a feature with slow work, go on this instance's queues.
-    const slowMs = feature.backgroundWorkMs ?? 0;
     const queues = links(computeId).filter((l) => isQueue(l.to));
-    if ((op === "write" || slowMs > 0) && queues.length > 0) {
+    if ((op === "write" || (feature.backgroundWorkMs ?? 0) > 0) && queues.length > 0) {
       const jobs = queues.map((l) => jobFrom(l.to, l.edgeId, feature, new Set([computeId])));
-      for (const j of jobs) splitSlowWork(j, slowMs);
+      for (const j of jobs) splitSlowWork(j, slowTimeOf(feature));
       return evenly(jobs);
     }
     if (feature.resources.storageGb <= 0) return [];
@@ -242,8 +249,7 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
       if (!hosts.has(nodeId)) return null;
       // SPEC-loadsim-cascades.md: slow work this instance can't hand to a queue is done in
       // the request; an edge to an external API means the request may call it.
-      const slowMs = feature.backgroundWorkMs ?? 0;
-      const inline = slowMs > 0 && !links(nodeId).some((l) => isQueue(l.to));
+      const inline = (feature.backgroundWorkMs ?? 0) > 0 && !links(nodeId).some((l) => isQueue(l.to));
       const apis = links(nodeId).filter((l) => kind(l.to) === "external_api");
       for (const l of apis) {
         apiCallers.set(l.to, (apiCallers.get(l.to) ?? new Set()).add(feature.id));
@@ -252,7 +258,7 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
         nodeId,
         edgeId,
         next: dataSteps(nodeId, feature, op),
-        ...(inline ? { inlineSlowMs: slowMs } : {}),
+        ...(inline ? { inlineSlowMs: slowTimeOf(feature) } : {}),
         ...(apis.length > 0 ? { callsApi: true } : {}),
       };
     }

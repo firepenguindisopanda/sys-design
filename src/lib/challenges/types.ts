@@ -90,6 +90,11 @@ export type BriefLoadFeature = {
   slowWork?: SlowWork;
   /** An external API call made in the request, in ms (SPEC-loadsim-cascades.md); 1 to 60,000 */
   apiMs?: number;
+  /**
+   * The slow work's realistic time on the load page, in ms (SPEC-brief-load-rollout.md);
+   * 1 to 600,000, only for a feature with `backgroundWorkMs`, which the engine keeps using
+   */
+  slowMs?: number;
 };
 
 export type SlowWork = "cpu" | "wait";

@@ -478,6 +478,38 @@ describe("validateBrief: load block", () => {
     );
   });
 
+  describe("slowMs (SPEC-brief-load-rollout.md)", () => {
+    /** A brief whose Redirect has 2 s of slow work, so it may set slowMs. */
+    const withSlowWork = (b: Record<string, any>) => {
+      b.functionalRequirements[1].feature.backgroundWorkMs = 2000;
+      return b;
+    };
+
+    it("reads a slow-work feature's slowMs, from 1 to 600,000 ms", () => {
+      for (const slowMs of [1, 200, 600_000]) {
+        const b = withSlowWork(rawBrief());
+        b.load = { features: { redirect: { slowMs } } };
+        expect(validateBrief(b, FILE).load).toEqual({ features: { redirect: { slowMs } } });
+      }
+    });
+
+    it.each([
+      ["zero", 0],
+      ["over 600,000", 600_001],
+      ["a string", "quick"],
+    ])("rejects a slowMs of %s with its path", (_, slowMs) => {
+      expect(briefError((b) => (withSlowWork(b).load = { features: { redirect: { slowMs } } }))).toMatch(
+        new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.slowMs[:.]`),
+      );
+    });
+
+    it("rejects slowMs on a feature with no slow work: the engine wouldn't know about it", () => {
+      expect(briefError((b) => (b.load = { features: { redirect: { slowMs: 200 } } }))).toMatch(
+        new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.slowMs: .*backgroundWorkMs`),
+      );
+    });
+  });
+
   it("rejects a slowWork other than cpu or wait with its path", () => {
     expect(briefError((b) => (b.load = { features: { redirect: { slowWork: "gpu" } } }))).toMatch(
       new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.slowWork[:.]`),

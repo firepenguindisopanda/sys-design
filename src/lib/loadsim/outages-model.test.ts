@@ -68,7 +68,7 @@ const withDatabase = (replicas: number) =>
     ["desktop -> vm : http", "vm -> db : db"],
     { save: "vm" },
   );
-const halfWrites: FeatureLoads = { save: { share: 1, writeShare: 0.5, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null } };
+const halfWrites: FeatureLoads = { save: { share: 1, writeShare: 0.5, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null, slowMs: null } };
 
 /** desktop → VM → cache → database (and VM → database); reads only. */
 const cached = design(
@@ -82,7 +82,7 @@ const cached = design(
   ["desktop -> vm : http", "vm -> cache : db", "vm -> db : db"],
   { look: "vm" },
 );
-const readsOnly: FeatureLoads = { look: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null } };
+const readsOnly: FeatureLoads = { look: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null, slowMs: null } };
 
 /** desktop → VM → queue → one worker slot at 100 ms a job (10 jobs/s). */
 const queued = design(
@@ -186,7 +186,7 @@ describe("a database", () => {
       ["desktop -> vm : http", "vm -> q : http", "q -> w : http", "w -> db : db"],
       { save: "vm" },
     );
-    const allWrites: FeatureLoads = { save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null } };
+    const allWrites: FeatureLoads = { save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait", apiMs: null, slowMs: null } };
     const r = run(jobsToDb, steady(10), [off("db", 60, 120)], allWrites);
     const jobs = r.summary.jobs!;
     expect(r.summary.failed).toBeLessThan(0.5);

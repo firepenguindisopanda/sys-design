@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, fixtureDesign, requirement } from "@/test/loadsim-designs";
 import { buildFlowGraph, databaseStations, reachShares } from "./graph";
+import { featureLoads } from "./scenario";
 import type { FlowGraph, PathStep } from "./types";
 
 function graphOf(built: ReturnType<typeof fixtureDesign> | ReturnType<typeof design>): FlowGraph {
@@ -427,6 +428,43 @@ describe("slow work and external calls on compute steps (SPEC-loadsim-cascades.m
     const browse = stepsAt(bad, "browse-exercises", apis);
     expect(browse.length).toBeGreaterThan(0);
     for (const s of browse) expect(s.inlineSlowMs ?? 0).toBe(0);
+  });
+
+  describe("slowMs: the slow work's realistic time on the load page (SPEC-brief-load-rollout.md)", () => {
+    /** The autograder's graph with Submit solution's slow work set to `slowMs`. */
+    function withSlowMs(fixture: string, slowMs?: number) {
+      const built = fixtureDesign("lab-autograder", fixture);
+      const brief = { ...built.brief, load: { features: { "submit-solution": slowMs === undefined ? {} : { slowMs } } } };
+      return buildFlowGraph(built.nodes, built.edges, built.features, featureLoads(built.features, brief));
+    }
+    /** The slow work each worker step does for a feature, by node id. */
+    function jobSlowMs(g: FlowGraph, featureId: string): Record<string, number> {
+      const found: Record<string, number> = {};
+      const walk = (s: PathStep) => {
+        if (s.slowMs !== undefined) found[s.nodeId] = s.slowMs;
+        for (const n of s.next) walk(n.step);
+      };
+      for (const c of g.classes) if (c.featureId === featureId && c.root) walk(c.root);
+      return found;
+    }
+
+    it("gives a job's worker the slowMs, not backgroundWorkMs", () => {
+      expect(jobSlowMs(withSlowMs("good", 1500), "submit-solution")).toEqual({ sandbox: 1500 });
+      expect(jobSlowMs(withSlowMs("good"), "submit-solution")).toEqual({ sandbox: 3000 });
+    });
+
+    it("marks slow work done inside the request with the slowMs", () => {
+      const submit = stepsAt(withSlowMs("bad-sync-grading", 1500), "submit-solution", apis);
+      expect(submit.length).toBeGreaterThan(0);
+      for (const s of submit) expect(s.inlineSlowMs).toBe(1500);
+    });
+
+    it("splits the slowMs between a job's stages (link checker)", () => {
+      const built = fixtureDesign("course-link-checker", "good");
+      const brief = { ...built.brief, load: { features: { "start-check": { slowMs: 20_000 } } } };
+      const g = buildFlowGraph(built.nodes, built.edges, built.features, featureLoads(built.features, brief));
+      expect(jobSlowMs(g, "start-check")).toEqual({ fetchers: 10_000, checkers: 10_000 });
+    });
   });
 
   it("leaves slow work that goes to a queue unmarked: the workers do it (autograder)", () => {
