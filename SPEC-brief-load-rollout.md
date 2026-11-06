@@ -251,6 +251,15 @@ load:
      engine's numbers for those designs move, and their briefs would need recalibrating.
    - **Alternative:** accept it. The page would then say the reference design's queue
      never empties, which is the problem this module is meant to fix.
+   - **Decided in Task 6:** `slowMs` alone wasn't enough. At their realistic times (60 s
+     for a course's crawl, several minutes for a conversion), the link checker's and the
+     video library's queues still didn't drain with 4 workers. Their reference designs,
+     and the flawed copies of them, now have more workers, within budget:
+     - the link checker: 8 per stage, $296 a month of $340;
+     - the video library: 24 converters, $417 of $440.
+
+     The engine's numbers for those fixtures change only in cost, and every fixture's
+     expectations still hold. Notifications drain with `slowMs: 200` and 4 workers.
 3. **`apiMs` for the course assistant.** An AI answer can take 10 s or more in full, and
    anything over 5 s fails as too slow. The reference design streams the answer, but the
    load page doesn't simulate streaming.

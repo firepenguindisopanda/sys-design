@@ -46,6 +46,22 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 340
 
+load:
+  # The morning after the nightly run: lecturers read their reports and start new checks
+  # once they've fixed links, most of them first thing. The brief's 230 requests a minute
+  # over 20 minutes (SPEC-brief-load-rollout.md).
+  requests: 4600
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # Record the check: one insert. Crawling the course takes the brief's backgroundWorkMs
+    # (60,000 ms, split between fetching pages and checking links), a wait on the learning
+    # site and the linked websites.
+    start-check: { writeShare: 1, dbMs: 5, slowWork: wait }
+    # A course's broken links, each with its page and what went wrong: a join over a few
+    # dozen rows.
+    view-report: { writeShare: 0, dbMs: 12 }
+
 rules:
   - id: crawl-queued
     title: Checks go on a queue

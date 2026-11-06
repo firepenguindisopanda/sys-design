@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isComputeKind } from "@/lib/catalog";
-import { defaultScenario } from "@/lib/loadsim/scenario";
+import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import type { FailureReason, LoadRun, Summary } from "@/lib/loadsim/types";
 import { briefById, fixtureDesign, runDesign } from "@/test/loadsim-designs";
 
@@ -12,6 +12,7 @@ const BRIEFS = [
   "club-auction",
   "club-photo-wall",
   "course-assistant",
+  "course-link-checker",
   "file-storage",
   "printing-credits",
   "shuttle-tracker",
@@ -117,6 +118,14 @@ describe("flaws the load page shows", () => {
     expect(computePeak("club-photo-wall", "good")).toBeLessThan(0.25);
     const s = summaryOf("club-photo-wall", "bad-sync-thumbnails");
     expect(failedThere(s, computeIds("club-photo-wall", "bad-sync-thumbnails"), ["timed-out"])).toBeGreaterThan(0.15 * s.requests);
+  });
+
+  // A course's crawl takes 60 s, so every one of the 600 checks is given up on at 5 s.
+  it("course-link-checker/bad-sync-crawl: a crawl inside the request is given up on", () => {
+    const s = summaryOf("course-link-checker", "bad-sync-crawl");
+    expect(failedThere(s, computeIds("course-link-checker", "bad-sync-crawl"), ["too-slow"])).toBeGreaterThan(0);
+    const checks = s.requests * featureLoads(fixtureDesign("course-link-checker", "bad-sync-crawl").features, briefById("course-link-checker"))["start-check"].share;
+    expect(failedThere(s, computeIds("course-link-checker", "bad-sync-crawl"), ["too-slow"])).toBeGreaterThan(0.99 * checks);
   });
 
   // API 1, shrunk to 1 vCPU, holds uploads (150 ms of CPU each) and lists. The ramp fills it

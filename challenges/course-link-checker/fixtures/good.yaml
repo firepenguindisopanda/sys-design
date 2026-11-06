@@ -3,7 +3,8 @@ description: >-
   balancer. A check puts the course's pages on a queue; page fetchers get each page
   from the learning site and put its links on a second queue; link checkers try each
   link and record the result in a replicated database, which the report reads
-  through a cache.
+  through a cache. Each stage runs 8 workers, so the morning's checks are all done
+  within the hour.
 design:
   nodes:
     - { id: lecturer-pc, kind: desktop, label: Lecturer machine }
@@ -13,9 +14,9 @@ design:
     - { id: cache, kind: cache, label: Report cache, config: { memoryGb: 1 } }
     - { id: db, kind: database, label: Results DB, config: { replicas: 2 } }
     - { id: pages, kind: message_queue, label: Pages to fetch }
-    - { id: fetchers, kind: task_worker, label: Page fetchers }
+    - { id: fetchers, kind: task_worker, label: Page fetchers, config: { concurrency: 8 } }
     - { id: links, kind: message_queue, label: Links to check }
-    - { id: checkers, kind: task_worker, label: Link checkers }
+    - { id: checkers, kind: task_worker, label: Link checkers, config: { concurrency: 8 } }
     - { id: learning-site, kind: external_api, label: Learning site }
     - { id: websites, kind: external_api, label: Linked websites }
   edges:

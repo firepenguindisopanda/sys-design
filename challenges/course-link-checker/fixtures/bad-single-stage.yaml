@@ -11,7 +11,7 @@ design:
     - { id: cache, kind: cache, label: Report cache, config: { memoryGb: 1 } }
     - { id: db, kind: database, label: Results DB, config: { replicas: 2 } }
     - { id: pages, kind: message_queue, label: Pages to fetch }
-    - { id: fetchers, kind: task_worker, label: Page fetchers }
+    - { id: fetchers, kind: task_worker, label: Page fetchers, config: { concurrency: 8 } }
     - { id: learning-site, kind: external_api, label: Learning site }
     - { id: websites, kind: external_api, label: Linked websites }
   edges:
