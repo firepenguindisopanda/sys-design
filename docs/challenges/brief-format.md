@@ -230,6 +230,26 @@ LOADSIM_PROBE=1 LOADSIM_BRIEFS=<id> npx vitest run tests/loadsim-probe.test.ts -
   ```yaml
   report-metrics: { writeShare: 1, dbMs: 8, batch: 50 }
   ```
+- **`slowWork`:** `cpu` or `wait` (default `wait`). It only matters for a feature with
+  `backgroundWorkMs` whose compute does that work inside the request, because it doesn't
+  hand the request to a queue (`SPEC-loadsim-cascades.md`):
+  - `cpu` (running tests, transcoding, making thumbnails) costs that much CPU at the
+    instance, like `computeMsPerRequest`, and holds one of its 80 request slots meanwhile;
+  - `wait` (crawling pages, waiting on another service) costs no CPU but holds a slot for
+    the whole time.
+
+  Slow work that a queue's workers do is unaffected. For example, in `lab-autograder`:
+
+  ```yaml
+  submit-solution: { writeShare: 1, dbMs: 8, slowWork: cpu }
+  ```
+- **`apiMs`:** how long an external API call made in the request takes, in ms (1 to
+  60,000; no default). The call happens only where the feature's compute has an edge to
+  an external API. It adds to the answer time and holds a slot, with no limit on the
+  provider. Without `apiMs`, calls to external APIs aren't simulated. Use the provider's
+  realistic time: a payment or AI call can take seconds.
+- **Answers over 5 s fail.** Slow work or a call that alone takes 5 s or more fails every
+  such request as too slow, however quiet the system is. Jobs on a queue never do.
 - **`dbMs` is always a realistic cost for that query.** A heavy query (a join over
   sections and enrolments) can cost tens of milliseconds. A key lookup costs a few. Don't
   raise it to make a bad design fail: where a flaw only costs speed, the page should show

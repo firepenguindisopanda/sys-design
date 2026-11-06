@@ -3,7 +3,7 @@ import { isClientKind, isComputeKind } from "@/lib/catalog";
 import { PROTOCOL_META, getEdgeData } from "@/lib/edges";
 import type { DatabaseConfig, FeatureBlock } from "@/lib/types";
 import { CAPACITY } from "./capacities";
-import type { FlowClass, FlowGraph, NotSimulated, Op, PathStep, SimNode } from "./types";
+import type { FeatureLoads, FlowClass, FlowGraph, NotSimulated, Op, PathStep, SimNode } from "./types";
 
 type Link = { to: string; edgeId: string };
 
@@ -136,7 +136,11 @@ const KIND_WORDS: Partial<Record<string, string>> = {
   external_api: "external API",
 };
 
-export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: FeatureBlock[]): FlowGraph {
+/**
+ * `loads`, when given, say which features' external calls are simulated (those with
+ * `apiMs`), so an external API they call is no longer listed as not simulated.
+ */
+export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: FeatureBlock[], loads?: FeatureLoads): FlowGraph {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
   const label = (id: string) => byId.get(id)?.data.label ?? id;
@@ -148,6 +152,8 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
   const noDatabase = new Map<string, Set<string>>();
   /** Workers that finish a storing feature's jobs with no outgoing edge at all */
   const resultsNowhere = new Set<string>();
+  /** Features whose compute has an edge to each external API, by API id */
+  const apiCallers = new Map<string, Set<string>>();
   const isQueue = (id: string) => {
     const config = byId.get(id)?.data.config;
     return config?.kind === "message_queue" && config.mode !== "pubsub";
@@ -233,7 +239,22 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
     if (seen.has(nodeId)) return null;
     const k = kind(nodeId);
     if (isComputeKind(k)) {
-      return hosts.has(nodeId) ? { nodeId, edgeId, next: dataSteps(nodeId, feature, op) } : null;
+      if (!hosts.has(nodeId)) return null;
+      // SPEC-loadsim-cascades.md: slow work this instance can't hand to a queue is done in
+      // the request; an edge to an external API means the request may call it.
+      const slowMs = feature.backgroundWorkMs ?? 0;
+      const inline = slowMs > 0 && !links(nodeId).some((l) => isQueue(l.to));
+      const apis = links(nodeId).filter((l) => kind(l.to) === "external_api");
+      for (const l of apis) {
+        apiCallers.set(l.to, (apiCallers.get(l.to) ?? new Set()).add(feature.id));
+      }
+      return {
+        nodeId,
+        edgeId,
+        next: dataSteps(nodeId, feature, op),
+        ...(inline ? { inlineSlowMs: slowMs } : {}),
+        ...(apis.length > 0 ? { callsApi: true } : {}),
+      };
     }
     if (!PASS_THROUGH.has(k)) return null;
     const inner = new Set(seen).add(nodeId);
@@ -297,9 +318,17 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
   return {
     pools,
     classes,
-    notSimulated: notSimulated(nodes, edges, features, carrying, slowWorkOnQueues(classes)),
+    notSimulated: notSimulated(nodes, edges, features, carrying, simulatedApis(apiCallers, loads)),
     notes: [...roleNotes, ...dataNotes, ...workerNotes],
   };
+}
+
+/** External APIs that some feature with `apiMs` calls from its compute (SPEC-loadsim-cascades.md). */
+function simulatedApis(callers: Map<string, Set<string>>, loads: FeatureLoads | undefined): Set<string> {
+  if (!loads) return new Set();
+  return new Set(
+    [...callers].filter(([, ids]) => [...ids].some((id) => (loads[id]?.apiMs ?? null) !== null)).map(([api]) => api),
+  );
 }
 
 /**
@@ -307,23 +336,12 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
  * hosting node that requests pass through keeps its file note under another id, so its
  * gauge shows how busy it is rather than "Not simulated yet".
  */
-/** Features whose every routed request reaches a queue: their slow work is a worker's job. */
-function slowWorkOnQueues(classes: FlowClass[]): Set<string> {
-  const reachesJob = (step: PathStep | null): boolean => !!step && (!!step.job || step.next.some((n) => reachesJob(n.step)));
-  const byFeature = new Map<string, boolean>();
-  for (const c of classes) {
-    if (c.outcome !== "routed") continue;
-    byFeature.set(c.featureId, (byFeature.get(c.featureId) ?? true) && reachesJob(c.root));
-  }
-  return new Set([...byFeature].filter(([, all]) => all).map(([id]) => id));
-}
-
 function notSimulated(
   nodes: SimNode[],
   edges: Edge[],
   features: FeatureBlock[],
   carrying: Set<string>,
-  queuedSlowWork: Set<string>,
+  calledApis: Set<string>,
 ): NotSimulated[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const label = (id: string) => byId.get(id)?.data.label ?? id;
@@ -341,6 +359,7 @@ function notSimulated(
     if (!word) continue;
     if (k === "message_queue" && queueMode(n.id)) continue;
     if (k === "task_worker" && fedByQueue.has(n.id)) continue;
+    if (k === "external_api" && calledApis.has(n.id)) continue;
     const text =
       k === "message_queue"
         ? `${n.data.label} (pub/sub): not simulated yet.`
@@ -380,9 +399,9 @@ function notSimulated(
     }
   }
 
+  // Slow work is simulated: queued by the queues module, inline by SPEC-loadsim-cascades.md.
   for (const f of features) {
     const parts = [
-      f.backgroundWorkMs && !queuedSlowWork.has(f.id) ? "slow work" : null,
       f.pollingRpm ? "polling" : null,
       f.fileRpm ? "file requests" : null,
     ].filter((p): p is string => p !== null);

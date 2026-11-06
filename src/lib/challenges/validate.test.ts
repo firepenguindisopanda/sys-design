@@ -458,6 +458,32 @@ describe("validateBrief: load block", () => {
     );
   });
 
+  it("reads a feature's slowWork and apiMs (SPEC-loadsim-cascades.md)", () => {
+    const b = rawBrief();
+    b.load = { features: { redirect: { slowWork: "cpu", apiMs: 2000 }, "create-link": { slowWork: "wait", apiMs: 1 } } };
+    expect(validateBrief(b, FILE).load).toEqual({
+      features: { redirect: { slowWork: "cpu", apiMs: 2000 }, "create-link": { slowWork: "wait", apiMs: 1 } },
+    });
+    b.load = { features: { redirect: { apiMs: 60_000 } } };
+    expect(validateBrief(b, FILE).load).toEqual({ features: { redirect: { apiMs: 60_000 } } });
+  });
+
+  it.each([
+    ["zero", 0],
+    ["over 60,000", 60_001],
+    ["a string", "fast"],
+  ])("rejects an apiMs of %s with its path", (_, apiMs) => {
+    expect(briefError((b) => (b.load = { features: { redirect: { apiMs } } }))).toMatch(
+      new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.apiMs[:.]`),
+    );
+  });
+
+  it("rejects a slowWork other than cpu or wait with its path", () => {
+    expect(briefError((b) => (b.load = { features: { redirect: { slowWork: "gpu" } } }))).toMatch(
+      new RegExp(`^${FILE.replace(/\./g, "\\.")}: load\\.features\\.redirect\\.slowWork[:.]`),
+    );
+  });
+
   it.each([
     ["an unknown requirement id", (b: Record<string, any>) => (b.load = { features: { nope: { dbMs: 2 } } }), "load.features.nope"],
     ["a write share above 1", (b: Record<string, any>) => (b.load = { features: { redirect: { writeShare: 1.5 } } }), "load.features.redirect.writeShare"],

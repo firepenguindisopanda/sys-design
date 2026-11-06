@@ -15,12 +15,29 @@ const dbBound = design(
   ["desktop -> vm : http", "vm -> db : db"],
   { browse: "vm" },
 );
-const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100, batch: 1 } };
+const readsOnly: FeatureLoads = { browse: { share: 1, writeShare: 0, readDbMs: 100, writeDbMs: 100, batch: 1, slowWork: "wait", apiMs: null } };
+
+// The same, with two VMs behind a balancer: 20 database connections between them.
+const dbBoundPair = design(
+  [requirement("browse", { name: "Browse", targetRpm: 60, computeMsPerRequest: 10 })],
+  [
+    ["desktop", "desktop"],
+    ["lb", "load_balancer"],
+    ["vm-1", "vm", { capacity: { vcpus: 16 } }, "Course API 1"],
+    ["vm-2", "vm", { capacity: { vcpus: 16 } }, "Course API 2"],
+    ["db", "database", {}, "Course DB"],
+  ],
+  ["desktop -> lb : http", "lb -> vm-1 : http", "lb -> vm-2 : http", "vm-1 -> db : db", "vm-2 -> db : db"],
+  { browse: "vm-1" },
+);
 
 describe("first saturation", () => {
   it("explains a database saturated by reads with no cache in front", () => {
-    // 40 reads a second against 14.
-    const run = runDesign(dbBound, { requests: 2_400, windowSeconds: 60, shape: "steady" }, { loads: readsOnly });
+    // 40 reads a second against 14. Two VMs have 20 connections: enough to keep the
+    // database's queue over its capacity, since at 14 a second each read holds one for
+    // 20 ÷ 14 ≈ 1.4 s. (Before SPEC-loadsim-cascades.md this used one VM, whose 10
+    // connections now hold the database under full: see the next test.)
+    const run = runDesign(dbBoundPair, { requests: 2_400, windowSeconds: 60, shape: "steady" }, { loads: readsOnly });
     const first = run.summary.firstSaturation!;
     expect(first.nodeId).toBe("db");
     expect(first.atSeconds).toBe(0);
@@ -28,6 +45,26 @@ describe("first saturation", () => {
       "Course DB saturated at 0:00: every Browse read reaches it. A cache in front would take most of them.",
     );
     expect(run.summary.busiest).toBeNull();
+  });
+
+  it("holds the database just under full behind one VM's 10 connections (SPEC-loadsim-cascades.md)", () => {
+    // Each read holds a connection for 1 ms + 100 ms + its queueing wait at the database.
+    // 10 connections carry rate × hold = 10: about 13 a second, where the database is
+    // 93% busy and a read waits about 6.6 × 100 ms. The other 27 a second time out at the
+    // VM. The VM is held back by its connections, so it isn't the headline; the database
+    // is the busiest, and the VM's connection note tells the rest.
+    const run = runDesign(dbBound, { requests: 2_400, windowSeconds: 60, shape: "steady" }, { loads: readsOnly });
+    const s = run.summary;
+    expect(s.firstSaturation).toBeNull();
+    expect(s.busiest?.nodeId).toBe("db");
+    expect(s.busiest!.peakUtilisation).toBeGreaterThan(0.92);
+    expect(s.busiest!.peakUtilisation).toBeLessThan(0.94);
+    expect(s.notes).toContain(
+      `Virtual Machine's database connections were all busy from 0:00, while Course DB was 93% busy. ${Math.round(s.perNode.vm.failed).toLocaleString("en")} requests timed out there, not at the database.`,
+    );
+    const rates = run.frames.slice(300, 600).map((f) => f.nodes.vm.served / run.dtSeconds);
+    expect(Math.min(...rates)).toBeGreaterThan(12.5);
+    expect(Math.max(...rates)).toBeLessThan(13.5);
   });
 });
 
@@ -89,10 +126,22 @@ describe("failures", () => {
   });
 
   it("reports per-component totals and the time each first saturated", () => {
+    // Two VMs, so the database saturates. Since SPEC-loadsim-cascades.md its queue stays
+    // within what a request can wait (about 1.4 s), so the excess times out at the VMs,
+    // waiting for a connection, rather than at the database as before.
+    const run = runDesign(dbBoundPair, { requests: 2_400, windowSeconds: 60, shape: "steady" }, { loads: readsOnly });
+    const { perNode, failed } = run.summary;
+    expect(perNode.db.firstSaturatedAt).toBe(0);
+    expect(perNode.db.failed).toBe(0);
+    expect(perNode["vm-1"].failed).toBeGreaterThan(0);
+    expect(Math.abs(perNode["vm-1"].failed + perNode["vm-2"].failed - failed)).toBeLessThan(0.5);
+  });
+
+  it("moves the timeouts to the VM when its connections hold the database back", () => {
     const run = runDesign(dbBound, { requests: 2_400, windowSeconds: 60, shape: "steady" }, { loads: readsOnly });
-    expect(run.summary.perNode.db.firstSaturatedAt).toBe(0);
-    expect(run.summary.perNode.db.failed).toBeGreaterThan(0);
-    expect(run.summary.perNode.vm.firstSaturatedAt).toBeNull();
-    expect(run.summary.perNode.vm.failed).toBe(0);
+    expect(run.summary.perNode.db.firstSaturatedAt).toBeNull();
+    expect(run.summary.perNode.db.failed).toBe(0);
+    expect(run.summary.perNode.vm.firstSaturatedAt).toBe(0);
+    expect(run.summary.perNode.vm.failed).toBeGreaterThan(0);
   });
 });

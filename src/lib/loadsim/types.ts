@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { LoadShape } from "@/lib/challenges/types";
+import type { LoadShape, SlowWork } from "@/lib/challenges/types";
 import type { DesignNodeData, FeatureBlock } from "@/lib/types";
 import type { Outage } from "./outages";
 
@@ -22,6 +22,10 @@ export type FeatureLoad = {
   writeDbMs: number;
   /** Writes a worker groups into one database write; API writes are never batched */
   batch: number;
+  /** What slow work done inside the request costs (SPEC-loadsim-cascades.md); default `wait` */
+  slowWork: SlowWork;
+  /** An external API call in the request, in ms; null when the brief doesn't set one */
+  apiMs: number | null;
 };
 
 /** By feature id */
@@ -47,6 +51,13 @@ export type PathStep = {
   slowMs?: number;
   /** On a job's database step: a job writes its result, whatever the request was */
   op?: Op;
+  /**
+   * On a compute step (SPEC-loadsim-cascades.md): the feature's slow work, in ms, when this
+   * instance does it inside the request because it has no queue to hand it to
+   */
+  inlineSlowMs?: number;
+  /** On a compute step: the instance has an edge to an external API, which `apiMs` calls */
+  callsApi?: boolean;
 };
 
 /** Requests from one client for one feature, reads or writes. */
@@ -89,7 +100,14 @@ export type NodeFrame = {
    * it requests, "noticed" after; absent while it is up.
    */
   off?: "routed" | "noticed";
+  /**
+   * A compute instance's budget that held it back this step (SPEC-loadsim-cascades.md):
+   * its CPU, its request slots or its database connections; absent when none did.
+   */
+  limit?: Limit;
 };
+
+export type Limit = "cpu" | "slots" | "connections";
 
 export type EdgeFrame = {
   /** Requests that crossed the edge in the step */
@@ -103,7 +121,8 @@ export type Frame = {
   edges: Record<string, EdgeFrame>;
 };
 
-export type FailureReason = "timed-out" | "no-route" | "switched-off";
+/** `too-slow`: answered after more than the 5 s timeout overall (SPEC-loadsim-cascades.md) */
+export type FailureReason = "timed-out" | "too-slow" | "no-route" | "switched-off";
 
 export type FailureGroup = {
   /** Where they failed; null for requests with no route */

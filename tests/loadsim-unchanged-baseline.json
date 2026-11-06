@@ -1,0 +1,336 @@
+{
+  "measuredAt": "a844a4d",
+  "designs": {
+    "course-registration/good": {
+      "served": 100000.00000000613,
+      "failed": 0,
+      "p50Ms": 59,
+      "p95Ms": 100,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "laptop": 0,
+        "lb": 0.008333333333333333,
+        "api-1": 0.8035714285714286,
+        "api-2": 0.8035714285714286,
+        "cache": 0.005666666666666667,
+        "db": 0.25744047619047616,
+        "claims": 0.008333333333333331,
+        "allocator": 0.031249999999999997
+      }
+    },
+    "link-shortener/bad-client-to-db": {
+      "served": 100000.0000000067,
+      "failed": 0,
+      "p50Ms": 54.8,
+      "p95Ms": 66.5,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "cache": 0.006349206349206348,
+        "db": 0.0510204081632653
+      }
+    },
+    "link-shortener/bad-gap-cache-unconnected": {
+      "served": 99999.99999998808,
+      "failed": 0,
+      "p50Ms": 56.8,
+      "p95Ms": 64.6,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "cache": 0,
+        "db": 0.2040816326530612
+      }
+    },
+    "link-shortener/bad-gap-lb-unconnected": {
+      "served": 49999.99999999949,
+      "failed": 50000.00000000062,
+      "p50Ms": 37.1,
+      "p95Ms": 41.1,
+      "failures": [
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 2380.952380952379
+        },
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 47619.04761904824
+        }
+      ],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0,
+        "api-1": 0.08503401360544217,
+        "api-2": 0.5668934240362811,
+        "cache": 0.003174603174603174,
+        "db": 0.02551020408163265
+      }
+    },
+    "link-shortener/bad-gap-no-edges": {
+      "served": 0,
+      "failed": 100000.00000000124,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "failures": [
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 2380.952380952379
+        },
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 47619.04761904824
+        },
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 2380.952380952379
+        },
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 47619.04761904824
+        }
+      ],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0,
+        "api-1": 0,
+        "api-2": 0,
+        "cache": 0,
+        "db": 0
+      }
+    },
+    "link-shortener/bad-no-cache": {
+      "served": 99999.99999998808,
+      "failed": 0,
+      "p50Ms": 56.8,
+      "p95Ms": 64.6,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "db": 0.2040816326530612
+      }
+    },
+    "link-shortener/bad-no-database": {
+      "served": 99999.99999998808,
+      "failed": 0,
+      "p50Ms": 54.8,
+      "p95Ms": 62.5,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "cache": 0.006349206349206348
+      }
+    },
+    "link-shortener/bad-no-load-balancer": {
+      "served": 49999.99999999949,
+      "failed": 50000.00000000062,
+      "p50Ms": 37.1,
+      "p95Ms": 41.1,
+      "failures": [
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 2380.952380952379
+        },
+        {
+          "nodeId": null,
+          "reason": "no-route",
+          "count": 47619.04761904824
+        }
+      ],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "api-1": 0.08503401360544217,
+        "api-2": 0.5668934240362811,
+        "cache": 0.003174603174603174,
+        "db": 0.02551020408163265
+      }
+    },
+    "link-shortener/bad-single-db-replica": {
+      "served": 100000.0000000067,
+      "failed": 0,
+      "p50Ms": 54.8,
+      "p95Ms": 66.5,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "cache": 0.006349206349206348,
+        "db": 0.06802721088435372
+      }
+    },
+    "link-shortener/good": {
+      "served": 100000.0000000067,
+      "failed": 0,
+      "p50Ms": 54.8,
+      "p95Ms": 66.5,
+      "failures": [],
+      "peakUtilisation": {
+        "phone": 0,
+        "lab-pc": 0,
+        "lb": 0.008333333333333331,
+        "api-1": 0.6519274376417232,
+        "api-2": 0.6519274376417232,
+        "cache": 0.006349206349206348,
+        "db": 0.0510204081632653
+      }
+    },
+    "lab-monitor/bad-cache-for-shards": {
+      "served": 32799.99999999789,
+      "failed": 0,
+      "p50Ms": 30.1,
+      "p95Ms": 44.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "readings": 0.008355555555555554,
+        "writers": 0.03133333333333334,
+        "cache": 0.00009066666666666664,
+        "db": 0.004695238095238094
+      }
+    },
+    "lab-monitor/bad-client-to-db": {
+      "served": 32799.99999999789,
+      "failed": 0,
+      "p50Ms": 30.1,
+      "p95Ms": 44.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "readings": 0.008355555555555554,
+        "writers": 0.03133333333333334,
+        "cache": 0.00009066666666666664,
+        "db": 0.0011738095238095236
+      }
+    },
+    "lab-monitor/bad-direct-writes": {
+      "served": 32799.99999999789,
+      "failed": 0,
+      "p50Ms": 36.1,
+      "p95Ms": 44.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "cache": 0.00009066666666666664,
+        "db": 0.036173809523809525
+      }
+    },
+    "lab-monitor/bad-no-cache": {
+      "served": 32800.00000000116,
+      "failed": 0,
+      "p50Ms": 30.1,
+      "p95Ms": 63.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "readings": 0.008355555555555554,
+        "writers": 0.03133333333333334,
+        "db": 0.004452380952380952
+      }
+    },
+    "lab-monitor/bad-single-shard": {
+      "served": 32799.99999999789,
+      "failed": 0,
+      "p50Ms": 30.1,
+      "p95Ms": 44.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "readings": 0.008355555555555554,
+        "writers": 0.03133333333333334,
+        "cache": 0.00009066666666666664,
+        "db": 0.004695238095238094
+      }
+    },
+    "lab-monitor/good": {
+      "served": 32799.99999999789,
+      "failed": 0,
+      "p50Ms": 30.1,
+      "p95Ms": 44.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "phone": 0,
+        "lb": 0.0013666666666666669,
+        "api-1": 0.060119047619047614,
+        "api-2": 0.060119047619047614,
+        "readings": 0.008355555555555554,
+        "writers": 0.03133333333333334,
+        "cache": 0.00009066666666666664,
+        "db": 0.0011738095238095236
+      }
+    },
+    "lab-autograder/good": {
+      "served": 17600.00000000004,
+      "failed": 0,
+      "p50Ms": 38,
+      "p95Ms": 65.1,
+      "failures": [],
+      "peakUtilisation": {
+        "lab-pc": 0,
+        "laptop": 0,
+        "lb": 0.0004884814814814814,
+        "api-1": 0.05868121693121693,
+        "api-2": 0.05868121693121693,
+        "cache": 0.00031973333333333326,
+        "db": 0.008462798906584263,
+        "jobs": 0.0005920987654320988,
+        "sandbox": 1.3344425925925925
+      }
+    }
+  }
+}

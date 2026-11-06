@@ -353,14 +353,14 @@ describe("what isn't simulated yet", () => {
     expect(ids(graphOf(fixtureDesign("course-registration", "good")))).toEqual(["autoscaling"]);
   });
 
-  it("doesn't list slow work that a queue's workers do, only slow work inside the request", () => {
-    // Found in the Task 7 browser check: the autograder listed Submit solution's slow work.
+  it("doesn't list slow work: a queue's workers do it, or the request does it inline", () => {
+    // SPEC-loadsim-cascades.md: before, slow work inside the request was listed, as
+    // "Submit solution: its slow work isn't simulated yet." in bad-sync-grading.
     const queued = graphOf(fixtureDesign("lab-autograder", "good"));
     expect(queued.notSimulated.find((n) => n.id === "submit-solution")).toBeUndefined();
     const inline = graphOf(fixtureDesign("lab-autograder", "bad-sync-grading"));
-    expect(inline.notSimulated.find((n) => n.id === "submit-solution")?.text).toBe(
-      "Submit solution: its slow work isn't simulated yet.",
-    );
+    expect(inline.notSimulated.find((n) => n.id === "submit-solution")).toBeUndefined();
+    expect(ids(inline)).toEqual(["autoscaling"]);
   });
 
   it("names a pub/sub topic as not simulated", () => {
@@ -386,16 +386,78 @@ describe("what isn't simulated yet", () => {
     expect(ids(graphOf(built))).toEqual(["desktop->db", "vm->desktop"]);
   });
 
-  it("names features whose slow work, polling or files aren't simulated", () => {
+  it("names features whose polling or files aren't simulated, but not their slow work", () => {
+    // SPEC-loadsim-cascades.md: slow work inside the request is simulated now.
     const built = design(
-      [requirement("grade", { targetRpm: 60, computeMsPerRequest: 10, backgroundWorkMs: 3000 })],
+      [
+        requirement("grade", { targetRpm: 60, computeMsPerRequest: 10, backgroundWorkMs: 3000 }),
+        requirement("watch", { targetRpm: 60, computeMsPerRequest: 10, backgroundWorkMs: 3000, pollingRpm: 120 }),
+      ],
       [
         ["desktop", "desktop"],
         ["vm", "vm"],
       ],
       ["desktop -> vm : http"],
-      { grade: "vm" },
+      { grade: "vm", watch: "vm" },
     );
-    expect(ids(graphOf(built))).toEqual(["grade"]);
+    const g = graphOf(built);
+    expect(ids(g)).toEqual(["watch"]);
+    expect(g.notSimulated.find((n) => n.id === "watch")?.text).toBe("watch: its polling isn't simulated yet.");
+  });
+});
+
+describe("slow work and external calls on compute steps (SPEC-loadsim-cascades.md)", () => {
+  /** Every step of a feature's paths at these nodes. */
+  function stepsAt(g: FlowGraph, featureId: string, nodeIds: string[]): PathStep[] {
+    const found: PathStep[] = [];
+    const walk = (s: PathStep) => {
+      if (nodeIds.includes(s.nodeId)) found.push(s);
+      for (const n of s.next) walk(n.step);
+    };
+    for (const c of g.classes) if (c.featureId === featureId && c.root) walk(c.root);
+    return found;
+  }
+  const apis = ["api-1", "api-2"];
+
+  it("marks slow work done inside the request on its compute steps (autograder without the queue)", () => {
+    const bad = graphOf(fixtureDesign("lab-autograder", "bad-sync-grading"));
+    const submit = stepsAt(bad, "submit-solution", apis);
+    expect(submit.length).toBeGreaterThan(0);
+    for (const s of submit) expect(s.inlineSlowMs).toBe(3000);
+    const browse = stepsAt(bad, "browse-exercises", apis);
+    expect(browse.length).toBeGreaterThan(0);
+    for (const s of browse) expect(s.inlineSlowMs ?? 0).toBe(0);
+  });
+
+  it("leaves slow work that goes to a queue unmarked: the workers do it (autograder)", () => {
+    const good = graphOf(fixtureDesign("lab-autograder", "good"));
+    const submit = stepsAt(good, "submit-solution", apis);
+    expect(submit.length).toBeGreaterThan(0);
+    for (const s of submit) expect(s.inlineSlowMs ?? 0).toBe(0);
+  });
+
+  it("marks compute steps on an instance with an edge to an external API, and only those", () => {
+    const built = design(
+      [
+        requirement("ask", { targetRpm: 60, computeMsPerRequest: 10, ...stateless }),
+        requirement("look", { targetRpm: 60, computeMsPerRequest: 10, ...stateless }),
+      ],
+      [
+        ["desktop", "desktop"],
+        ["calls", "vm"],
+        ["plain", "vm"],
+        ["llm", "external_api"],
+      ],
+      ["desktop -> calls : http", "desktop -> plain : http", "calls -> llm : http"],
+      { ask: "calls", look: "plain" },
+    );
+    const g = graphOf(built);
+    const ask = stepsAt(g, "ask", ["calls"]);
+    expect(ask).toHaveLength(1);
+    expect(ask[0].callsApi).toBe(true);
+    const look = stepsAt(g, "look", ["plain"]);
+    expect(look).toHaveLength(1);
+    expect(look[0].callsApi ?? false).toBe(false);
+    for (const s of stepsAt(g, "ask", ["desktop"])) expect(s.callsApi ?? false).toBe(false);
   });
 });

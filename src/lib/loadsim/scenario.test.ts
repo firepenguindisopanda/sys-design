@@ -100,6 +100,25 @@ describe("featureLoads", () => {
     expect(loads["create-link"]).toMatchObject({ writeShare: 1, readDbMs: 3, writeDbMs: 8 });
   });
 
+  it("defaults slowWork to wait and apiMs to none, and takes both from the brief (SPEC-loadsim-cascades.md)", () => {
+    const brief = briefById("link-shortener");
+    const features = design(brief.functionalRequirements, [], [], {}).features;
+    expect(featureLoads(features, null).redirect).toMatchObject({ slowWork: "wait", apiMs: null });
+    const set = { ...brief, load: { features: { redirect: { slowWork: "cpu" as const, apiMs: 2000 } } } };
+    expect(featureLoads(features, set).redirect).toMatchObject({ slowWork: "cpu", apiMs: 2000 });
+    expect(featureLoads(features, set)["create-link"]).toMatchObject({ slowWork: "wait", apiMs: null });
+  });
+
+  it("marks the autograder's grading as CPU work: it runs the student's code (SPEC-loadsim-cascades.md)", () => {
+    const brief = briefById("lab-autograder");
+    expect(brief.load?.features?.["submit-solution"]?.slowWork).toBe("cpu");
+    const loads = featureLoads(design(brief.functionalRequirements, [], [], {}).features, brief);
+    expect(loads["submit-solution"].slowWork).toBe("cpu");
+    expect(loads["browse-exercises"].slowWork).toBe("wait");
+    // No brief sets apiMs in this module: it waits for brief-load-rollout.
+    expect(Object.values(loads).every((l) => l.apiMs === null)).toBe(true);
+  });
+
   it("defaults batch to 1 and takes it from the brief's load block (SPEC-loadsim-queues.md)", () => {
     const brief = briefById("link-shortener");
     const features = design(brief.functionalRequirements, [], [], {}).features;

@@ -5,6 +5,7 @@ import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
 import { NodeStatsTable } from "./node-stats-table";
 import { RunSummary, announcementFor } from "./run-summary";
+import type { FeatureLoad } from "@/lib/loadsim/types";
 
 const text = (html: string) =>
   html
@@ -25,7 +26,9 @@ describe("RunSummary", () => {
     const t = text(renderToStaticMarkup(<RunSummary run={run} />));
     expect(t).toContain("Served");
     // 91.5% before SPEC-loadsim-queues.md: enrolment writes now wait as jobs instead of timing out.
-    expect(t).toContain("92.6%");
+    // 92.6% before SPEC-loadsim-cascades.md: the API instances run out of database connections,
+    // and requests give up once their answer would take over 5 s.
+    expect(t).toContain("90.4%");
     expect(t).toContain("Failed");
     expect(t).toContain("Timed out waiting at Registration DB.");
     expect(t).toContain("Registration DB saturated at 0:00");
@@ -101,7 +104,9 @@ describe("NodeStatsTable", () => {
   it("shows when a component first saturated", () => {
     const { built, run } = runOf("course-registration", "bad-no-cache");
     const t = text(renderToStaticMarkup(<NodeStatsTable run={run} nodes={built.nodes} />));
-    expect(t).toMatch(/Registration DB 129% .* 0:00/);
+    // 129% before SPEC-loadsim-cascades.md: the API instances' connection pools now hold back
+    // what reaches the database.
+    expect(t).toMatch(/Registration DB 107% .* 0:00/);
   });
 
   it("gives a queue its peak backlog and when its workers fell behind", () => {
@@ -153,7 +158,8 @@ describe("announcementFor", () => {
     const last = run.frames.length - 1;
     // With enrolments on a queue (SPEC-loadsim-queues.md), the jobs done are announced too.
     expect(announcementFor(last - 1, last, run)).toBe(
-      "Playback finished: 92.6% of requests served, 15,000 of 15,000 jobs done.",
+      // 92.6% before SPEC-loadsim-cascades.md (see the RunSummary test above).
+      "Playback finished: 90.4% of requests served, 15,000 of 15,000 jobs done.",
     );
     expect(announcementFor(last, last, run)).toBeNull();
   });
@@ -204,5 +210,86 @@ describe("announcementFor, with background jobs (SPEC-loadsim-queues.md)", () =>
     const { run } = runOf("link-shortener", "good");
     const end = run.windowSteps;
     expect(announcementFor(end - 1, end, run) ?? "").not.toContain("draining");
+  });
+});
+
+describe("slow work and cascades (SPEC-loadsim-cascades.md)", () => {
+  const stateless = { resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0 } };
+  const load = (o: Partial<FeatureLoad>): FeatureLoad => ({
+    share: 1,
+    writeShare: 0,
+    readDbMs: 3,
+    writeDbMs: 8,
+    batch: 1,
+    slowWork: "wait",
+    apiMs: null,
+    ...o,
+  });
+
+  it("lists too-slow failures at the instance where the client gave up", () => {
+    // 20 + 10 + 6,000 ms: every answer takes over 5 s.
+    const built = design(
+      [requirement("grade", { name: "Grade", targetRpm: 60, computeMsPerRequest: 10, backgroundWorkMs: 6000, ...stateless })],
+      [
+        ["desktop", "desktop"],
+        ["vm", "vm", { capacity: { vcpus: 8 } }, "Grading API"],
+      ],
+      ["desktop -> vm : http"],
+      { grade: "vm" },
+    );
+    const run = runDesign(built, { requests: 60, windowSeconds: 60, shape: "steady" }, { loads: { grade: load({}) } });
+    expect(text(renderToStaticMarkup(<RunSummary run={run} />))).toContain("Gave up on Grading API: answers took over 5 s.");
+  });
+
+  it("tells a slot cascade: the feature holding the slots, and the others that failed there", () => {
+    // Ask makes a 2 s call and Look doesn't; both share one instance at 100 a second each.
+    // Ask's holds use 100 × 2.01 = 201 slot-seconds a second against 80, so Look waits too.
+    const built = design(
+      [
+        requirement("ask", { name: "Ask", targetRpm: 60, computeMsPerRequest: 10, ...stateless }),
+        requirement("look", { name: "Look", targetRpm: 60, computeMsPerRequest: 10, ...stateless }),
+      ],
+      [
+        ["desktop", "desktop"],
+        ["vm", "vm", { capacity: { vcpus: 8 } }, "Help API"],
+        ["llm", "external_api", {}, "AI API"],
+      ],
+      ["desktop -> vm : http", "vm -> llm : http"],
+      { ask: "vm", look: "vm" },
+    );
+    const loads = { ask: load({ share: 0.5, apiMs: 2000 }), look: load({ share: 0.5 }) };
+    const run = runDesign(built, { requests: 200 * 60, windowSeconds: 60, shape: "steady" }, { loads });
+    const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+    expect(t).toMatch(/Help API ran out of request slots at 0:00: Ask's .*\b2 s\b.* held them\. Requests for Look timed out there too\./);
+    expect(t).not.toContain("database connections were all busy");
+  });
+
+  it("tells a connection cascade, naming the saturated database", () => {
+    const { run } = runOf("course-registration", "bad-no-cache");
+    const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+    expect(t).toMatch(
+      /Registration API [12]'s database connections were all busy from \d+:\d\d, because Registration DB was saturated\. [\d,]+ requests timed out there, not at the database./,
+    );
+  });
+
+  it("tells no cascade when only CPU bound, or nothing did", () => {
+    // One vCPU at twice its capacity: CPU binds, never slots or connections.
+    const cpuBound = runDesign(
+      design(
+        [requirement("ping", { targetRpm: 60, computeMsPerRequest: 10, ...stateless })],
+        [
+          ["desktop", "desktop"],
+          ["vm", "vm", { capacity: { vcpus: 1 } }],
+        ],
+        ["desktop -> vm : http"],
+        { ping: "vm" },
+      ),
+      { requests: 8_400, windowSeconds: 60, shape: "steady" },
+    );
+    for (const run of [cpuBound, runOf("link-shortener", "good").run]) {
+      const t = text(renderToStaticMarkup(<RunSummary run={run} />));
+      expect(t).not.toContain("ran out of request slots");
+      expect(t).not.toContain("database connections were all busy");
+    }
   });
 });

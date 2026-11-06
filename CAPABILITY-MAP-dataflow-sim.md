@@ -8,12 +8,16 @@ Status: **approved** (2026-11-05). Built so far:
 - **`loadsim-queues`** (`93669c9`): [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md) and
   [tasks/loadsim-queues/](tasks/loadsim-queues/). It added two more pilot briefs,
   `lab-autograder` and `lab-monitor`.
-- **`loadsim-failures`** (branch `feat/loadsim-failures`):
+- **`loadsim-failures`** (`a844a4d`):
   [SPEC-loadsim-failures.md](SPEC-loadsim-failures.md) and
   [tasks/loadsim-failures/](tasks/loadsim-failures/).
+- **`loadsim-cascades`** (branch `feat/loadsim-cascades`):
+  [SPEC-loadsim-cascades.md](SPEC-loadsim-cascades.md) and
+  [tasks/loadsim-cascades/](tasks/loadsim-cascades/). Request slots, database
+  connections, slow work and external calls inside the request, and answers over 5 s.
 
 Each later module gets its own `SPEC-<module id>.md`. Next in the build order:
-`loadsim-cascades`, then `loadsim-delivery`.
+`loadsim-delivery`.
 
 ## Goal
 

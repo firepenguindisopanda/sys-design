@@ -83,7 +83,16 @@ export type BriefLoadFeature = {
   dbMs?: number;
   /** Writes a worker groups into one database write (SPEC-loadsim-queues.md); 1 to 1,000 */
   batch?: number;
+  /**
+   * What the feature's slow work does when it runs inside the request
+   * (SPEC-loadsim-cascades.md): `cpu` costs CPU and holds a slot, `wait` only holds a slot
+   */
+  slowWork?: SlowWork;
+  /** An external API call made in the request, in ms (SPEC-loadsim-cascades.md); 1 to 60,000 */
+  apiMs?: number;
 };
+
+export type SlowWork = "cpu" | "wait";
 
 export type Brief = {
   id: string;

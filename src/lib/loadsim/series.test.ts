@@ -14,14 +14,16 @@ const singleVm = design(
 );
 
 describe("series for playback", () => {
-  // The hand-worked overload: 7 a step fail from step 50.
+  // The hand-worked overload: 1.4 fail at step 47, then 7 a step (model.test.ts; from step
+  // 50 before SPEC-loadsim-cascades.md, when clients waited 5 s at the VM itself).
   const run = runDesign(singleVm, { requests: 8_400, windowSeconds: 60, shape: "steady" });
 
   it("counts failures so far at each step", () => {
     const failed = cumulativeFailed(run).vm;
-    expect(failed[49]).toBeCloseTo(0, 6);
-    expect(failed[50]).toBeCloseTo(7, 6);
-    expect(failed[59]).toBeCloseTo(70, 6);
+    expect(failed[46]).toBeCloseTo(0, 6);
+    expect(failed[47]).toBeCloseTo(1.4, 6);
+    expect(failed[48]).toBeCloseTo(8.4, 6);
+    expect(failed[57]).toBeCloseTo(71.4, 6);
     expect(failed.at(-1)).toBeCloseTo(run.summary.perNode.vm.failed, 6);
   });
 

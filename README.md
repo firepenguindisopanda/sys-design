@@ -74,7 +74,7 @@ npm test
 
 **Simulate load** in the canvas toolbar opens `/simulate`, which sends a large load through your design (by default 100,000 requests over 20 minutes, with a spike at the start) and plays it back in about 30 seconds.
 - **Moving dots** show requests leaving the clients and splitting evenly across a load balancer's instances. Failed requests turn red where they fail.
-- **Each component's gauge** says how busy it is in words: "80% busy", "Saturated · 5,965 failed".
+- **Each component's gauge** says how busy it is in words: "80% busy", "Saturated · 5,965 failed". An instance held back by something other than its CPU says what: "Saturated · 80 of 80 slots", "Waiting for a database connection".
 - **Afterwards,** a summary and a per-component table say what was served, what failed and why, typical and slowest answer times, and what a cache would save.
 
 **Queues and workers.** When a compute instance has an edge to a message queue, its writes, and every request of a feature with slow work, go on the queue as jobs:
@@ -84,6 +84,13 @@ npm test
 - When requests stop arriving, playback keeps going until the queues are empty, for at most one more window.
 - A Background jobs summary says how many jobs were done, still waiting or never done, and how long they took. A queue nobody reads says so.
 - A brief can let workers batch their database writes (`batch` in its `load` block).
+
+**Limits and slow work.** Besides its CPU, each compute instance has 80 request slots (Cloud Run's default concurrency) and 10 database connections (a common pool default):
+- **A request holds a slot** from arriving until its answer leaves, so slow work inside the request, or a slow external call, runs out of slots long before the CPU is busy. Requests for every other feature on that instance then time out too.
+- **A database request holds a connection** for its time at the database, waits included. A saturated database backs up into the instances calling it, and the requests time out there, not at the database.
+- **A brief says what its slow work is** (`slowWork` in its `load` block): `cpu` work, like grading or transcoding, also uses the CPU; `wait` work, like crawling, only holds the slot. A brief can also give a feature's external call a time (`apiMs`).
+- **Answers over 5 s fail.** The student gives up whether the time went on waiting or on work, and a request waits at each stop only as long as its answer can still come back in time.
+- **A note names each cascade:** "Alerts API 1 ran out of request slots at 0:00: Fan out alert's 2 s of slow work held them. Requests for Publish alert and Alert preferences timed out there too."
 
 **Switching things off.** Each compute instance, database, cache and worker has a power button. Press it during playback to switch it off at that moment, and again to bring it back; playback carries on from there:
 - **An instance behind a load balancer:** its requests fail for 10 s, until the balancer's health check notices. Then the rest of the pool takes its share, and may not cope.
@@ -99,9 +106,9 @@ It uses its own load model with realistic capacities, separate from the Run simu
 - You can change the requests, window and shape, and play back at 1×, 2× or 4×.
 - You can drag nodes to tidy the layout; the moves stay on that page and never change your design.
 - With reduced motion turned on, edges show their rates as text instead of moving dots.
-- The page lists the parts of your design it doesn't simulate yet: pub/sub topics, files, push, external API calls, slow work done inside a request, and autoscaling.
+- The page lists the parts of your design it doesn't simulate yet: pub/sub topics, files, push, external API calls the brief gives no time for, and autoscaling.
 
-The design reaches the page through the tab's session storage, so reloading `/simulate` keeps it, and reloading an untouched editor brings back the design last sent to it. A brief can set its own default load and realistic per-query database costs in an optional `load` block (see [docs/challenges/brief-format.md](docs/challenges/brief-format.md)). The design and plans are in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md), [SPEC-loadsim-failures.md](SPEC-loadsim-failures.md) and [CAPABILITY-MAP-dataflow-sim.md](CAPABILITY-MAP-dataflow-sim.md).
+The design reaches the page through the tab's session storage, so reloading `/simulate` keeps it, and reloading an untouched editor brings back the design last sent to it. A brief can set its own default load and realistic per-query database costs in an optional `load` block (see [docs/challenges/brief-format.md](docs/challenges/brief-format.md)). The design and plans are in [SPEC-dataflow-sim.md](SPEC-dataflow-sim.md), [SPEC-loadsim-queues.md](SPEC-loadsim-queues.md), [SPEC-loadsim-failures.md](SPEC-loadsim-failures.md), [SPEC-loadsim-cascades.md](SPEC-loadsim-cascades.md) and [CAPABILITY-MAP-dataflow-sim.md](CAPABILITY-MAP-dataflow-sim.md).
 
 ## Screenshots and recordings
 

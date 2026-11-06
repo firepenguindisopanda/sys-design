@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
-import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
+import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
 import { simulateLoad } from "@/lib/loadsim/model";
 import type { Outage } from "@/lib/loadsim/outages";
 
@@ -224,5 +226,185 @@ describe("switching components off", () => {
     ]) {
       expect(JSON.stringify(runWith(briefId, fixture, []))).toBe(JSON.stringify(run(briefId, fixture)));
     }
+  });
+});
+
+// SPEC-loadsim-cascades.md: the pilot table, each under its brief's default load.
+describe("slow work and cascades", () => {
+  const failedThere = (s: ReturnType<typeof run>, nodeIds: string[], reasons = ["timed-out", "too-slow"]) =>
+    s.failures.filter((f) => f.nodeId !== null && nodeIds.includes(f.nodeId) && reasons.includes(f.reason)).reduce((n, f) => n + f.count, 0);
+
+  describe("lab-autograder: grading inside the request", () => {
+    // Submit solution's 3 s of grading is CPU (slowWork: cpu), split over two 2-vCPU
+    // instances (1,400 ms of CPU a second each). The average request costs
+    // (300 × 15 + 200 × 3,040 + 600 × 10) ÷ 1,100 ≈ 562 ms of CPU, so each instance
+    // saturates once the ramp reaches about 2 × 1,400 ÷ 562 ≈ 5 requests a second: at
+    // about 30:36 of the hour (step 306 of 600). Slots never bind first: a 3 s hold allows
+    // about 26 a second per instance.
+    let cached: { bad: ReturnType<typeof run>; good: ReturnType<typeof run>; runBad: ReturnType<typeof runDesign> } | null = null;
+    const get = () => {
+      if (cached) return cached;
+      const built = fixtureDesign("lab-autograder", "bad-sync-grading");
+      const runBad = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+      return (cached = { bad: runBad.summary, good: run("lab-autograder", "good"), runBad });
+    };
+
+    it("saturates the API instances before the deadline, at about 30:36", () => {
+      const { bad } = get();
+      for (const id of ["api-1", "api-2"]) {
+        expect(bad.perNode[id].firstSaturatedAt).not.toBeNull();
+        expect(bad.perNode[id].firstSaturatedAt!).toBeGreaterThan(1750);
+        expect(bad.perNode[id].firstSaturatedAt!).toBeLessThan(1950);
+      }
+    });
+
+    it("records CPU as the limit that binds there", () => {
+      const { runBad } = get();
+      expect(runBad.frames.some((f) => f.nodes["api-1"].limit === "cpu")).toBe(true);
+    });
+
+    it("times requests out at the API instances", () => {
+      expect(failedThere(get().bad, ["api-1", "api-2"])).toBeGreaterThan(0);
+    });
+
+    it("fails Browse exercises and View result too: more fail than every submission", () => {
+      // 200 of 1,100 req/min are submissions: 3,200 of the 17,600 requests.
+      const { bad, good } = get();
+      expect(good.failed).toBeLessThan(0.5);
+      expect(bad.failed).toBeGreaterThan(3200);
+    });
+  });
+
+  describe("notification-system: sending pushes inside the request (no load block)", () => {
+    // The slot cascade's demo (moved here from the autograder in Task 1). In the spike,
+    // 166.7 req/s split over two instances: each gets 83.3, of which Fan out alert is
+    // 1,500 ÷ 1,650, about 75.8. Each holds a slot for its 2 s of waiting plus 15 ms of
+    // compute, so Fan out alone needs 75.8 × 2.02 ≈ 153 slots against 80. CPU is about
+    // 95% offered, so slots bind from the first step. After the spike (55.6 req/s) Fan out
+    // needs about 51 slots, so nothing binds once the backlog has drained.
+    const built = fixtureDesign("notification-system", "bad-sync-delivery");
+    const r = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+
+    it("runs both API instances out of slots from 0:00, only during the spike", () => {
+      for (const id of ["api-1", "api-2"]) {
+        expect(r.frames[0].nodes[id].limit).toBe("slots");
+        expect(r.frames[100].nodes[id].limit).toBe("slots");
+        expect(r.frames[400].nodes[id].limit).toBeUndefined();
+      }
+    });
+
+    it("says Fan out alert held the slots, and the other features failed there too", () => {
+      for (const n of [1, 2]) {
+        expect(
+          r.summary.notes.some((note) =>
+            new RegExp(
+              `^Alerts API ${n} ran out of request slots at 0:00: Fan out alert's .*\\b2 s\\b.* held them\\. ` +
+                "Requests for (Publish alert and Alert preferences|Alert preferences and Publish alert) timed out there too\\.$",
+            ).test(note),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("advises more instances or a queue, not more vCPUs, when slots run out first", () => {
+      // More vCPUs don't add slots: each instance still holds 80 requests at once.
+      expect(r.summary.firstSaturation?.note).toBe(
+        "Alerts API 1 saturated at 0:00: all 80 of its request slots are held. Move the slow work to a queue, or add instances behind a load balancer.",
+      );
+    });
+
+    it("keeps the vCPU advice where the CPU runs out (autograder)", () => {
+      const grading = fixtureDesign("lab-autograder", "bad-sync-grading");
+      const note = runDesign(grading, defaultScenario(grading.brief), { brief: grading.brief }).summary.firstSaturation?.note;
+      expect(note).toMatch(/^Lab API 1 saturated at 30:36: its instances can't keep up\. Add instances behind a load balancer, or give them more vCPUs\.$/);
+    });
+  });
+
+  describe("course-registration: no cache", () => {
+    // Today (a844a4d): 7,440 requests time out at the database, whose backlog peaks at 708.
+    const s = run("course-registration", "bad-no-cache");
+    const built = fixtureDesign("course-registration", "bad-no-cache");
+    const r = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+
+    it("times requests out at the API instances, whose database connections run out", () => {
+      expect(failedThere(s, ["api-1", "api-2"])).toBeGreaterThan(0);
+      expect(r.frames.some((f) => f.nodes["api-1"].limit === "connections")).toBe(true);
+      expect(r.frames.some((f) => f.nodes["api-2"].limit === "connections")).toBe(true);
+    });
+
+    it("leaves the database a smaller backlog than today", () => {
+      expect(s.perNode.db.peakBacklog).toBeLessThan(708);
+    });
+
+    it("still saturates the database first, and still fails at least 5%", () => {
+      expect(s.firstSaturation?.nodeId).toBe("db");
+      expect(s.failed / s.requests).toBeGreaterThanOrEqual(0.05);
+    });
+  });
+
+  describe("unchanged pilots: no limit binds, and no answer passes 5 s", () => {
+    // Measured on main at a844a4d, before this module: tests/loadsim-unchanged-baseline.json.
+    const baseline = JSON.parse(readFileSync(path.resolve(__dirname, "loadsim-unchanged-baseline.json"), "utf8")) as {
+      designs: Record<string, unknown>;
+    };
+    it.each(Object.keys(baseline.designs))("%s", (key) => {
+      const [briefId, fixture] = key.split("/");
+      const s = run(briefId, fixture);
+      expect({
+        served: s.served,
+        failed: s.failed,
+        p50Ms: s.p50Ms,
+        p95Ms: s.p95Ms,
+        failures: s.failures.map((g) => ({ nodeId: g.nodeId, reason: g.reason, count: g.count })),
+        peakUtilisation: Object.fromEntries(Object.entries(s.perNode).map(([id, n]) => [id, n.peakUtilisation])),
+      }).toEqual(baseline.designs[key]);
+    });
+  });
+
+  describe("lecture-video-library: transcoding inside the request (no load block)", () => {
+    it("fails every Upload recording request as too-slow: 60 s of slow work", () => {
+      // Uploads alone, at under one a second, so nothing else is busy.
+      const built = fixtureDesign("lecture-video-library", "bad-sync-transcode");
+      const loads = featureLoads(built.features, built.brief);
+      for (const id of Object.keys(loads)) loads[id] = { ...loads[id], share: id === "upload-recording" ? 1 : 0 };
+      const s = runDesign(built, { requests: 1000, windowSeconds: 1200, shape: "steady" }, { loads }).summary;
+      expect(s.served).toBeLessThan(0.5);
+      expect(failedThere(s, ["api-1", "api-2"], ["too-slow"])).toBeCloseTo(1000, 0);
+    });
+
+    it("fails them as too-slow at the API under the default load too", () => {
+      // 10 of 1,310 req/min are uploads: about 763 of the 100,000 requests.
+      const s = run("lecture-video-library", "bad-sync-transcode");
+      expect(failedThere(s, ["api-1", "api-2"], ["too-slow"])).toBeGreaterThan(0.9 * 763);
+      expect(s.p95Ms).toBeLessThan(5000);
+    });
+  });
+
+  describe("a hand-built external call of apiMs: 2000", () => {
+    // Two instances behind a balancer, 200 requests a second: each is offered 100 and
+    // admits at most 80 slots ÷ 2.01 s ≈ 40, whether it has 8 vCPUs or 32.
+    const callDesign = (vcpus: number) =>
+      design(
+        [requirement("ask", { name: "Ask", targetRpm: 60, computeMsPerRequest: 10, resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0 } })],
+        [
+          ["desktop", "desktop"],
+          ["lb", "load_balancer"],
+          ["api-1", "vm", { capacity: { vcpus } }],
+          ["api-2", "vm", { capacity: { vcpus } }],
+          ["llm", "external_api"],
+        ],
+        ["desktop -> lb : http", "lb -> api-1 : http", "lb -> api-2 : http", "api-1 -> llm : http", "api-2 -> llm : http"],
+        { ask: "api-1" },
+      );
+    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000 } };
+
+    it.each([8, 32])("caps each instance at about 40 req/s with %i vCPUs", (vcpus) => {
+      const r = runDesign(callDesign(vcpus), { requests: 200 * 60, windowSeconds: 60, shape: "steady" }, { loads });
+      for (const id of ["api-1", "api-2"]) {
+        const rates = r.frames.slice(300, 600).map((f) => f.nodes[id].served / r.dtSeconds);
+        expect(Math.min(...rates)).toBeGreaterThan(38);
+        expect(Math.max(...rates)).toBeLessThan(41);
+      }
+    });
   });
 });

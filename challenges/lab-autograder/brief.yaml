@@ -58,7 +58,9 @@ load:
   shape: ramp
   features:
     browse-exercises: { writeShare: 0, dbMs: 3 }
-    submit-solution: { writeShare: 1, dbMs: 8 }
+    # Grading runs the student's code, so slow work done in the request is CPU
+    # (SPEC-loadsim-cascades.md); on the queue, the workers do it either way.
+    submit-solution: { writeShare: 1, dbMs: 8, slowWork: cpu }
     view-result: { writeShare: 0, dbMs: 3 }
 
 rules:

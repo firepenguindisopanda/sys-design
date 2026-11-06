@@ -4,7 +4,7 @@ import { buildFlowGraph, databaseStations } from "./graph";
 import { nodeState, validateOutages, type NodeState } from "./outages";
 import { STEPS, arrivals } from "./scenario";
 import { buildSummary, type Tally } from "./summary";
-import type { FailureGroup, Frame, LoadInput, LoadRun, NodeSummary, Op, PathStep } from "./types";
+import type { FailureGroup, Frame, Limit, LoadInput, LoadRun, NodeSummary, Op, PathStep } from "./types";
 
 /**
  * A deterministic fluid model of the load (SPEC-dataflow-sim.md). Requests aren't
@@ -51,6 +51,10 @@ type Hop = {
   costMs: number;
   /** Time a request spends here before any wait, plus the hop to get here */
   baseMs: number;
+  /** The hop to get here, part of `baseMs` */
+  hopMs: number;
+  /** A compute instance: it has slots and connections (SPEC-loadsim-cascades.md) */
+  compute: boolean;
   stations: { id: string; fraction: number }[];
   op: Op;
   featureId: string;
@@ -63,11 +67,16 @@ type Hop = {
 
 type Station = {
   id: string;
+  /** Its place in creation order, for arrays indexed by station */
+  index: number;
   nodeId: string;
+  kind: string;
   budgetMs: number;
   /** Requests it can work on at once (vCPUs), for the queueing wait */
   servers: number;
   entries: { hop: number; fraction: number }[];
+  /** A compute instance, with slot and connection budgets besides its CPU */
+  compute?: boolean;
 };
 
 /**
@@ -107,7 +116,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
   if (invalid) throw new Error(invalid);
   // Components with outages (SPEC-loadsim-failures.md); with none, nothing below changes.
   const outageNodes = new Set(outages.map((o) => o.nodeId));
-  const graph = buildFlowGraph(nodes, edges, features);
+  const graph = buildFlowGraph(nodes, edges, features, loads);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const kind = (id: string) => byId.get(id)?.data.componentKind ?? "";
   const featureById = new Map(features.map((f) => [f.id, f]));
@@ -132,10 +141,12 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
   const hops: Hop[] = [];
   const stations = new Map<string, Station>();
   const station = (id: string, nodeId: string, budgetMs: number, servers = 1) => {
-    if (!stations.has(id)) stations.set(id, { id, nodeId, budgetMs, servers, entries: [] });
+    if (!stations.has(id)) stations.set(id, { id, index: stations.size, nodeId, kind: kind(nodeId), budgetMs, servers, entries: [] });
     return stations.get(id)!;
   };
   const roots: number[] = [];
+  /** Each compute hop's slow work and external call, for the cascade notes */
+  const slowPartsOf = new Map<number, { slowMs: number; callMs: number }>();
   graph.classes.forEach((cls, classIndex) => {
     if (!cls.root) return;
     const feature = featureById.get(cls.featureId)!;
@@ -161,6 +172,8 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
         remainder: 1,
         costMs: 0,
         baseMs: hopMs,
+        hopMs,
+        compute: false,
         stations: [],
         op,
         featureId: cls.featureId,
@@ -187,10 +200,16 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
         hop.stations = [{ id: step.nodeId, fraction: 1 }];
         station(step.nodeId, step.nodeId, CAPACITY.loadBalancer.budgetMs);
       } else if (config && "capacity" in config) {
-        hop.costMs = feature.computeMsPerRequest;
-        hop.baseMs += feature.computeMsPerRequest;
+        // SPEC-loadsim-cascades.md: slow work done in the request takes its time, and costs
+        // CPU if it's CPU work; an external call takes apiMs. Both hold the request's slot.
+        const inlineMs = step.inlineSlowMs ?? 0;
+        const callMs = step.callsApi ? (load?.apiMs ?? 0) : 0;
+        slowPartsOf.set(index, { slowMs: inlineMs, callMs });
+        hop.costMs = feature.computeMsPerRequest + (load?.slowWork === "cpu" ? inlineMs : 0);
+        hop.baseMs += feature.computeMsPerRequest + inlineMs + callMs;
+        hop.compute = true;
         hop.stations = [{ id: step.nodeId, fraction: 1 }];
-        station(step.nodeId, step.nodeId, computeBudgetMs(config.capacity.vcpus), config.capacity.vcpus);
+        station(step.nodeId, step.nodeId, computeBudgetMs(config.capacity.vcpus), config.capacity.vcpus).compute = true;
       } else if (k === "cache") {
         hop.costMs = CAPACITY.cache.costMs;
         hop.baseMs += CAPACITY.cache.timeMs;
@@ -266,12 +285,30 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
   const servedOut = new Float64Array(hops.length);
   const failedAt = new Float64Array(hops.length);
   const stationsLeft = new Int32Array(hops.length);
-  const waitMs = new Map<string, number>();
+  /** Each station's wait this step, by station index; 0 until it's first worked out */
+  const waitMs = new Float64Array(stations.size);
+  // Each hop's stations as arrays, for the per-step sums.
+  const stationCount = Int32Array.from(hops, (h) => h.stations.length);
+  const hopStationIndex = hops.map((h) => Int32Array.from(h.stations, (st) => stations.get(st.id)!.index));
+  const hopStationFraction = hops.map((h) => Float64Array.from(h.stations, (st) => st.fraction));
+  /** A hop's wait: its connection wait if it has one this step, else its stations' waits */
+  const hopWait = (index: number) => {
+    const own = connWait.get(index);
+    if (own !== undefined) return own;
+    const at = hopStationIndex[index];
+    const share = hopStationFraction[index];
+    let sum = 0;
+    for (let k = 0; k < at.length; k++) sum += share[k] * waitMs[at[k]];
+    return sum;
+  };
 
   // Background jobs (SPEC-loadsim-queues.md). A job never times out: the worker retries.
-  const exempt = (index: number) => hops[index].job && !hops[index].answers;
+  const exemptHop = Uint8Array.from(hops, (h) => (h.job && !h.answers ? 1 : 0));
+  const exempt = (index: number) => exemptHop[index] === 1;
   const isQueueHop = (h: Hop) => h.job && kind(h.nodeId) === "message_queue";
   const isWorkerHop = (h: Hop) => h.job && kind(h.nodeId) === "task_worker";
+  const queueHop = Uint8Array.from(hops, (h) => (isQueueHop(h) ? 1 : 0));
+  const workerHop = Uint8Array.from(hops, (h) => (isWorkerHop(h) ? 1 : 0));
   const hasJobs = hops.some((h) => h.answers);
   const queueIds = [...new Set(hops.filter(isQueueHop).map((h) => h.nodeId))].sort();
   /** The queue each worker hop takes its jobs from */
@@ -311,6 +348,387 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
     .map((_, i) => i)
     .filter((i) => kind(hops[i].nodeId) === "load_balancer" && hops[i].children.some((c) => outageNodes.has(hops[c].nodeId)));
   const states = new Map<string, NodeState>();
+
+  // Request slots and database connections (SPEC-loadsim-cascades.md). A request holds a
+  // slot at its instance from admission to its answer leaving, and a database request holds
+  // a connection for its database time, waits included. Those waits depend on how many
+  // requests the instances admit, so each step admission is solved: every instance admits
+  // what its slots and connections allow, given the waits its own admission causes below
+  // it. Nothing is carried from earlier steps but the backlogs, so admission can't swing.
+  const instance = CAPACITY.instance;
+  const isDbHop = hops.map((h) => kind(h.nodeId) === "database");
+  const computeHops = hops.map((_, i) => i).filter((i) => hops[i].compute);
+  /** The compute hop holding each hop's request (itself, for a compute hop); -1 if none */
+  const nearestCompute = new Int32Array(hops.length);
+  for (const i of byDepth) {
+    nearestCompute[i] = hops[i].compute ? i : hops[i].parent >= 0 ? nearestCompute[hops[i].parent] : -1;
+  }
+  const ownMs = (i: number) => hops[i].baseMs - hops[i].hopMs;
+  const timeoutMs = CAPACITY.timeoutSeconds * 1000;
+  /** Time from the client to the end of each hop's wait, this step */
+  const upTo = new Float64Array(hops.length);
+  /** Each hop's wait last step, and from it the slowest way on from a hop to an answer */
+  const lastWait = new Float64Array(hops.length);
+  const afterMax = new Float64Array(hops.length);
+  const byDepthUp = [...byDepth].reverse();
+  /** Each hop's wait as predicted for this step, where the admission solve predicted it */
+  const predictedWait = new Float64Array(hops.length).fill(NaN);
+  const workOutAfter = () => {
+    for (const i of byDepthUp) {
+      let most = 0;
+      for (const c of hops[i].children) {
+        if (exempt(c) || !(fracNow[c] > 0)) continue;
+        const wait = Number.isNaN(predictedWait[c]) ? lastWait[c] : predictedWait[c];
+        most = Math.max(most, hops[c].baseMs + wait + afterMax[c]);
+      }
+      afterMax[i] = most;
+    }
+  };
+  /** Each compute hop's slot and connection hold this step, in ms per request */
+  const holdNow = new Float64Array(hops.length);
+  const connNow = new Float64Array(hops.length);
+  /** A compute hop whose requests go on to a database, so they need a connection */
+  const usesDb = new Uint8Array(hops.length);
+  /** Stations by number, for the solve's arrays */
+  const stationList = [...stations.values()];
+  const stationIndex = new Map(stationList.map((s, i) => [s.id, i]));
+  /**
+   * What a request admitted at a compute hop does below it: the time it spends at each
+   * hop (base times, then each station's wait times `wait`), and the requests it brings to
+   * each station (`arrive`, of `cost` ms each). Shares follow the paths as they are now.
+   */
+  type Term = { station: number; wait: number; arrive: number; cost: number; db: boolean };
+  const reach: { base: number; connBase: number; terms: Term[] }[] = [];
+  const buildReach = () => {
+    for (const j of computeHops) {
+      const r = { base: 0, connBase: 0, terms: [] as Term[] };
+      let db = false;
+      const walk = (h: number, share: number) => {
+        for (const c of hops[h].children) {
+          if (exempt(c)) continue; // a job: the client was answered at the queue
+          const p = share * fracNow[c] * (1 - lostShare[c]);
+          if (!(p > 0)) continue;
+          const hop = hops[c];
+          r.base += p * hop.baseMs;
+          if (isDbHop[c]) {
+            r.connBase += p * hop.baseMs;
+            db = true;
+          }
+          hop.stations.forEach((st, k) => {
+            r.terms.push({
+              station: stationIndex.get(st.id)!,
+              wait: p * st.fraction,
+              arrive: p * entriesOf[c][k].entry.fraction,
+              cost: hop.costMs,
+              db: isDbHop[c],
+            });
+          });
+          walk(c, p);
+        }
+      };
+      walk(j, 1);
+      reach[j] = r;
+      usesDb[j] = db ? 1 : 0;
+    }
+  };
+  let reachBuilt = false;
+  /** The shares `reach` was built from; an outage changes them only when a state changes */
+  const shareSnapshot: number[] = [];
+  const sharesChanged = () => {
+    let i = 0;
+    let changed = false;
+    const keep = (x: number) => {
+      if (shareSnapshot[i] !== x) {
+        shareSnapshot[i] = x;
+        changed = true;
+      }
+      i++;
+    };
+    for (let h = 0; h < hops.length; h++) {
+      keep(fracNow[h]);
+      keep(lostShare[h]);
+      for (const { entry } of entriesOf[h]) keep(entry.fraction);
+    }
+    return changed;
+  };
+  /** Requests and work that jobs brought to each station last step: the solve's estimate for this one */
+  const jobArrivals = new Map<string, { count: number; work: number }>();
+  /** Each compute station's admission this step: by slots, and by connections for database requests */
+  const levels = new Map<string, { slot: number; conn: number }>();
+  /** The levels solved last step, where the next step's solve starts */
+  const lastLevels = new Map<string, { slot: number; conn: number }>();
+  /** A compute hop's own wait this step, when its connections drain slower than the instance */
+  const connWait = new Map<number, number>();
+  const computeStations = order.filter((s) => s.compute);
+  const isFront = (s: Station) => s.entries.every((e) => nearestCompute[e.hop] < 0);
+  const frontStations = order.filter(isFront);
+  const backStations = order.filter((s) => !isFront(s));
+  const waitsNow = new Float64Array(stationList.length);
+  const arriveCount = new Float64Array(stationList.length);
+  const arriveWork = new Float64Array(stationList.length);
+  /** Stations whose wait the solve predicted this step */
+  const predicted = new Uint8Array(stationList.length);
+
+  /** Bracketed root of an increasing function (Illinois): g(a) < 0 < g(b). */
+  const rootOf = (g: (x: number) => number, a: number, ga: number, b: number, gb: number) => {
+    let side = 0;
+    let x = b;
+    for (let i = 0; i < 100 && b - a > 1e-12; i++) {
+      x = (a * gb - b * ga) / (gb - ga);
+      const gx = g(x);
+      if (Math.abs(gx) < 1e-12) return x;
+      if (gx > 0) {
+        b = x;
+        gb = gx;
+        if (side === 1) ga /= 2;
+        side = 1;
+      } else {
+        a = x;
+        ga = gx;
+        if (side === -1) gb /= 2;
+        side = -1;
+      }
+    }
+    return x;
+  };
+
+  type Control = { id: string; cpu: number; slot: number; conn: number; items: { hop: number; q: number }[]; hasDb: boolean };
+
+  const solveAdmission = () => {
+    levels.clear();
+    if (computeStations.length === 0) return;
+    const sharesMoved = outageNodes.size > 0 && sharesChanged();
+    if (!reachBuilt || sharesMoved) {
+      buildReach();
+      reachBuilt = true;
+    }
+    // What each instance is offered now, and what its CPU allows.
+    const slotBudget = instance.slots * 1000 * dt;
+    const connBudget = instance.connections * 1000 * dt;
+    const controls: Control[] = [];
+    const below = new Set<number>();
+    for (const s of computeStations) {
+      if (downStations.has(s.id)) continue;
+      const queue = backlog.get(s.id)!;
+      let offered = 0;
+      const items: Control["items"] = [];
+      s.entries.forEach((e, j) => {
+        const q = queue[j] + volIn[e.hop] * e.fraction;
+        offered += q * hops[e.hop].costMs;
+        if (q > 0) items.push({ hop: e.hop, q });
+      });
+      if (items.length === 0) continue;
+      const budgetStep = s.budgetMs * dt;
+      const cpu = offered <= budgetStep + EPS ? 1 : budgetStep / offered;
+      for (const it of items) for (const t of reach[it.hop].terms) below.add(t.station);
+      controls.push({ id: s.id, cpu, slot: 1, conn: 1, items, hasDb: items.some((it) => usesDb[it.hop] === 1) });
+    }
+    // Each station below: what already waits there, and the jobs expected this step.
+    const downstream = [...below].map((index) => {
+      const st = stationList[index];
+      const queue = backlog.get(st.id)!;
+      let work = 0;
+      let count = 0;
+      let requestWork = 0;
+      st.entries.forEach((e, j) => {
+        work += queue[j] * hops[e.hop].costMs;
+        count += queue[j];
+        if (!exempt(e.hop)) requestWork += queue[j] * hops[e.hop].costMs;
+      });
+      const jobs = jobArrivals.get(st.id) ?? { count: 0, work: 0 };
+      return { index, st, work, count, requestWork, jobs, down: downStations.has(st.id) };
+    });
+    // The wait each station below would have, for what the instances admit: the same
+    // arithmetic its own turn does (served, given up on, then backlog plus queueing).
+    const evaluate = () => {
+      for (const d of downstream) {
+        arriveCount[d.index] = 0;
+        arriveWork[d.index] = 0;
+      }
+      for (const c of controls) {
+        for (const it of c.items) {
+          const admitted = it.q * Math.min(c.cpu, c.slot, usesDb[it.hop] ? c.conn : 1);
+          for (const t of reach[it.hop].terms) {
+            arriveCount[t.station] += admitted * t.arrive;
+            arriveWork[t.station] += admitted * t.arrive * t.cost;
+          }
+        }
+      }
+      for (const d of downstream) {
+        if (d.down) {
+          waitsNow[d.index] = 0;
+          continue;
+        }
+        const budgetMs = d.st.budgetMs;
+        const budgetStep = budgetMs * dt;
+        const arriving = arriveWork[d.index] + d.jobs.work;
+        const total = d.work + arriving;
+        const present = d.count + arriveCount[d.index] + d.jobs.count;
+        const serve = total <= budgetStep + EPS ? 1 : budgetStep / total;
+        const servedWork = total * serve;
+        let left = total - servedWork;
+        const requestLeft = (d.requestWork + arriveWork[d.index]) * (1 - serve);
+        const most = budgetMs * CAPACITY.timeoutSeconds;
+        if (left > most * (1 + EPS) + EPS && requestLeft > EPS) left -= Math.min(1, (left - most) / requestLeft) * requestLeft;
+        const busy = Math.max(arriving, servedWork) / budgetStep;
+        const meanService = present > EPS ? total / present : 0;
+        waitsNow[d.index] = (left / budgetMs) * 1000 + queueingFactor(busy, d.st.servers) * meanService;
+      }
+    };
+    const holdOf = (hop: number) => {
+      const r = reach[hop];
+      let h = ownMs(hop) + r.base;
+      for (const t of r.terms) h += t.wait * waitsNow[t.station];
+      return h;
+    };
+    const connOf = (hop: number) => {
+      const r = reach[hop];
+      let h = r.connBase;
+      for (const t of r.terms) if (t.db) h += t.wait * waitsNow[t.station];
+      return h;
+    };
+    /** What an instance's slots and connections allow, at the waits evaluated last. */
+    const allowed = (c: Control) => {
+      let others = 0; // slot time of requests that don't use the database
+      let dbSlots = 0;
+      let dbConns = 0;
+      for (const it of c.items) {
+        const h = it.q * holdOf(it.hop);
+        if (usesDb[it.hop]) {
+          dbSlots += h;
+          dbConns += it.q * connOf(it.hop);
+        } else others += h;
+      }
+      // Connections: database requests, each admitted up to what CPU and slots allow.
+      const conn = dbConns * Math.min(c.cpu, c.slot) <= connBudget + EPS ? 1 : connBudget / dbConns;
+      // Slots: every request, database requests capped by their connections too.
+      const capOthers = c.cpu;
+      const capDb = Math.min(c.cpu, c.conn);
+      let slot = 1;
+      if (others * capOthers + dbSlots * capDb > slotBudget + EPS) {
+        const low = Math.min(capOthers, capDb);
+        if ((others + dbSlots) * low >= slotBudget) slot = slotBudget / (others + dbSlots);
+        else {
+          const [fixed, rest] = low === capDb ? [dbSlots * capDb, others] : [others * capOthers, dbSlots];
+          slot = rest > 0 ? (slotBudget - fixed) / rest : 1;
+        }
+      }
+      return { slot, conn };
+    };
+
+    evaluate();
+    const binds = controls.some((c) => {
+      const a = allowed(c);
+      return a.slot < 1 || a.conn < 1;
+    });
+    if (binds) {
+      // Solve each level in turn, given the others, until none moves. Levels change little
+      // from step to step, so start from last step's.
+      const coords: [Control, "slot" | "conn"][] = [];
+      for (const c of controls) {
+        const last = lastLevels.get(c.id);
+        if (last) {
+          c.slot = last.slot;
+          c.conn = last.conn;
+        }
+        coords.push([c, "slot"]);
+        if (c.hasDb) coords.push([c, "conn"]);
+      }
+      for (let sweep = 0; sweep < 100; sweep++) {
+        let moved = 0;
+        for (const [c, field] of coords) {
+          const before = c[field];
+          const g = (x: number) => {
+            c[field] = x;
+            evaluate();
+            return x - allowed(c)[field];
+          };
+          // g rises with slope at least 1 (admitting more only lengthens the waits that
+          // set what's allowed), so the root is within |g| of where it's evaluated. Bracket
+          // it there, widening if it isn't, up to the bounds 0 and 1.
+          const at = g(before);
+          let x = before;
+          if (at > 1e-12) {
+            let hi = before;
+            let gHi = at;
+            let step = at;
+            for (;;) {
+              const lo = Math.max(0, hi - step * (1 + 1e-6));
+              const gLo = g(lo);
+              if (gLo < 0) {
+                x = rootOf(g, lo, gLo, hi, gHi);
+                break;
+              }
+              if (lo === 0) {
+                x = 0;
+                break;
+              }
+              hi = lo;
+              gHi = gLo;
+              step *= 4;
+            }
+          } else if (at < -1e-12) {
+            let lo = before;
+            let gLo = at;
+            let step = -at;
+            for (;;) {
+              const hi = Math.min(1, lo + step * (1 + 1e-6));
+              const gHi = g(hi);
+              if (gHi > 0) {
+                x = rootOf(g, lo, gLo, hi, gHi);
+                break;
+              }
+              if (hi === 1) {
+                x = 1;
+                break;
+              }
+              lo = hi;
+              gLo = gHi;
+              step *= 4;
+            }
+          }
+          c[field] = x;
+          moved = Math.max(moved, Math.abs(x - before));
+        }
+        if (moved < 1e-9) break;
+      }
+      evaluate();
+    }
+    for (const c of controls) {
+      levels.set(c.id, { slot: c.slot, conn: c.conn });
+      lastLevels.set(c.id, { slot: c.slot, conn: c.conn });
+    }
+    for (const j of computeHops) {
+      holdNow[j] = holdOf(j);
+      connNow[j] = usesDb[j] ? connOf(j) : 0;
+    }
+    // This step's predicted waits below the instances, for how long their requests can wait.
+    predicted.fill(0);
+    for (const d of downstream) predicted[d.index] = 1;
+    predictedWait.fill(NaN);
+    for (let i = 0; i < hops.length; i++) {
+      const at = hopStationIndex[i];
+      if (at.length === 0) continue;
+      const share = hopStationFraction[i];
+      let sum = 0;
+      let all = true;
+      for (let k = 0; k < at.length && all; k++) {
+        all = predicted[at[k]] === 1;
+        sum += share[k] * waitsNow[at[k]];
+      }
+      if (all) predictedWait[i] = sum;
+    }
+    workOutAfter();
+  };
+  // For the cascade notes.
+  const failedByFeature: Tally["cascades"]["failedByFeature"] = {};
+  const slotMsByFeature: Tally["cascades"]["slotMsByFeature"] = {};
+  const firstLimit: Tally["cascades"]["firstLimit"] = {};
+  const countFor = (map: Record<string, Record<string, number>>, nodeId: string, featureId: string, n: number) => {
+    map[nodeId] ??= {};
+    map[nodeId][featureId] = (map[nodeId][featureId] ?? 0) + n;
+  };
+  const tooSlow = new Map<string, number>();
 
   const applyOutages = (stepIndex: number) => {
     if (outageNodes.size === 0) return;
@@ -383,17 +801,21 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
     volIn.fill(0);
     servedOut.fill(0);
     failedAt.fill(0);
-    hops.forEach((h, i) => (stationsLeft[i] = h.stations.length));
+    stationsLeft.set(stationCount);
     const frame: Frame = { nodes: {}, edges: {} };
     for (const n of nodes) frame.nodes[n.id] = { arrivals: 0, served: 0, failed: 0, backlog: 0, utilisation: 0 };
     currentStep = stepIndex;
     applyOutages(stepIndex);
+    connWait.clear();
+    workOutAfter();
     for (const [id, state] of states) {
       if (state.down) frame.nodes[id].off = behindBalancer.has(id) && state.routable ? "routed" : "noticed";
     }
 
     // Hand a hop's served requests on to its children once all its stations are done.
     const finish = (index: number) => {
+      const hop = hops[index];
+      upTo[index] = (hop.parent >= 0 ? upTo[hop.parent] : 0) + hop.baseMs + hopWait(index);
       const blamed = poolDown.get(index);
       if (blamed) loseToOutage(blamed, servedOut[index], index, frame);
       for (const child of hops[index].children) {
@@ -420,15 +842,21 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
     unassigned += sent * unassignedShare;
 
     let saturatedNow: string | null = null;
-    for (const s of order) {
+    const processStation = (s: Station) => {
       const queue = backlog.get(s.id)!;
       // A component that's off serves nothing; a cache that's off just passes reads on.
       const isDown = downStations.has(s.id);
-      const budgetStep = isDown ? (kind(s.nodeId) === "cache" ? Infinity : 0) : s.budgetMs * dt;
+      const budgetStep = isDown ? (s.kind === "cache" ? Infinity : 0) : s.budgetMs * dt;
       let offered = 0;
       let arrivingWork = 0;
       let arrivingRead = 0;
       let present = 0;
+      // A compute instance's slot and connection time, in request-ms (SPEC-loadsim-cascades.md).
+      let slotArriving = 0;
+      let connArriving = 0;
+      // Jobs arriving: the next step's admission solve expects as many.
+      let jobCount = 0;
+      let jobWork = 0;
       s.entries.forEach((e, j) => {
         const hop = hops[e.hop];
         const arriving = volIn[e.hop] * e.fraction;
@@ -436,8 +864,16 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
         present += queue[j];
         offered += queue[j] * hop.costMs;
         arrivingWork += arriving * hop.costMs;
+        if (s.compute) {
+          slotArriving += arriving * holdNow[e.hop];
+          connArriving += arriving * connNow[e.hop];
+        }
+        if (exempt(e.hop)) {
+          jobCount += arriving;
+          jobWork += arriving * hop.costMs;
+        }
         if (hop.op === "read") arrivingRead += arriving * hop.costMs;
-        if (kind(s.nodeId) === "database") {
+        if (s.kind === "database") {
           const node = hop.nodeId;
           if (hop.op === "read") {
             readWork[node] ??= {};
@@ -448,57 +884,140 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
         }
         frame.nodes[s.nodeId].arrivals += arriving;
       });
+      if (jobCount > 0) jobArrivals.set(s.id, { count: jobCount, work: jobWork });
+      else jobArrivals.delete(s.id);
 
       const serve = offered <= budgetStep + EPS ? 1 : budgetStep / offered;
-      const servedWork = offered * serve;
+      // At an instance, the solved admission: slots limit every request, connections only
+      // database requests. Whichever is lowest is the limit that binds.
+      const level = s.compute && !isDown ? levels.get(s.id) : undefined;
+      const slotLevel = level?.slot ?? 1;
+      const connLevel = level?.conn ?? 1;
+      const uniform = slotLevel >= 1 && connLevel >= 1;
+      const serveOf = (hop: number) => (uniform ? serve : Math.min(serve, slotLevel, usesDb[hop] ? connLevel : 1));
+      let limit: Limit | undefined = serve < 1 ? "cpu" : undefined;
+      if (slotLevel < Math.min(1, serve)) limit = "slots";
+      if (connLevel < Math.min(1, serve, slotLevel)) limit = "connections";
+      const slotBudget = instance.slots * 1000 * dt;
+      const connBudget = instance.connections * 1000 * dt;
+      let servedWork = uniform ? offered * serve : 0;
       let remaining = 0;
+      let slotRemaining = 0;
+      let connRemaining = 0;
+      let slotServed = 0;
+      let connServed = 0;
       s.entries.forEach((e, j) => {
-        const out = queue[j] * serve;
+        const out = queue[j] * serveOf(e.hop);
+        if (!uniform) servedWork += out * hops[e.hop].costMs;
         queue[j] -= out;
         servedOut[e.hop] += out;
         frame.nodes[s.nodeId].served += out;
         remaining += queue[j] * hops[e.hop].costMs;
+        if (s.compute) {
+          slotRemaining += queue[j] * holdNow[e.hop];
+          connRemaining += queue[j] * connNow[e.hop];
+          slotServed += out * holdNow[e.hop];
+          connServed += out * connNow[e.hop];
+          countFor(slotMsByFeature, s.nodeId, hops[e.hop].featureId, out * holdNow[e.hop]);
+        }
       });
+      if (limit && !isDown) {
+        frame.nodes[s.nodeId].limit = limit;
+        if (limit !== "cpu") {
+          const first = (firstLimit[s.nodeId] ??= { slots: null, connections: null });
+          first[limit] ??= stepIndex * dt;
+        }
+      }
       // Requests at a component that's off fail, those waiting when it went off too; jobs
       // wait for it to come back.
       if (isDown && budgetStep === 0) {
         s.entries.forEach((e, j) => {
           if (exempt(e.hop) || queue[j] <= 0) return;
           remaining -= queue[j] * hops[e.hop].costMs;
+          slotRemaining -= queue[j] * holdNow[e.hop];
+          connRemaining -= queue[j] * connNow[e.hop];
           loseToOutage(s.nodeId, queue[j], e.hop, frame);
           queue[j] = 0;
         });
       }
-      // The client gives up after the timeout: at most that much work can wait here. A
-      // request waits behind every job in front of it, but only requests are given up on.
-      const limit = s.budgetMs * CAPACITY.timeoutSeconds;
-      if (remaining > limit * (1 + EPS) + EPS) {
-        let requestWork = 0;
-        s.entries.forEach((e, j) => {
-          if (!exempt(e.hop)) requestWork += queue[j] * hops[e.hop].costMs;
-        });
-        if (requestWork > EPS) {
-          const drop = Math.min(1, (remaining - limit) / requestWork);
-          s.entries.forEach((e, j) => {
-            if (exempt(e.hop)) return;
-            const lost = queue[j] * drop;
-            queue[j] -= lost;
-            remaining -= lost * hops[e.hop].costMs;
-            failedAt[e.hop] += lost;
-            frame.nodes[s.nodeId].failed += lost;
-            timedOut.set(s.nodeId, (timedOut.get(s.nodeId) ?? 0) + lost);
-          });
-        }
-      }
       // Demand against capacity: what arrived, or what was served while a backlog drains.
       // Work already waiting isn't counted again, so an overloaded node reads 130%, not 400%.
-      const utilisation = budgetStep > 0 ? Math.max(arrivingWork, servedWork) / budgetStep : 0;
+      const cpuUtilisation = budgetStep > 0 ? Math.max(arrivingWork, servedWork) / budgetStep : 0;
+      // An instance is as busy as its busiest budget, so slots in use show on the gauge.
+      const utilisation =
+        s.compute && budgetStep > 0
+          ? Math.max(
+              cpuUtilisation,
+              Math.max(slotArriving, slotServed) / slotBudget,
+              Math.max(connArriving, connServed) / connBudget,
+            )
+          : cpuUtilisation;
 
       // Wait here: the backlog's own (seconds, once saturated) plus queueing, which grows
-      // with how busy the station is, in units of its average time per request.
+      // with how busy the CPU is, in units of its average time per request.
       const meanServiceMs = present > EPS ? offered / present : 0;
-      const queueingMs = queueingFactor(utilisation, s.servers) * meanServiceMs;
-      if (kind(s.nodeId) === "task_worker") {
+      const queueingMs = queueingFactor(cpuUtilisation, s.servers) * meanServiceMs;
+
+      // The client gives up once its answer would take over the timeout (amended in Task 4,
+      // SPEC-loadsim-cascades.md): a request waits here at most what's left of the 5 s after
+      // the time it took to get here, its work here and its slowest way on to an answer.
+      // Several kinds of request share the backlog, so it holds no more than the least
+      // patient of them allows, and every request served still answers in time. A request
+      // waits behind every job in front of it, but only requests are given up on. At an
+      // instance the same holds for its slot and connection time.
+      /** The longest this station's waiting requests (those `which` picks) can wait, in ms */
+      const patience = (which: (hop: number) => boolean) => {
+        let least = Infinity;
+        s.entries.forEach((e, j) => {
+          if (exempt(e.hop) || !which(e.hop) || !(queue[j] > EPS)) return;
+          const hop = hops[e.hop];
+          const before = (hop.parent >= 0 ? upTo[hop.parent] : 0) + hop.baseMs;
+          least = Math.min(least, timeoutMs - before - afterMax[e.hop]);
+        });
+        return Math.max(0, least - queueingMs);
+      };
+      /** The share of the waiting requests (those `which` picks) to give up on so `left` fits in `most` */
+      const dropFor = (left: number, most: number, cost: (hop: number) => number, which: (hop: number) => boolean) => {
+        if (!(left > most * (1 + EPS) + EPS)) return 0;
+        let requestWork = 0;
+        s.entries.forEach((e, j) => {
+          if (!exempt(e.hop) && which(e.hop)) requestWork += queue[j] * cost(e.hop);
+        });
+        return requestWork > EPS ? Math.min(1, (left - most) / requestWork) : 0;
+      };
+      const giveUp = (drop: number, which: (hop: number) => boolean) => {
+        if (!(drop > 0)) return;
+        s.entries.forEach((e, j) => {
+          if (exempt(e.hop) || !which(e.hop)) return;
+          const lost = queue[j] * drop;
+          queue[j] -= lost;
+          remaining -= lost * hops[e.hop].costMs;
+          slotRemaining -= lost * holdNow[e.hop];
+          connRemaining -= lost * connNow[e.hop];
+          failedAt[e.hop] += lost;
+          frame.nodes[s.nodeId].failed += lost;
+          timedOut.set(s.nodeId, (timedOut.get(s.nodeId) ?? 0) + lost);
+          if (s.compute) countFor(failedByFeature, s.nodeId, hops[e.hop].featureId, lost);
+        });
+      };
+      const every = () => true;
+      const waitAll = patience(every);
+      if (waitAll < Infinity) {
+        let drop = dropFor(remaining, (s.budgetMs * waitAll) / 1000, (h) => hops[h].costMs, every);
+        if (s.compute) {
+          drop = Math.max(drop, dropFor(slotRemaining, (instance.slots * 1000 * waitAll) / 1000, (h) => holdNow[h], every));
+        }
+        giveUp(drop, every);
+      }
+      // Database requests also wait for a connection, as long as they can.
+      if (s.compute) {
+        const dbOnly = (h: number) => usesDb[h] === 1;
+        const waitDb = patience(dbOnly);
+        if (waitDb < Infinity) {
+          giveUp(dropFor(connRemaining, (instance.connections * 1000 * waitDb) / 1000, (h) => connNow[h], dbOnly), dbOnly);
+        }
+      }
+      if (s.kind === "task_worker") {
         const f = fifo.get(s.id) ?? { arrived: [], taken: 0 };
         fifo.set(s.id, f);
         let arrivedNow = 0;
@@ -517,12 +1036,21 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
           if (f.arrived[mid] >= f.taken - EPS) hi = mid;
           else lo = mid + 1;
         }
-        waitMs.set(s.id, Math.max((f.arrived.length - 1 - lo) * dt * 1000, queueingMs));
+        waitMs[s.index] = Math.max((f.arrived.length - 1 - lo) * dt * 1000, queueingMs);
+      } else if (s.compute) {
+        // Every request waits for CPU and a slot; a database request may wait longer, for a
+        // connection.
+        const drainSeconds = Math.max(remaining / s.budgetMs, slotRemaining / (instance.slots * 1000));
+        waitMs[s.index] = drainSeconds * 1000 + queueingMs;
+        const connSeconds = connRemaining / (instance.connections * 1000);
+        if (connSeconds > drainSeconds) {
+          for (const e of s.entries) if (usesDb[e.hop]) connWait.set(e.hop, connSeconds * 1000 + queueingMs);
+        }
       } else {
-        waitMs.set(s.id, (remaining / s.budgetMs) * 1000 + queueingMs);
+        waitMs[s.index] = (remaining / s.budgetMs) * 1000 + queueingMs;
       }
       const nodeFrame = frame.nodes[s.nodeId];
-      const isWorker = kind(s.nodeId) === "task_worker";
+      const isWorker = s.kind === "task_worker";
       if (isWorker) {
         // Jobs wait for a worker on the queue they came from, so that's where they show.
         s.entries.forEach((e, j) => (frame.nodes[queueOf(e.hop)].backlog += queue[j]));
@@ -538,7 +1066,9 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
       if (offered > EPS && utilisation >= 1 - EPS) {
         summary.firstSaturatedAt ??= stepIndex * dt;
         // A worker running flat out is what a queue is for, so it's never the headline.
-        const headline = !isWorker && kind(s.nodeId) !== "message_queue";
+        // Nor is an instance waiting for database connections: the database is the cause,
+        // and the instance's connection note tells its side (SPEC-loadsim-cascades.md).
+        const headline = !isWorker && s.kind !== "message_queue" && limit !== "connections";
         if (headline && !firstSaturation && (saturatedNow === null || s.nodeId < saturatedNow)) saturatedNow = s.nodeId;
         if (isWorker) {
           for (const e of s.entries) {
@@ -551,7 +1081,12 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
       for (const e of s.entries) {
         if (--stationsLeft[e.hop] === 0) finish(e.hop);
       }
-    }
+    };
+    // Balancers and CDNs hand on their requests first; then the instances' admission is
+    // solved together (SPEC-loadsim-cascades.md); then every station from the instances on.
+    for (const s of frontStations) processStation(s);
+    solveAdmission();
+    for (const s of backStations) processStation(s);
     if (!firstSaturation && saturatedNow) firstSaturation = { nodeId: saturatedNow, atSeconds: stepIndex * dt };
 
     // Latency of what was answered this step: each hop's base time plus its wait now. A
@@ -562,29 +1097,40 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
       const key = Math.round(ms * 10) / 10;
       map.set(key, (map.get(key) ?? 0) + count);
     };
+    // An answer that took over the timeout overall is given up on (SPEC-loadsim-cascades.md),
+    // counted against the instance holding the request.
+    const answer = (index: number, count: number) => {
+      // A backlog capped at what's left of the timeout answers at exactly 5 s: allow rounding.
+      if (cumulative[index] <= timeoutMs + 1e-6) {
+        record(latency, cumulative[index], count);
+        served += count;
+        return;
+      }
+      const holder = nearestCompute[index] >= 0 ? nearestCompute[index] : index;
+      const nodeId = hops[holder].nodeId;
+      tooSlow.set(nodeId, (tooSlow.get(nodeId) ?? 0) + count);
+      failedAt[holder] += count;
+      frame.nodes[nodeId].failed += count;
+      if (hops[holder].compute) countFor(failedByFeature, nodeId, hops[holder].featureId, count);
+    };
     for (const index of byDepth) {
       const hop = hops[index];
-      const wait = hop.stations.reduce((sum, st) => sum + st.fraction * (waitMs.get(st.id) ?? 0), 0);
+      const wait = hopWait(index);
+      lastWait[index] = wait;
       cumulative[index] = (hop.parent >= 0 ? cumulative[hop.parent] : 0) + hop.baseMs + wait;
       if (!hop.job) {
         const answered = servedOut[index] * remNow[index];
-        if (answered > EPS) {
-          record(latency, cumulative[index], answered);
-          served += answered;
-        }
+        if (answered > EPS) answer(index, answered);
       } else {
         const out = servedOut[index];
         if (hop.answers) {
-          if (out > EPS) {
-            record(latency, cumulative[index], out);
-            served += out;
-          }
+          if (out > EPS) answer(index, out);
           jobsQueued += out;
           jobTime[index] = 0;
         } else {
           jobTime[index] = jobTime[hop.parent] + hop.baseMs + wait;
         }
-        if (isQueueHop(hop)) {
+        if (queueHop[index]) {
           const q = perQueue.get(hop.nodeId)!;
           q.queued += out;
           if (hop.children.length === 0) {
@@ -592,7 +1138,7 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
             jobsNeverDone += out;
           }
         } else {
-          if (isWorkerHop(hop)) perQueue.get(queueOf(index))!.done += out;
+          if (workerHop[index]) perQueue.get(queueOf(index))!.done += out;
           const finished = out * remNow[index];
           if (finished > EPS) {
             jobsDone += finished;
@@ -600,11 +1146,15 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
           }
         }
       }
+    }
+    // Edges after every answer, so a too-slow failure shows on the edge into its instance.
+    for (const index of byDepth) {
+      const hop = hops[index];
       if (hop.edgeId) {
         const edge = (frame.edges[hop.edgeId] ??= { volume: 0, failedShare: 0 });
         // Into a worker: the jobs it takes, so a growing backlog shows as more dots into
         // the queue than out of it. Everywhere else: what arrives.
-        edge.volume += isWorkerHop(hop) ? servedOut[index] : volIn[index];
+        edge.volume += workerHop[index] ? servedOut[index] : volIn[index];
         edge.failedShare += failedAt[index]; // a count for now; made a share below
       }
     }
@@ -652,8 +1202,10 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
     const queue = backlog.get(s.id)!;
     let left = 0;
     s.entries.forEach((e, j) => {
-      if (!exempt(e.hop)) left += queue[j];
-      else if (queue[j] > EPS) {
+      if (!exempt(e.hop)) {
+        left += queue[j];
+        if (s.compute && queue[j] > EPS) countFor(failedByFeature, s.nodeId, hops[e.hop].featureId, queue[j]);
+      } else if (queue[j] > EPS) {
         jobsStillWaiting += queue[j];
         // Waiting for a worker counts on that worker's queue. A job waiting at a later
         // stage's queue or a database was already done by an earlier queue's workers.
@@ -705,6 +1257,18 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
   for (const [nodeId, count] of [...timedOut].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (count > EPS) {
       failures.push({ nodeId, clientId: null, featureId: null, reason: "timed-out", count, text: `Timed out waiting at ${label(nodeId)}.` });
+    }
+  }
+  for (const [nodeId, count] of [...tooSlow].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (count > EPS) {
+      failures.push({
+        nodeId,
+        clientId: null,
+        featureId: null,
+        reason: "too-slow",
+        count,
+        text: `Gave up on ${label(nodeId)}: answers took over ${CAPACITY.timeoutSeconds} s.`,
+      });
     }
   }
   for (const [nodeId, count] of [...switchedOff].sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -805,6 +1369,31 @@ export function simulateLoad({ nodes, edges, features, scenario, loads, outages 
     cacheInFront,
     jobs,
     outages: outageRecords,
+    cascades: {
+      failedByFeature,
+      slotMsByFeature,
+      firstLimit,
+      databasesBelow: Object.fromEntries(
+        [...new Set(computeHops.map((i) => hops[i].nodeId))].sort().map((id) => {
+          const dbs = new Set<string>();
+          const walk = (i: number) => {
+            for (const child of hops[i].children) {
+              if (exempt(child)) continue;
+              if (isDbHop[child]) dbs.add(hops[child].nodeId);
+              walk(child);
+            }
+          };
+          computeHops.filter((i) => hops[i].nodeId === id).forEach(walk);
+          return [id, [...dbs].sort()];
+        }),
+      ),
+      slowParts: computeHops.reduce<Tally["cascades"]["slowParts"]>((parts, i) => {
+        const hop = hops[i];
+        const step = slowPartsOf.get(i)!;
+        (parts[hop.nodeId] ??= {})[hop.featureId] = step;
+        return parts;
+      }, {}),
+    },
   };
   return {
     scenario,

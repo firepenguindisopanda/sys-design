@@ -30,6 +30,13 @@ export const CAPACITY = {
    * of the feature's slow work.
    */
   worker: { handlingMs: 5 },
+  /**
+   * Each compute instance (SPEC-loadsim-cascades.md): it works on at most 80 requests at
+   * once (Cloud Run's default concurrency; functions get the same until autoscaling is
+   * simulated), and has a pool of 10 database connections (a common pool default, for
+   * example HikariCP's). Connections limit only requests that use the database.
+   */
+  instance: { slots: 80, connections: 10 },
 };
 
 /**

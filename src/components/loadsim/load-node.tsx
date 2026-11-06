@@ -5,8 +5,9 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Power } from "lucide-react";
 import { isClientKind } from "@/lib/catalog";
 import { KIND_STYLES } from "@/components/simulator/design-node";
+import { CAPACITY } from "@/lib/loadsim/capacities";
 import { canSwitchOff } from "@/lib/loadsim/outages";
-import type { LoadRun } from "@/lib/loadsim/types";
+import type { Limit, LoadRun } from "@/lib/loadsim/types";
 import { usePlayback } from "./playback";
 import { formatClock } from "./playback-bar";
 import { useSim } from "./sim-context";
@@ -31,6 +32,7 @@ export function nodeStatus({
   concurrency = 1,
   off,
   offSince = 0,
+  limit,
 }: {
   kind: string;
   utilisation: number;
@@ -47,6 +49,8 @@ export function nodeStatus({
   off?: "routed" | "noticed";
   /** When it went off, in seconds */
   offSince?: number;
+  /** The instance limit holding it back this step (SPEC-loadsim-cascades.md) */
+  limit?: Limit;
 }): string {
   if (isClientKind(kind)) return `Sending ${Math.round(ratePerSecond).toLocaleString("en")} req/s`;
   if (off === "routed") return "Off · still getting requests";
@@ -64,6 +68,9 @@ export function nodeStatus({
     return `${busy}% busy · ${slots} of ${concurrency} slots`;
   }
   const failed = failedSoFar >= 0.5 ? ` · ${Math.round(failedSoFar).toLocaleString("en")} failed` : "";
+  const { slots } = CAPACITY.instance;
+  if (limit === "slots") return `Saturated · ${slots} of ${slots} slots${failed}`;
+  if (limit === "connections") return `Waiting for a database connection${failed}`;
   if (utilisation <= 0) return `No traffic${failed}`;
   if (utilisation >= 1) return `Saturated${failed}`;
   return `${Math.min(99, Math.max(1, Math.round(utilisation * 100)))}% busy${failed}`;
@@ -92,6 +99,7 @@ export function nodeStatusAt(
     concurrency: run.workerSlots[id] ?? 1,
     off: frame?.off,
     offSince: outage?.offAt ?? 0,
+    limit: frame?.limit,
   });
 }
 

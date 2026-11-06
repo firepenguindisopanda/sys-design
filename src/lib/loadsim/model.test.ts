@@ -183,7 +183,7 @@ describe("queues and workers (SPEC-loadsim-queues.md)", () => {
         { save: "vm", ...(reqs.length > 1 ? { look: "vm" } : {}) },
       );
     }
-    const allWrites = (batch: number) => ({ save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch } });
+    const allWrites = (batch: number) => ({ save: { share: 1, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch, slowWork: "wait" as const, apiMs: null } });
 
     it("divides the database's write work by the batch", () => {
       const steady: Scenario = { requests: 3000, windowSeconds: 60, shape: "steady" };
@@ -210,8 +210,8 @@ describe("queues and workers (SPEC-loadsim-queues.md)", () => {
         ],
       );
       const loads = {
-        save: { share: 400 / 410, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1 },
-        look: { share: 10 / 410, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1 },
+        save: { share: 400 / 410, writeShare: 1, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null },
+        look: { share: 10 / 410, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: null },
       };
       const { summary } = runDesign(built, { requests: 410 * 60, windowSeconds: 60, shape: "steady" }, { loads });
       const jobs = summary.jobs!;
@@ -256,7 +256,10 @@ describe("nodes requests pass through (SPEC-loadsim-routing.md)", () => {
     ["a second load balancer", ["d -> lb2 : http", "lb2 -> lb : http", "lb -> vm : http"]],
   ])("serves the same share through %s", (_, edges) => {
     expect(direct).toBeLessThan(0.5);
-    expect(served(edges)).toBeCloseTo(direct, 6);
+    // 4 places, not 6 (SPEC-loadsim-cascades.md): each node passed through adds 1 ms, which
+    // leaves 1 ms less to wait at the VM, about 1e-6 of the share. The ordering bug this
+    // guards moved it by about 0.5.
+    expect(served(edges)).toBeCloseTo(direct, 4);
   });
 });
 
@@ -325,9 +328,12 @@ describe("gradual slowdown before saturation", () => {
 describe("one component at twice its capacity (worked by hand)", () => {
   // 1 vCPU × 1000 ms × 0.7 = 700 ms of work a second; at 10 ms a request that's 70 req/s.
   // 140 req/s for 60 s is 8,400 requests: 14 arrive per 0.1 s step and 7 are served, so
-  // the backlog grows by 7 a step. The client gives up after 5 s, so the VM holds at
-  // most 350 waiting requests; from step 50 on, 7 a step fail. After the window the 350
-  // still waiting are served: 4,200 + 350 served and 3,850 failed.
+  // the backlog grows by 7 a step. The client gives up once its answer would take over
+  // 5 s (SPEC-loadsim-cascades.md; before, after 5 s of waiting here, so 350 waited and
+  // 3,850 failed): 20 ms from the desktop, 10 ms of compute and 190 ms of queueing at 95%
+  // leave 4,780 ms to wait, so the VM holds at most 334.6 waiting requests. Step 47 is
+  // the first over it (1.4 fail), then 7 a step. After the window the 334.6 still waiting
+  // are served: 4,200 + 334.6 served and 3,865.4 failed, each answer within 5 s.
   const run = runDesign(singleVm(1), { requests: 8_400, windowSeconds: 60, shape: "steady" });
   const vm = run.frames.map((f) => f.nodes.vm);
 
@@ -345,21 +351,23 @@ describe("one component at twice its capacity (worked by hand)", () => {
     expect(vm[0].utilisation).toBeCloseTo(2, 6);
   });
 
-  it("starts failing once a request would wait more than 5 s", () => {
+  it("starts failing once a request could no longer be answered within 5 s", () => {
     const firstFail = vm.findIndex((f) => f.failed > 1e-6);
-    expect(firstFail).toBe(50);
-    expect(vm[50].failed).toBeCloseTo(7, 6);
-    expect(vm[60].backlog).toBeCloseTo(350, 6);
+    expect(firstFail).toBe(47);
+    expect(vm[47].failed).toBeCloseTo(1.4, 6);
+    expect(vm[48].failed).toBeCloseTo(7, 6);
+    expect(vm[60].backlog).toBeCloseTo(334.6, 6);
   });
 
   it("names the VM as first to saturate and blames it for the failures", () => {
     expect(run.summary.firstSaturation).toMatchObject({ nodeId: "vm", atSeconds: 0 });
-    expect(run.summary.failed).toBeCloseTo(3_850, 0);
-    expect(run.summary.served).toBeCloseTo(4_550, 0);
+    expect(run.summary.failed).toBeCloseTo(3_865.4, 1);
+    expect(run.summary.served).toBeCloseTo(4_534.6, 1);
     expect(run.summary.failures).toEqual([
-      expect.objectContaining({ nodeId: "vm", reason: "timed-out", count: expect.closeTo(3_850, 0) }),
+      expect.objectContaining({ nodeId: "vm", reason: "timed-out", count: expect.closeTo(3_865.4, 1) }),
     ]);
-    expect(run.summary.perNode.vm.peakBacklog).toBeCloseTo(350, 6);
+    expect(run.summary.perNode.vm.peakBacklog).toBeCloseTo(334.6, 6);
+    expect(run.summary.p95Ms).toBeLessThanOrEqual(5000);
   });
 
   it("marks the edge into the VM with the share that failed there", () => {

@@ -12,6 +12,7 @@ import type {
   Fixture,
   FixtureExpectation,
   LoadShape,
+  SlowWork,
   NodeMatcher,
   Rule,
 } from "./types";
@@ -24,6 +25,7 @@ const PROTOCOLS: ReadonlySet<string> = new Set(Object.keys(PROTOCOL_META));
 const SEVERITIES: ReadonlySet<string> = new Set(["fail", "warn"]);
 const EDGE_MODES: ReadonlySet<string> = new Set(["required", "forbidden"]);
 const LOAD_SHAPES: ReadonlySet<string> = new Set(["steady", "ramp", "spike"]);
+const SLOW_WORK: ReadonlySet<string> = new Set(["cpu", "wait"]);
 
 /** String config fields limited to a fixed set of values (mirrors types.ts). */
 const CONFIG_ENUMS: Partial<Record<ComponentKind, Record<string, ReadonlySet<string>>>> = {
@@ -172,7 +174,7 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
     load.features = {};
     for (const [id, value] of Object.entries(features)) {
       const p = r.at(fp, id);
-      const f = r.obj(value, p, ["writeShare", "dbMs", "batch"]);
+      const f = r.obj(value, p, ["writeShare", "dbMs", "batch", "slowWork", "apiMs"]);
       const entry: BriefLoadFeature = {};
       if (f.writeShare !== undefined) {
         const share = r.num(f.writeShare, r.at(p, "writeShare"));
@@ -183,6 +185,16 @@ function readLoad(r: Reader, raw: unknown, frIds: string[], path: string): Brief
         entry.dbMs = ms > 0 ? ms : r.fail(r.at(p, "dbMs"), "expected a number > 0");
       }
       if (f.batch !== undefined) entry.batch = intIn(f.batch, r.at(p, "batch"), 1, 1_000);
+      if (f.slowWork !== undefined) {
+        entry.slowWork = r.oneOf<SlowWork>(f.slowWork, r.at(p, "slowWork"), SLOW_WORK, "slowWork");
+      }
+      if (f.apiMs !== undefined) {
+        const ms = f.apiMs;
+        entry.apiMs =
+          typeof ms === "number" && Number.isFinite(ms) && ms >= 1 && ms <= 60_000
+            ? ms
+            : r.fail(r.at(p, "apiMs"), "expected a number of ms from 1 to 60,000");
+      }
       load.features[id] = entry;
     }
   }

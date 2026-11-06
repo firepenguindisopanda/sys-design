@@ -54,6 +54,8 @@ export function featureLoads(features: FeatureBlock[], brief: Brief | null): Fea
       readDbMs: set?.dbMs ?? DEFAULT_READ_DB_MS,
       writeDbMs: set?.dbMs ?? DEFAULT_WRITE_DB_MS,
       batch: set?.batch ?? 1,
+      slowWork: set?.slowWork ?? "wait",
+      apiMs: set?.apiMs ?? null,
     };
   }
   return loads;

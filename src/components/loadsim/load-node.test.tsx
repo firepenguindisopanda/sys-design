@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { simulateLoad } from "@/lib/loadsim/model";
 import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
-import { fixtureDesign, runDesign } from "@/test/loadsim-designs";
+import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
 import { LoadNodeBody, gaugeBand, nodeStatus, nodeStatusAt } from "./load-node";
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
@@ -92,6 +92,46 @@ describe("nodeStatus", () => {
     expect(nodeStatusAt(run, "api-1", "paas", step(62), 0, false)).toBe("Off · still getting requests");
     expect(nodeStatusAt(run, "api-1", "paas", step(90), 0, false)).toBe("Off since 1:00");
     expect(nodeStatusAt(run, "api-1", "paas", step(30), 0, false)).toMatch(/% busy$/);
+  });
+
+  it("names the limit that binds, then any failures, in one format (SPEC-loadsim-cascades.md)", () => {
+    const api = { ...base, kind: "paas", ratePerSecond: 80 };
+    expect(nodeStatus({ ...api, utilisation: 1.2, limit: "cpu" })).toBe("Saturated");
+    expect(nodeStatus({ ...api, utilisation: 1.2, limit: "cpu", failedSoFar: 1204 })).toBe("Saturated · 1,204 failed");
+    expect(nodeStatus({ ...api, utilisation: 0.3, limit: "slots" })).toBe("Saturated · 80 of 80 slots");
+    expect(nodeStatus({ ...api, utilisation: 0.3, limit: "slots", failedSoFar: 1204 })).toBe(
+      "Saturated · 80 of 80 slots · 1,204 failed",
+    );
+    expect(nodeStatus({ ...api, utilisation: 0.3, limit: "connections" })).toBe("Waiting for a database connection");
+    expect(nodeStatus({ ...api, utilisation: 0.3, limit: "connections", failedSoFar: 1204 })).toBe(
+      "Waiting for a database connection · 1,204 failed",
+    );
+    // No limit binding: today's text.
+    expect(nodeStatus({ ...api, utilisation: 0.3, failedSoFar: 30 })).toBe("30% busy · 30 failed");
+  });
+
+  it("reads the binding limit from a real run's frames", () => {
+    // Connections: course registration without its cache (the database backs up into the API).
+    const built = fixtureDesign("course-registration", "bad-no-cache");
+    const reg = runDesign(built, defaultScenario(built.brief), { brief: built.brief });
+    const connStep = reg.frames.findIndex((f) => f.nodes["api-1"].limit === "connections");
+    expect(connStep).toBeGreaterThanOrEqual(0);
+    expect(nodeStatusAt(reg, "api-1", "paas", connStep, 12, false)).toBe("Waiting for a database connection · 12 failed");
+
+    // Slots: one instance whose every request makes a 2 s external call, at 100 a second.
+    const calls = design(
+      [requirement("ask", { name: "Ask", targetRpm: 60, computeMsPerRequest: 10, resources: { memoryGb: 0.5, vcpus: 0.5, storageGb: 0 } })],
+      [
+        ["desktop", "desktop"],
+        ["vm", "vm", { capacity: { vcpus: 8 } }],
+        ["llm", "external_api"],
+      ],
+      ["desktop -> vm : http", "vm -> llm : http"],
+      { ask: "vm" },
+    );
+    const loads = { ask: { share: 1, writeShare: 0, readDbMs: 3, writeDbMs: 8, batch: 1, slowWork: "wait" as const, apiMs: 2000 } };
+    const run = runDesign(calls, { requests: 6000, windowSeconds: 60, shape: "steady" }, { loads });
+    expect(nodeStatusAt(run, "vm", "vm", 400, 0, false)).toBe("Saturated · 80 of 80 slots");
   });
 
   it("shows a light load as at least 1%", () => {
