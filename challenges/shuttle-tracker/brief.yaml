@@ -50,6 +50,22 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 275
 
+load:
+  # Between classes: every shuttle reporting its position, and students at the stops
+  # watching the map and checking when the next one comes. The brief's 1,320 requests a
+  # minute, held for 20 minutes: GPS units report all day, not in a rush
+  # (SPEC-brief-load-rollout.md).
+  requests: 26400
+  windowSeconds: 1200
+  shape: steady
+  features:
+    # Keep the shuttle's latest position: one upsert keyed by shuttle.
+    report-location: { writeShare: 1, dbMs: 3 }
+    # The latest positions of a dozen shuttles: one small read by key.
+    live-map: { writeShare: 0, dbMs: 2 }
+    # The latest positions plus the route's stops and their order.
+    stop-eta: { writeShare: 0, dbMs: 5 }
+
 rules:
   - id: shuttles-report
     title: Shuttles report to the server

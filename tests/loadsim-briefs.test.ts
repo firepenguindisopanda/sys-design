@@ -9,6 +9,7 @@ import { briefById, fixtureDesign, runDesign } from "@/test/loadsim-designs";
 const BRIEFS = [
   "campus-food-guide",
   "chat-app",
+  "shuttle-tracker",
 ];
 
 // Each run once, on first use, so a failing brief can't stop the others loading.
@@ -73,4 +74,13 @@ describe("flaws the load page shows", () => {
     );
   });
 
+
+  // Shuttle: one-row reads, so even without its cache the database stays under 3% busy.
+  it("shuttle-tracker/bad-no-cache: the database is about four times busier, and the note says a cache would help", () => {
+    const db = (fixture: string) => summaryOf("shuttle-tracker", fixture).perNode.db.peakUtilisation;
+    expect(db("bad-no-cache")).toBeGreaterThan(3 * db("good"));
+    expect(summaryOf("shuttle-tracker", "bad-no-cache").notes).toContain(
+      "Routes DB peaked at 2% busy, mostly with Live map reads. A cache in front would bring it to about 1%.",
+    );
+  });
 });
