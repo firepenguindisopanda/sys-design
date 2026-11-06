@@ -9,6 +9,7 @@ import { briefById, fixtureDesign, runDesign } from "@/test/loadsim-designs";
 const BRIEFS = [
   "campus-food-guide",
   "chat-app",
+  "club-auction",
   "shuttle-tracker",
 ];
 

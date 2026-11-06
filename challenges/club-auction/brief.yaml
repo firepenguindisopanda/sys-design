@@ -52,6 +52,22 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 320
 
+load:
+  # The evening the auctions close: students browse, bid and watch prices, with bids
+  # crowding in as the closing times approach. The brief's 1,200 requests a minute over
+  # 20 minutes, most of them in the rush (SPEC-brief-load-rollout.md).
+  requests: 24000
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # About 30 items with their current highest bid and closing time: one small list.
+    browse-items: { writeShare: 0, dbMs: 4 }
+    # Read the item's highest bid and store the new one if it beats it. Each bid is decided
+    # on its own, so nothing is batched.
+    place-bid: { writeShare: 1, dbMs: 6 }
+    # One item's current highest bid, by key.
+    watch-item: { writeShare: 0, dbMs: 2 }
+
 rules:
   - id: bids-queued
     title: Bids go on a queue
