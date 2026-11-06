@@ -11,13 +11,36 @@ Status: **approved** (2026-11-05). Built so far:
 - **`loadsim-failures`** (`a844a4d`):
   [SPEC-loadsim-failures.md](SPEC-loadsim-failures.md) and
   [tasks/loadsim-failures/](tasks/loadsim-failures/).
-- **`loadsim-cascades`** (branch `feat/loadsim-cascades`):
+- **`loadsim-cascades`** (`c7f8aca`):
   [SPEC-loadsim-cascades.md](SPEC-loadsim-cascades.md) and
   [tasks/loadsim-cascades/](tasks/loadsim-cascades/). Request slots, database
   connections, slow work and external calls inside the request, and answers over 5 s.
+- **`brief-load-rollout`** (branch `feat/brief-load-rollout`), taken before
+  `loadsim-delivery` so the reference designs look right now:
+  [SPEC-brief-load-rollout.md](SPEC-brief-load-rollout.md) and
+  [tasks/brief-load-rollout/](tasks/brief-load-rollout/). All sixteen briefs now have a
+  calibrated `load` block. It added the per-feature `slowMs`, and the link checker's and
+  video library's reference designs got more workers.
 
 Each later module gets its own `SPEC-<module id>.md`. Next in the build order:
-`loadsim-delivery`.
+`loadsim-delivery`. Once it lands, these flawed designs should look different from their
+reference designs under their brief's own load. Today they give the same numbers:
+- **Files** through a CDN, static hosting and object storage:
+  - `campus-food-guide`: `bad-no-cdn`, `bad-pages-from-api`;
+  - `club-photo-wall`: `bad-no-cdn`, `bad-upload-through-api`;
+  - `file-storage`: `bad-files-in-db`;
+  - `lecture-video-library`: `bad-no-cdn`, `bad-video-in-db`.
+- **Polling against push:**
+  - `chat-app`: `bad-http-polling`;
+  - `club-auction`: `bad-polling`;
+  - `shuttle-tracker`: `bad-polling`.
+- **Push going nowhere or the wrong way:**
+  - `chat-app`: `bad-no-pubsub`, `bad-no-subscribers`, `bad-gap-bus-unconnected`;
+  - `notification-system`: `bad-push-wrong-direction`;
+  - `shuttle-tracker`: `bad-sse-wrong-direction`.
+- **Autoscaling:** `textbook-price-watch`: `bad-always-on-vms`.
+
+Each then gets a test in `tests/loadsim-briefs.test.ts`, as the rollout's flaws did.
 
 ## Goal
 
@@ -61,7 +84,7 @@ never compete for the verdict.
 | `loadsim-cascades` | Limits on concurrent requests (worker threads, database connections). Slow work done inside the request (`backgroundWorkMs`) and slow or rate-limited external APIs hold those slots, so the tier upstream backs up too. | `loadsim-queues` |
 | `loadsim-failures` | The student kills a node, or brings it back, during playback. Traffic moves to the rest of a pool or to a replica; without one, the requests fail. Re-runs the model from that moment. | `loadsim-model`, `loadsim-page` |
 | `loadsim-delivery` | Autoscaling for PaaS, Functions and Edge, with scale-up lag and cold starts. Files through CDN, static hosting and object storage (`fileRpm`), and polling against push (`pollingRpm`). | `loadsim-model` |
-| `brief-load-rollout` | A calibrated `load` block for the other 14 briefs, one commit per brief, like the phase brief steps. | each behaviour module its briefs need |
+| `brief-load-rollout` | A calibrated `load` block for the other 14 briefs, one commit per brief, like the phase brief steps. Two were done in `loadsim-queues`; the other twelve were done before `loadsim-delivery`, with the flaws that need it recorded for later. | each behaviour module its briefs need |
 
 Build order:
 
@@ -69,8 +92,8 @@ Build order:
 loadsim-model + brief-load (2 pilots) + loadsim-page   ← slice 1 (one spec)
   → loadsim-queues → loadsim-cascades
   → loadsim-failures            (can run alongside queues once slice 1 lands)
-  → loadsim-delivery
-  → brief-load-rollout          (brief by brief, as the behaviours they need exist)
+  → brief-load-rollout          (all twelve, before delivery: SPEC-brief-load-rollout.md)
+  → loadsim-delivery            (then tests for the flaws it makes visible)
 ```
 
 ## Boundaries between modules
@@ -83,7 +106,11 @@ loadsim-model + brief-load (2 pilots) + loadsim-page   ← slice 1 (one spec)
   `src/lib/challenges/rules.ts` and the verification panel stay as they are.
 - Each behaviour module adds stages to the model and states, per pilot fixture, what
   becomes visible. Earlier pilot expectations stay as they are or get stronger.
-- Briefs gain only the optional `load` block. Fixtures don't change.
+- Briefs gain only the optional `load` block. Fixtures don't change, with one approved
+  exception: in `brief-load-rollout`, the link checker's and video library's reference
+  designs, and the flawed copies of them, got more workers so their queues drain at the
+  work's realistic time. Their engine numbers changed only in cost, and every fixture's
+  expectations still hold.
 
 ## Out of scope for all of it
 

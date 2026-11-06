@@ -364,11 +364,52 @@ differs from `backgroundWorkMs`, for example about 200 ms for a push.
 - **Timing:** a switch-off re-run for two of the twelve briefs.
 
 **Acceptance criteria:**
-- [ ] The spec's success criteria all hold.
+- [x] The spec's success criteria all hold, with one approved exception: the engine
+  probe moved in the costs of the eight fixtures given more workers (Task 6).
 
 **Verification:**
-- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint` and `npm run build`.
-- [ ] Browser notes and timings recorded here.
+- [x] `npm test` (1,473 passed), `npx tsc --noEmit`, `npm run lint` and `npm run build`.
+- [x] Browser notes and timings recorded here.
+
+**Notes (2026-11-06):**
+- **Docs:**
+  - `brief-format.md`: how to choose the scenario (the stretch, the rate, the shape,
+    the comments, what the reference design must show, and more workers rather than
+    shorter work), an `apiMs` example from `printing-credits` with the streaming note,
+    and the `slowMs` example updated to the real notification block, plus the video
+    library's longer time;
+  - the capability map: `loadsim-cascades` marked merged (`c7f8aca`), this module's
+    status, the build order with the rollout before delivery, the flaws
+    `loadsim-delivery` should make visible, and the fixture exception in the
+    boundaries;
+  - the spec: section C brought up to date, and a Results section;
+  - the README: the default load is now the brief's own, and `slowMs` is mentioned. The
+    spec had said "no change, unless calibration changes what a student sees", and it
+    does;
+  - `scenario.test.ts`: the stale apiMs comment now says what its check covers.
+- **Browser** (production build with `next start`, 1440×900, Chrome DevTools with the
+  tab in front; each design handed off through session storage):
+
+  | Design | Scenario shown | What it looked like |
+  |---|---|---|
+  | `textbook-price-watch/good` | 7,200, spike | 100%, p95 75 ms. "Watch API peaked at 30% busy." Checkers "100% busy · 4 of 4 slots"; the queue is empty by 5:00 |
+  | `file-storage/good` | 20,400, ramp | 100%, p95 211 ms. "Submissions API 1 peaked at 75% busy." |
+  | `notification-system/good` | 33,000, spike | 100%, p95 64 ms. All 31,320 jobs done, typical 6 min 6 s, slowest 5% 7 min 38 s; the queue is empty by 25:38 |
+  | `lecture-video-library/good` | 26,200, steady | 100%, p95 65 ms. All 200 conversions done, typical 5 min 30 s; the queue is empty by 24:56 |
+
+  No console errors or warnings.
+- **Timing** (switch-off re-run, `time.js`, six presses):
+  - `notification-system/good`, Alerts API 1: 79, 64, 96, 68, 50, 58 ms;
+  - `lecture-video-library/good`, Library API 1: 110, 111, 96, 85, 74, 68 ms. Under the
+    generic load it took 124–180 ms; its own load is lighter.
+- **Seen in passing, not changed:**
+  - "The queue peaked at 1 jobs" and "its file requests isn't simulated yet" are
+    existing wording;
+  - the price watch's bookstore reads "Not simulated yet", although its call's time is
+    simulated as the checkers' slow work (it has no `apiMs`, so nothing is counted
+    twice).
+
+  All three are for a later change to the page, not for this module.
 
 **Dependencies:** Tasks 2–6
 

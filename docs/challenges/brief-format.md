@@ -205,6 +205,28 @@ This is `course-registration`'s block. Its section list is a join that counts th
 left, so it's heavy (25 ms). The link shortener's redirect is a key lookup (3 ms), so a
 missing cache there makes the database about 4× busier without anything failing.
 
+Every brief has a block. Without one, the page sends the generic default (100,000
+requests in a spike), which is several times what most briefs describe, so their
+reference designs would look broken. Choose the scenario from the brief's story
+(`SPEC-brief-load-rollout.md`):
+- **The stretch:** the busiest 20 minutes of the story, for example the lunch rush, the
+  last 20 minutes before a deadline, or the morning the campus closes for snow.
+- **The rate:** on average, the sum of the features' `targetRpm`, which is what the
+  engine sizes designs for. That's `requests = sum × windowSeconds ÷ 60`. Go above it
+  only where the story describes a bigger rush (`link-shortener` and
+  `course-registration` do), and say so in the comment.
+- **The shape:** `spike` for a rush, `steady` for constant traffic (readings, location
+  updates, an evening of revision), `ramp` for a deadline.
+- **A comment** above the block says who sends what and when, and one above each feature
+  says why its query costs what it does.
+- **The reference design** should serve at least 99.9%, answer its slowest 5% in under
+  1,000 ms, saturate no compute instance or database, and empty every queue before the
+  end. The tests in `tests/loadsim-briefs.test.ts` check this for each brief. If its
+  workers can't keep up at the work's realistic time, give the reference design more
+  workers within its budget, rather than shortening the work. Each worker slot costs
+  $3 a month; `lecture-video-library/good` runs 24 converters with
+  `config: { concurrency: 24 }` (the default is 4).
+
 To calibrate a block, print every fixture's load results:
 
 ```bash
@@ -247,18 +269,31 @@ LOADSIM_PROBE=1 LOADSIM_BRIEFS=<id> npx vitest run tests/loadsim-probe.test.ts -
   60,000; no default). The call happens only where the feature's compute has an edge to
   an external API. It adds to the answer time and holds a slot, with no limit on the
   provider. Without `apiMs`, calls to external APIs aren't simulated. Use the provider's
-  realistic time: a payment or AI call can take seconds.
+  realistic time: a payment or AI call can take seconds. Leave it out where the
+  feature's `backgroundWorkMs` already stands for the call (`textbook-price-watch`), so
+  it isn't counted twice. For example, in `printing-credits`, where asking the provider
+  for a payment page takes about 400 ms:
+
+  ```yaml
+  start-payment: { writeShare: 1, dbMs: 5, apiMs: 400 }
+  ```
+
+  The load page doesn't simulate streaming, so for a streamed answer use the time to the
+  first words (`course-assistant` uses 1,000 ms), not the whole answer.
 - **`slowMs`:** how long the feature's slow work really takes on the load page, in ms (1 to
   600,000; only for a feature with `backgroundWorkMs`). It defaults to `backgroundWorkMs`,
   which the engine keeps using for its latency check (`SPEC-brief-load-rollout.md`). Set
   it where the two differ: the engine's figure can stand for a whole batch of work, while
   the load page needs one job's time. It applies wherever the work runs: a queue's
   workers, or the instance itself when the request doesn't go to a queue. For example,
-  one push to a phone takes about 200 ms:
+  in `notification-system`, one push to a phone takes about 200 ms:
 
   ```yaml
-  fan-out: { writeShare: 0, slowMs: 200, slowWork: wait }
+  fan-out: { writeShare: 0, dbMs: 8, slowMs: 200 }
   ```
+
+  It can be longer than `backgroundWorkMs` too: `lecture-video-library` converts a
+  recording in 180,000 ms, the "several minutes" its summary describes.
 - **Answers over 5 s fail.** Slow work or a call that alone takes 5 s or more fails every
   such request as too slow, however quiet the system is. Jobs on a queue never do.
 - **`dbMs` is always a realistic cost for that query.** A heavy query (a join over

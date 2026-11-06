@@ -72,7 +72,7 @@ npm test
 
 ## Load simulation
 
-**Simulate load** in the canvas toolbar opens `/simulate`, which sends a large load through your design (by default 100,000 requests over 20 minutes, with a spike at the start) and plays it back in about 30 seconds.
+**Simulate load** in the canvas toolbar opens `/simulate`, which sends a load through your design and plays it back in about 30 seconds. For a challenge, the default is the brief's own busiest 20 minutes, such as the food guide's lunch rush or the morning the campus closes for snow, at the rate its features describe. Without a brief, it's 100,000 requests over 20 minutes, with a spike at the start. Either way, you can change the requests, window and shape.
 - **Moving dots** show requests leaving the clients and splitting evenly across a load balancer's instances. Failed requests turn red where they fail.
 - **Each component's gauge** says how busy it is in words: "80% busy", "Saturated · 5,965 failed". An instance held back by something other than its CPU says what: "Saturated · 80 of 80 slots", "Waiting for a database connection".
 - **Afterwards,** a summary and a per-component table say what was served, what failed and why, typical and slowest answer times, and what a cache would save.
@@ -88,7 +88,7 @@ npm test
 **Limits and slow work.** Besides its CPU, each compute instance has 80 request slots (Cloud Run's default concurrency) and 10 database connections (a common pool default):
 - **A request holds a slot** from arriving until its answer leaves, so slow work inside the request, or a slow external call, runs out of slots long before the CPU is busy. Requests for every other feature on that instance then time out too.
 - **A database request holds a connection** for its time at the database, waits included. A saturated database backs up into the instances calling it, and the requests time out there, not at the database.
-- **A brief says what its slow work is** (`slowWork` in its `load` block): `cpu` work, like grading or transcoding, also uses the CPU; `wait` work, like crawling, only holds the slot. A brief can also give a feature's external call a time (`apiMs`).
+- **A brief says what its slow work is** (`slowWork` in its `load` block): `cpu` work, like grading or transcoding, also uses the CPU; `wait` work, like crawling, only holds the slot. A brief can also give a feature's external call a time (`apiMs`), and its slow work a realistic time for this page (`slowMs`), such as 200 ms for a push.
 - **Answers over 5 s fail.** The student gives up whether the time went on waiting or on work, and a request waits at each stop only as long as its answer can still come back in time.
 - **A note names each cascade:** "Alerts API 1 ran out of request slots at 0:00: Fan out alert's 2 s of slow work held them. Requests for Publish alert and Alert preferences timed out there too."
 

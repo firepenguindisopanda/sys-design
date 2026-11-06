@@ -125,7 +125,7 @@ describe("featureLoads", () => {
     const loads = featureLoads(design(brief.functionalRequirements, [], [], {}).features, brief);
     expect(loads["submit-solution"].slowWork).toBe("cpu");
     expect(loads["browse-exercises"].slowWork).toBe("wait");
-    // No brief sets apiMs in this module: it waits for brief-load-rollout.
+    // The autograder calls no external API, so none of its features has apiMs.
     expect(Object.values(loads).every((l) => l.apiMs === null)).toBe(true);
   });
 

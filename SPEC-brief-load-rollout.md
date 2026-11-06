@@ -103,21 +103,23 @@ Each figure is realistic for that query or job, as `brief-format.md` already req
 
 | Brief | Flaws it can show now | With an outage | Need `loadsim-delivery` | Not a load problem |
 |---|---|---|---|---|
-| `campus-food-guide` | `bad-no-cache` (a busier database, if the vendor list is a heavy query) | | `bad-no-cdn`, `bad-pages-from-api` (files) | `bad-client-to-db` |
+| `campus-food-guide` | `bad-no-cache` (a busier database: 9% against 2%) | | `bad-no-cdn`, `bad-pages-from-api` (files) | `bad-client-to-db` |
 | `chat-app` | | | `bad-http-polling` (polling); `bad-no-pubsub`, `bad-no-subscribers`, `bad-gap-bus-unconnected` (push) | `bad-client-to-db` |
 | `club-auction` | | `bad-single-db-replica` | `bad-polling` | `bad-direct-bids` (ordering), `bad-client-to-db` |
-| `club-photo-wall` | `bad-sync-thumbnails` (CPU) | | `bad-no-cdn`, `bad-upload-through-api` (files) | `bad-client-to-db` |
+| `club-photo-wall` | `bad-sync-thumbnails` (CPU, and 19% time out) | | `bad-no-cdn`, `bad-upload-through-api` (files) | `bad-client-to-db` |
 | `course-assistant` | | | | `bad-client-calls-llm`, `bad-no-history`, `bad-no-streaming` (streaming isn't simulated), `bad-client-to-db` |
-| `course-link-checker` | `bad-sync-crawl` (slots, too slow) | | | `bad-single-stage` (stages inside a job), `bad-results-not-stored`, `bad-client-to-db` |
+| `course-link-checker` | `bad-sync-crawl` (too slow); `bad-single-stage` (a backlog, but from half the workers; not pinned) | | | `bad-results-not-stored`, `bad-client-to-db` |
 | `file-storage` | `bad-capacity-overflow` (saturates) | | `bad-files-in-db` (files) | `bad-no-metadata-db`, `bad-client-to-db` |
-| `lecture-video-library` | `bad-sync-transcode` (too slow) | | `bad-no-cdn`, `bad-video-in-db` (files) | `bad-client-to-db` |
-| `notification-system` | `bad-sync-delivery` (slots), `bad-no-worker` (nobody reads the queue) | | `bad-push-wrong-direction` (push) | `bad-client-to-db` |
-| `printing-credits` | | `bad-single-db-replica` | | `bad-client-calls-provider`, `bad-no-webhook`, `bad-client-to-db` |
-| `shuttle-tracker` | `bad-no-cache` (a busier database) | | `bad-polling`; `bad-sse-wrong-direction` (push) | `bad-client-to-db` |
-| `textbook-price-watch` | `bad-inline-check` (slots, slower) | | `bad-always-on-vms` (autoscaling) | `bad-client-calls-store`, `bad-client-to-db` |
+| `lecture-video-library` | `bad-sync-transcode` (too slow, and almost nothing served) | | `bad-no-cdn`, `bad-video-in-db` (files) | `bad-client-to-db` |
+| `notification-system` | `bad-sync-delivery` (slower; slots only under the generic load), `bad-no-worker` (nobody reads the queue) | | `bad-push-wrong-direction` (push) | `bad-client-to-db` |
+| `printing-credits` | | `bad-single-db-replica` | | `bad-client-calls-provider` (looks faster: no provider call), `bad-no-webhook`, `bad-client-to-db` |
+| `shuttle-tracker` | `bad-no-cache` (a busier database: 2.4% against 0.6%) | | `bad-polling`; `bad-sse-wrong-direction` (push) | `bad-client-to-db` |
+| `textbook-price-watch` | `bad-inline-check` (slower; no slots run out) | | `bad-always-on-vms` (autoscaling) | `bad-client-calls-store`, `bad-client-to-db` |
 
-This table is the draft. Calibration may move a flaw between columns, for example if a
-realistic `dbMs` makes a missing cache visible. Each move is recorded in the task notes.
+This table was the draft, brought up to date after calibration. Calibration may move a
+flaw between columns, for example if a realistic `dbMs` makes a missing cache visible.
+Each move is recorded in the task notes. One flaw moved: `bad-single-stage` now leaves
+checks waiting (Task 6).
 
 ### D. Docs
 
@@ -274,3 +276,58 @@ load:
      `loadsim-delivery`.
    - The alternative is to wait for `loadsim-delivery` before the seven briefs that need
      it. Their reference designs would stay broken on the page until then.
+
+## Results (2026-11-06)
+
+Built on `feat/brief-load-rollout` in seven tasks, one commit per brief. The plan and task
+notes are in [tasks/brief-load-rollout/](tasks/brief-load-rollout/).
+
+- **All twelve briefs have a calibrated `load` block,** each averaging the sum of its
+  features' `targetRpm` over its busiest 20 minutes, with its story in a comment.
+
+  | Reference design | Served before | Now |
+  |---|---|---|
+  | `textbook-price-watch/good` | 48.2% | 100%, p95 75 ms |
+  | `file-storage/good` | 54.6% | 100%, p95 211 ms |
+  | `chat-app/good` | 84.1% | 100%, p95 85 ms |
+  | `course-assistant/good` | 89.8% | 100%, p95 1,061 ms (allowed 2,000) |
+  | `lecture-video-library/good` | 95.2% | 100%, p95 65 ms, every conversion done |
+  | `campus-food-guide/good` | 99.6%, p95 4,978 ms | 100%, p95 66 ms |
+
+  The other six serve 100% too, with every queue empty before the end.
+- **The flaws in the "can show now" column** each show in a test, with their numbers
+  pinned. Section C is brought up to date.
+- **Changed from the draft** (each in the task notes, with your approval):
+  - `slowMs` (open question 2) was added in Task 2. In Task 6 it wasn't enough at
+    realistic times, so two reference designs, and the flawed copies of them, got more
+    workers within budget. The capability map records this exception to "fixtures don't
+    change";
+  - the course assistant's slowest 5% may take 1,000 ms plus its model call, since 43%
+    of its requests wait for it (Task 4);
+  - `bad-single-stage` moved to "can show now", for a reason that isn't its flaw (Task 6);
+  - two pilot tests in `loadsim-pilots.test.ts` run under the generic default load,
+    since the notification and video briefs now have their own (Task 2).
+- **What moved:**
+  - the load probe: only the twelve briefs;
+  - the engine probe: only the costs of the eight link checker and video library
+    fixtures with more workers. No check or fixture expectation changed.
+- **Docs:**
+  - `brief-format.md` has the scenario rule, with examples of `apiMs` and `slowMs`, and
+    more workers as the fix where a queue can't drain;
+  - the capability map has this module's status and the list of flaws for
+    `loadsim-delivery`;
+  - the README changed after all: the default load is now the brief's own.
+- **Checks:** 1,473 tests, `tsc`, lint and `next build` pass.
+- **In the browser** (production build, 1440×900, Chrome DevTools with the tab in front):
+  - `textbook-price-watch/good`, `file-storage/good` and `notification-system/good` load
+    their brief's scenario and look healthy, with no console errors;
+  - notifications' push queue empties by 25:38, with a typical push at 6 min in the
+    rush, as recorded in Task 6.
+- **Timing** of a switch-off re-run with an API off:
+  - `notification-system/good`: 50–96 ms;
+  - `lecture-video-library/good`: 68–111 ms (124–180 ms under the generic load before).
+- **Seen in passing, not changed** (wording in the existing page, outside this module):
+  - "The queue peaked at 1 jobs";
+  - "Watch lecture: its file requests isn't simulated yet";
+  - the price watch's bookstore reads "Not simulated yet", though its call's time is
+    simulated as the checkers' slow work.
