@@ -51,6 +51,21 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 290
 
+load:
+  # The lunch rush: classes let out and students check what's open, open a vendor or two,
+  # and a few leave a rating. The brief's 1,290 requests a minute over 20 minutes, most of
+  # them as the rush starts (SPEC-brief-load-rollout.md).
+  requests: 25800
+  windowSeconds: 1200
+  shape: spike
+  features:
+    # About 40 vendors with their hours and stored average rating: one small list query.
+    browse-vendors: { writeShare: 0, dbMs: 5 }
+    # One vendor's menu and its latest reviews: two indexed queries.
+    view-vendor: { writeShare: 0, dbMs: 6 }
+    # Insert the review and update the vendor's stored average, in one transaction.
+    post-review: { writeShare: 1, dbMs: 10 }
+
 rules:
   - id: pages-on-cdn
     title: Site files served by a CDN
