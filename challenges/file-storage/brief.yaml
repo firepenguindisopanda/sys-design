@@ -49,6 +49,23 @@ nfr:
   minAvailabilityPct: 99.9
   maxMonthlyCostUsd: 300
 
+load:
+  # The last 20 minutes before a deadline: students uploading their submissions, more of
+  # them as the deadline nears, while TAs list and download earlier ones. The brief's
+  # 1,020 requests a minute, rising towards the deadline (SPEC-brief-load-rollout.md).
+  requests: 20400
+  windowSeconds: 1200
+  shape: ramp
+  features:
+    # Check the assignment's deadline and record the file's metadata: a key lookup and one
+    # insert. The file itself goes to object storage, not the database.
+    upload-submission: { writeShare: 1, dbMs: 6 }
+    # Check the student or TA may see the file: one row by key.
+    download-file: { writeShare: 0, dbMs: 3 }
+    # One assignment's submissions with name, time and size, sorted: a list of a few
+    # hundred rows.
+    list-submissions: { writeShare: 0, dbMs: 15 }
+
 rules:
   - id: blobs-in-object-storage
     title: Files stored in object storage

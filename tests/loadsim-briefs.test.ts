@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isComputeKind } from "@/lib/catalog";
 import { defaultScenario } from "@/lib/loadsim/scenario";
-import type { LoadRun, Summary } from "@/lib/loadsim/types";
+import type { FailureReason, LoadRun, Summary } from "@/lib/loadsim/types";
 import { briefById, fixtureDesign, runDesign } from "@/test/loadsim-designs";
 
 // The twelve briefs calibrated in SPEC-brief-load-rollout.md, each under its own default
@@ -11,6 +11,7 @@ const BRIEFS = [
   "chat-app",
   "club-auction",
   "course-assistant",
+  "file-storage",
   "printing-credits",
   "shuttle-tracker",
   "textbook-price-watch",
@@ -34,6 +35,13 @@ function runOf(briefId: string, fixture: string): LoadRun {
   return runs.get(key)!;
 }
 const summaryOf = (briefId: string, fixture: string): Summary => runOf(briefId, fixture).summary;
+
+/** Requests that failed for one of these reasons at these nodes */
+function failedThere(s: Summary, nodeIds: string[], reasons: FailureReason[]) {
+  return s.failures.filter((f) => f.nodeId !== null && nodeIds.includes(f.nodeId) && reasons.includes(f.reason)).reduce((n, f) => n + f.count, 0);
+}
+const computeIds = (briefId: string, fixture: string) =>
+  fixtureDesign(briefId, fixture).nodes.filter((n) => isComputeKind(n.data.componentKind)).map((n) => n.id);
 
 describe.each(BRIEFS)("%s", (briefId) => {
   it("has a load block", () => {
@@ -92,6 +100,16 @@ describe("flaws the load page shows", () => {
     expect(summaryOf("shuttle-tracker", "bad-no-cache").notes).toContain(
       "Routes DB peaked at 2% busy, mostly with Live map reads. A cache in front would bring it to about 1%.",
     );
+  });
+
+  // API 1, shrunk to 1 vCPU, holds uploads (150 ms of CPU each) and lists. The ramp fills it
+  // at 13:20 as the deadline nears, and about 5% of all requests time out there.
+  it("file-storage/bad-capacity-overflow: an instance saturates", () => {
+    const s = summaryOf("file-storage", "bad-capacity-overflow");
+    expect(computeIds("file-storage", "bad-capacity-overflow").some((id) => s.perNode[id].firstSaturatedAt !== null)).toBe(true);
+    expect(s.perNode["api-1"].firstSaturatedAt).toBeGreaterThan(600);
+    expect(s.perNode["api-2"].firstSaturatedAt).toBeNull();
+    expect(failedThere(s, ["api-1"], ["timed-out"])).toBeGreaterThan(0.04 * s.requests);
   });
 
   // One request in six adds a watch, so the slowest 5% are those waiting the bookstore's
