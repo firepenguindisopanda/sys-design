@@ -1,41 +1,23 @@
 # Capability Map: stress and edge-case testing
 
-Status: **approved** (2026-11-06). Built so far:
-- **`stress-harness`** (branch `test/stress-harness`, not merged yet):
-  [SPEC-stress-harness.md](SPEC-stress-harness.md) and
-  [tasks/stress-harness/](tasks/stress-harness/).
-  - Every invariant holds on 2,588 designs.
-  - 17 expected failures in the default suite and 6 in the `STRESS=1` ladder pin the known
-    bugs to `config-bounds`, `loadsim-route-scale` and `engine-path-scale`.
-  - The stress files add about 13 s to `npm test`.
-  - No new finding; the spec's Results lists what each fix module inherits.
+Status: **four of five modules built** (2026-11-06). Only `browser-stress` is left, the
+Playwright runs you chose to spec after the fixes. The built ones:
 
-`engine-path-scale` was added on 2026-11-06, after the map's first approval. It came out of
-specifying the harness, and you approved it with the harness spec.
+| Module | Commit | What it does |
+|---|---|---|
+| `stress-harness` | `07f00a1` | A seeded design generator, an invariant checker and the stress suites: every fixture, both demos and generated designs keep every invariant (2,588 designs with `STRESS_SEEDS=2000`). Known bugs were pinned to the three fix modules. [Spec](SPEC-stress-harness.md), [tasks](tasks/stress-harness/). |
+| `config-bounds` | `ed03bcf` | One table of limits for node config, shared by import, the store and the inspector. Import refuses out-of-range values and self-loops, and the saved `/simulate` design no longer crashes the page on reload. [Spec](SPEC-config-bounds.md), [tasks](tasks/config-bounds/). |
+| `loadsim-route-scale` | `e396546` | The load model refuses designs past 2,000 route steps, or 40,000 ways tried, and `/simulate` shows a message instead of freezing. This was chosen over merging routes, which would have touched 79 of 88 fixtures (open question 1), and it no longer needs to land before `loadsim-delivery` (open question 2). [Spec](SPEC-loadsim-route-scale.md), [tasks](tasks/loadsim-route-scale/). |
+| `engine-path-scale` | branch `fix/engine-path-scale`, not merged yet | The engine keeps its exact latency walk, but past 100,000 steps it uses a linear estimate and the latency check says so. This was chosen over the linear version alone, which differs on 32% of generated designs with cycles (open question 4). [Spec](SPEC-engine-path-scale.md), [tasks](tasks/engine-path-scale/). |
 
-**Next in the build order:** `config-bounds`, `loadsim-route-scale` and
-`engine-path-scale`, in any order. Each module's spec turns its pins into ordinary tests.
-- **`config-bounds`** (branch `fix/config-bounds`, not merged yet):
-  [SPEC-config-bounds.md](SPEC-config-bounds.md) and
-  [tasks/config-bounds/](tasks/config-bounds/).
-  - One table of limits is shared by import, the store and the inspector, and import
-    refuses self-loops.
-  - The 16 pins are ordinary tests, so the default suite has 1 expected failure.
-  - Both probes are byte-identical to `main`.
-  - Still to do: `loadsim-route-scale` and `engine-path-scale`.
-- **`loadsim-route-scale`** (branch `fix/loadsim-route-scale`, not merged yet):
-  [SPEC-loadsim-route-scale.md](SPEC-loadsim-route-scale.md) and
-  [tasks/loadsim-route-scale/](tasks/loadsim-route-scale/).
-  - Building stops past 2,000 route steps, or 40,000 ways tried, and `/simulate` shows a
-    message instead of freezing.
-  - Everything within the budget is byte-identical.
-  - The default suite has no expected failures. The ladder has 3, all for
-    `engine-path-scale`, the last module.
-  - **Approach:** a route budget of 2,000 steps, not merging routes. Real designs top out
-    near 260 steps, and merging would touch 79 of 88 fixtures' numbers. This answers open
-    question 1.
-  - **Order:** the change doesn't touch how routes are simulated, so it no longer needs to
-    land before `loadsim-delivery`. This answers open question 2.
+**Where things stand:**
+- **Pins:** the default suite and the `STRESS=1` size ladder have no expected failures
+  left. The ladder gives 29 passed in 44 s.
+- **Numbers:** every module kept the engine and load-model probes byte-identical to `main`.
+- **Next:** `browser-stress`, whose dependencies are now all built.
+
+`engine-path-scale` was added on 2026-11-06, after the map was first approved. It came out
+of specifying the harness, and you approved it with the harness spec.
 
 ## Goal
 

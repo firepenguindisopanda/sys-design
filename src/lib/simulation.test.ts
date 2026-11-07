@@ -5,8 +5,16 @@ import { COMPONENT_CATALOG } from "./catalog";
 import { createStyledEdge } from "./edges";
 import { loadChallenges } from "./challenges/load";
 import { runFixture } from "./challenges/run";
-import { runVerification } from "./simulation";
+import {
+  longestRequestPath,
+  PATH_WALK_BUDGET,
+  requestHopGraph,
+  runVerification,
+  type HopGraph,
+} from "./simulation";
 import { useSimulatorStore } from "./store";
+import { generateDesign } from "@/test/gen-designs";
+import { fixtureDesign } from "@/test/loadsim-designs";
 import type { ComponentKind, DesignNodeData, EdgeProtocol, FeatureBlock } from "./types";
 
 function node(id: string, kind: ComponentKind, config: object = {}): Node<DesignNodeData> {
@@ -763,5 +771,88 @@ describe("check messages", () => {
     ["fan-in demo", demoResult(() => useSimulatorStore.getState().loadFanInDemo())] as const,
   ])("%s: no detail cites the PDF", (_, result) => {
     expect(result.checks.filter((c) => c.detail.includes("PDF")).map((c) => c.detail)).toEqual([]);
+  });
+});
+
+// SPEC-engine-path-scale.md: the exact latency walk, with a budget and a linear estimate.
+describe("longestRequestPath", () => {
+  const graph = (edges: [string, string, number][], roots: string[]): HopGraph => {
+    const out = new Map<string, { to: string; ms: number }[]>();
+    for (const [from, to, ms] of edges) out.set(from, [...(out.get(from) ?? []), { to, ms }]);
+    return { out, roots };
+  };
+
+  it("is the longest path in an acyclic graph", () => {
+    const g = graph([["c", "lb", 8], ["lb", "a", 25], ["lb", "b", 25], ["a", "db", 12], ["b", "cache", 5]], ["c"]);
+    expect(longestRequestPath(g)).toMatchObject({ ms: 45, estimated: false });
+  });
+
+  it("counts a two-way edge as a round trip, as the walk always has", () => {
+    expect(longestRequestPath(graph([["a", "b", 15], ["b", "a", 15]], ["a"]))).toMatchObject({ ms: 30, estimated: false });
+  });
+
+  it("uses the exact walk at exactly its own budget, and the estimate one step under", () => {
+    const g = graph(
+      [["c", "lb", 8], ["lb", "a", 25], ["lb", "b", 25], ["a", "db", 12], ["b", "db", 12], ["a", "cache", 5], ["b", "cache", 5]],
+      ["c"],
+    );
+    const exact = longestRequestPath(g);
+    expect(exact.estimated).toBe(false);
+    expect(longestRequestPath(g, exact.steps)).toEqual(exact);
+    const estimate = longestRequestPath(g, exact.steps - 1);
+    expect(estimate.estimated).toBe(true);
+    // Without cycles the estimate is exact.
+    expect(estimate.ms).toBe(exact.ms);
+  });
+
+  it("answers a dense 200-node design within 500 ms, as an estimate", () => {
+    const d = generateDesign({ seed: 1, shape: "random", nodes: 200 });
+    const start = performance.now();
+    const result = longestRequestPath(requestHopGraph(d.nodes, d.edges));
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(result.estimated).toBe(true);
+    expect(result.ms).toBeGreaterThan(0);
+  });
+
+  it("is 100,000 steps", () => {
+    expect(PATH_WALK_BUDGET).toBe(100_000);
+  });
+});
+
+// SPEC-engine-path-scale.md: the latency check says when its number is an estimate.
+describe("latency check on very tangled designs", () => {
+  const ESTIMATE = "This design has too many paths to time each one, so this is an estimate.";
+  const PASS_DETAIL =
+    "Estimated time to answer a request meets the NFR. Background work (queue consumers, workers) and server push aren't included.";
+  const latencyOf = (v: ReturnType<typeof runVerification>) => {
+    const c = v.checks.find((x) => x.id === "nfr-latency")!;
+    return { status: c.status, actual: c.actual, detail: c.detail };
+  };
+
+  it("answers a dense 200-node design within 500 ms and says the latency is an estimate", () => {
+    const d = generateDesign({ seed: 1, shape: "random", nodes: 200 });
+    const start = performance.now();
+    const v = runVerification(d.nodes, d.edges, d.features, d.nfr);
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(latencyOf(v).detail.endsWith(` ${ESTIMATE}`)).toBe(true);
+  });
+
+  // Pinned from main before the change: designs within the budget are untouched.
+  it("leaves the chat app (two-way edges) and both demos exactly as they were", () => {
+    const built = fixtureDesign("chat-app", "good");
+    expect(latencyOf(runVerification(built.nodes, built.edges, built.features, built.nfr))).toEqual({
+      status: "pass",
+      actual: "30 ms",
+      detail: PASS_DETAIL,
+    });
+    for (const [load, actual] of [["loadDemo", "96 ms"], ["loadFanInDemo", "20 ms"]] as const) {
+      useSimulatorStore.getState()[load]();
+      const s = useSimulatorStore.getState();
+      expect(latencyOf(runVerification(s.nodes, s.edges, s.features, s.nfr)), load).toEqual({
+        status: "pass",
+        actual,
+        detail: PASS_DETAIL,
+      });
+    }
   });
 });

@@ -26,19 +26,14 @@ type Case = { name: string; design: GenerateOptions; engineMs: number; loadMs: n
 type Result = { engineMs?: number; loadMs?: number; routeSteps?: number; refused?: boolean };
 
 /**
- * Cases over budget for a known reason, by name, with the module that fixes them. From the
- * first run (2026-11-06, SPEC-stress-harness.md Results): for random 200 nodes, the engine
- * never returned for seeds 1 and 2 (killed at the limit) and took 1,525 ms for seed 3. Its
- * latency estimate walks every path (`simulation.ts:183`).
- *
- * Stacked 5–7 × 4 were pinned to loadsim-route-scale (3.3 s, 24.4 s and over the limit);
- * the load model now refuses them in milliseconds, which counts as within budget.
+ * Cases over budget for a known reason, by name, with the module that fixes them; empty
+ * since the stress map's last module (2026-11-06). Earlier pins, for the record:
+ * - stacked 5–7 × 4 (loadsim-route-scale): the load model took 3.3 s, 24.4 s and over the
+ *   limit; it now refuses them in milliseconds, which counts as within budget.
+ * - random 200 nodes, seeds 1–3 (engine-path-scale): the engine's latency walk never
+ *   returned or took 1.5 s; past 100,000 steps it now uses a linear estimate.
  */
-const PINNED: Record<string, string> = {
-  "random 200 nodes, seed 1": "engine-path-scale",
-  "random 200 nodes, seed 2": "engine-path-scale",
-  "random 200 nodes, seed 3": "engine-path-scale",
-};
+const PINNED: Record<string, string> = {};
 
 const FILE = "tests/stress-scale.test.ts";
 const VITEST = path.resolve("node_modules/vitest/vitest.mjs");

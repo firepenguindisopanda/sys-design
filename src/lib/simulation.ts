@@ -150,8 +150,94 @@ function isAfterResponse(e: Edge, byId: Map<string, SimNode>): boolean {
   );
 }
 
-/** Time for a request: the longest chain of hops from where requests start. */
-function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited): number {
+/** Steps the exact latency walk may take before falling back to an estimate (SPEC-engine-path-scale.md). */
+export const PATH_WALK_BUDGET = 100_000;
+
+/** The hops a request waits for, with their times, and where requests start. */
+export type HopGraph = { out: Map<string, { to: string; ms: number }[]>; roots: string[] };
+
+/**
+ * The hops a request waits for: every edge except those after the response
+ * (`isAfterResponse`), plus the reverse of each two-way edge (WebSocket, WebRTC).
+ */
+export function requestHopGraph(nodes: SimNode[], edges: Edge[]): HopGraph {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out = new Map<string, { to: string; ms: number }[]>();
+  const add = (from: string, to: string, protocol: EdgeProtocol) => {
+    const list = out.get(from) ?? [];
+    list.push({ to, ms: hopLatencyMs(byId.get(from), byId.get(to), protocol) });
+    out.set(from, list);
+  };
+  for (const e of edges) {
+    if (isAfterResponse(e, byId)) continue;
+    const { protocol } = getEdgeData(e);
+    add(e.source, e.target, protocol);
+    // Bidirectional protocols contribute reverse hop for path latency
+    if (protocol === "websocket" || protocol === "webrtc") add(e.target, e.source, protocol);
+  }
+  const roots = requestRoots(nodes, edges);
+  return { out, roots: roots.length ? roots : nodes.map((n) => n.id) };
+}
+
+class WalkBudgetSpent extends Error {}
+
+/**
+ * The longest chain of hop times from any root. The exact walk follows every simple path;
+ * stepping onto a node already on the path still counts that last hop, so a two-way edge
+ * counts as a round trip. Past `budget` steps (only very tangled designs get near it) it
+ * falls back to a linear estimate (SPEC-engine-path-scale.md). `steps` is how many steps
+ * the walk took, or `budget + 1` when it gave up.
+ */
+export function longestRequestPath(
+  g: HopGraph,
+  budget: number = PATH_WALK_BUDGET,
+): { ms: number; estimated: boolean; steps: number } {
+  let max = 0;
+  let steps = 0;
+  const visit = (id: string, acc: number, seen: Set<string>) => {
+    if (++steps > budget) throw new WalkBudgetSpent();
+    max = Math.max(max, acc);
+    if (seen.has(id)) return;
+    const next = new Set(seen);
+    next.add(id);
+    for (const e of g.out.get(id) ?? []) visit(e.to, acc + e.ms, next);
+  };
+  try {
+    for (const id of g.roots) visit(id, 0, new Set());
+    return { ms: max, estimated: false, steps };
+  } catch (e) {
+    if (!(e instanceof WalkBudgetSpent)) throw e;
+  }
+
+  // The estimate: the longest path from each node, worked out once per node, where an edge
+  // back onto the current path adds its hop and ends. Without cycles this is exactly the
+  // walk's answer. With cycles the longest path depends on how a node was reached, so it
+  // can differ (it did on 315 of 976 cyclic generated designs); that's why the exact walk
+  // stays for everything within the budget.
+  const memo = new Map<string, number>();
+  const onPath = new Set<string>();
+  const longestFrom = (id: string): number => {
+    const known = memo.get(id);
+    if (known !== undefined) return known;
+    onPath.add(id);
+    let best = 0;
+    for (const e of g.out.get(id) ?? []) best = Math.max(best, e.ms + (onPath.has(e.to) ? 0 : longestFrom(e.to)));
+    onPath.delete(id);
+    memo.set(id, best);
+    return best;
+  };
+  return { ms: Math.max(0, ...g.roots.map(longestFrom)), estimated: true, steps };
+}
+
+/**
+ * Time for a request: the longest chain of hops from where requests start. `estimated`
+ * when the design was too tangled to walk every path (SPEC-engine-path-scale.md).
+ */
+function estimatePathLatency(
+  nodes: SimNode[],
+  edges: Edge[],
+  credited: Credited,
+): { ms: number; estimated: boolean } {
   if (edges.length === 0) {
     const hasCdn = nodes.some((n) => n.data.componentKind === "cdn");
     const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
@@ -160,42 +246,11 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited
     let ms = 80;
     if (hasStatic) ms += hasCdn ? 18 : 45;
     if (hasDb) ms += hasCache ? 12 : 25;
-    return ms;
+    return { ms, estimated: false };
   }
 
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const outgoing = new Map<string, Edge[]>();
-  for (const e of edges) {
-    if (isAfterResponse(e, byId)) continue;
-    const list = outgoing.get(e.source) ?? [];
-    list.push(e);
-    outgoing.set(e.source, list);
-    // Bidirectional protocols contribute reverse hop for path latency
-    const { protocol } = getEdgeData(e);
-    if (protocol === "websocket" || protocol === "webrtc") {
-      const rev = outgoing.get(e.target) ?? [];
-      rev.push({ ...e, source: e.target, target: e.source });
-      outgoing.set(e.target, rev);
-    }
-  }
-
-  let max = 0;
-  const visit = (id: string, acc: number, seen: Set<string>) => {
-    max = Math.max(max, acc);
-    if (seen.has(id)) return;
-    const next = new Set(seen);
-    next.add(id);
-    for (const e of outgoing.get(id) ?? []) {
-      const { protocol } = getEdgeData(e);
-      const add = hopLatencyMs(byId.get(e.source), byId.get(e.target), protocol);
-      visit(e.target, acc + add, next);
-    }
-  };
-
-  const roots = requestRoots(nodes, edges);
-  for (const id of roots.length ? roots : nodes.map((n) => n.id)) {
-    visit(id, 0, new Set());
-  }
+  const walk = longestRequestPath(requestHopGraph(nodes, edges));
+  let max = walk.ms;
 
   const hasCdn = hasCredited(nodes, credited, "cdn");
   const hasStatic = nodes.some((n) => n.data.componentKind === "static_hosting");
@@ -206,7 +261,7 @@ function estimatePathLatency(nodes: SimNode[], edges: Edge[], credited: Credited
   const hasDb = nodes.some((n) => n.data.componentKind === "database");
   if (hasCache && hasDb) max = Math.max(20, max - 15);
 
-  return Math.max(max, 20);
+  return { ms: Math.max(max, 20), estimated: walk.estimated };
 }
 
 /** True when the node puts work on a queue that a task worker consumes. */
@@ -741,7 +796,8 @@ export function runVerification(
   const fileServed = filesFromStore(edges, byId) ? [] : placedFeatures.filter((f) => f.fileRpm);
   const inlineMs = Math.max(0, ...inline.map((f) => f.backgroundWorkMs!));
 
-  const latency = estimatePathLatency(nodes, edges, credited) + inlineMs;
+  const path = estimatePathLatency(nodes, edges, credited);
+  const latency = path.ms + inlineMs;
   const throughput = estimateThroughputRpm(nodes, features, credited);
   const availability = estimateAvailability(nodes, credited);
   const cost = estimateMonthlyCost(nodes, features);
@@ -785,7 +841,8 @@ export function runVerification(
         ? "Estimated time to answer a request meets the NFR."
         : "Requests take too long to answer. Add CDN/cache, shorten hops, or add DB replicas.") +
       latencyScope +
-      inlineNotes.join(""),
+      inlineNotes.join("") +
+      (path.estimated ? " This design has too many paths to time each one, so this is an estimate." : ""),
     actual: `${Math.round(latency)} ms`,
     target: `≤ ${nfr.maxLatencyMs} ms`,
   });
