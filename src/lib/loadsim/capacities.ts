@@ -45,7 +45,14 @@ export const CAPACITY = {
  * down (or back) after 10 s; a replica takes over a database's writes after 30 s; a cache
  * that comes back empty is full again after 30 s.
  */
-export const FAILOVER = { healthCheckSeconds: 10, databaseFailoverSeconds: 30, cacheWarmUpSeconds: 30 };
+/**
+ * Most route steps a design may have before the load model refuses it
+ * (SPEC-loadsim-route-scale.md): about 8× the largest real design (204), and well past
+ * stacked 4 × 4 load balancers (1,706, about 0.6 s to simulate).
+ */
+export const ROUTE_BUDGET = 2_000;
+
+export const FAILOVER ={ healthCheckSeconds: 10, databaseFailoverSeconds: 30, cacheWarmUpSeconds: 30 };
 
 /** Work a task worker can do each second. */
 export function workerBudgetMs(concurrency: number): number {

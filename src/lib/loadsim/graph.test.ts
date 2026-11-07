@@ -1,8 +1,15 @@
+import type { Edge } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
-import { design, fixtureDesign, requirement } from "@/test/loadsim-designs";
-import { buildFlowGraph, databaseStations, reachShares } from "./graph";
+import { buildDesign } from "@/lib/challenges/design";
+import type { Brief } from "@/lib/challenges/types";
+import { useSimulatorStore } from "@/lib/store";
+import type { FeatureBlock } from "@/lib/types";
+import { generateDesign } from "@/test/gen-designs";
+import { challenges, design, fixtureDesign, requirement } from "@/test/loadsim-designs";
+import { ROUTE_BUDGET } from "./capacities";
+import { buildFlowGraph, databaseStations, reachShares, TooManyRoutesError } from "./graph";
 import { featureLoads } from "./scenario";
-import type { FlowGraph, PathStep } from "./types";
+import type { FlowGraph, PathStep, SimNode } from "./types";
 
 function graphOf(built: ReturnType<typeof fixtureDesign> | ReturnType<typeof design>): FlowGraph {
   return buildFlowGraph(built.nodes, built.edges, built.features);
@@ -498,4 +505,83 @@ describe("slow work and external calls on compute steps (SPEC-loadsim-cascades.m
     expect(look[0].callsApi ?? false).toBe(false);
     for (const s of stepsAt(g, "ask", ["desktop"])) expect(s.callsApi ?? false).toBe(false);
   });
+});
+
+// SPEC-loadsim-route-scale.md: building stops once a design passes the route budget.
+describe("route budget", () => {
+  const steps = (g: FlowGraph) => {
+    const count = (s: PathStep): number => 1 + s.next.reduce((n, x) => n + count(x.step), 0);
+    return g.classes.reduce((n, c) => n + (c.root ? count(c.root) : 0), 0);
+  };
+  const stacked = (layers: number) => generateDesign({ shape: "stacked", layers, width: 4 });
+
+  it("is 2,000 route steps", () => {
+    expect(ROUTE_BUDGET).toBe(2_000);
+  });
+
+  it.each([5, 12])("refuses %i stacked layers of 4 within 100 ms", (layers) => {
+    const d = stacked(layers);
+    const start = performance.now();
+    expect(() => buildFlowGraph(d.nodes, d.edges, d.features)).toThrow(TooManyRoutesError);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  // Found while building: paths that dead-end make no steps, so only counting the ways
+  // tried stops 12 layers in front of compute that doesn't run the feature (4^12 paths).
+  it("refuses 12 stacked layers whose paths all dead-end, within 100 ms", () => {
+    const d = stacked(12);
+    const api = d.nodes.find((n) => n.id === "api")!;
+    const nodes = [...d.nodes, { ...api, id: "elsewhere" }];
+    const features = d.features.map((f) => ({ ...f, placedOnNodeId: "elsewhere" }));
+    const start = performance.now();
+    expect(() => buildFlowGraph(nodes, d.edges, features)).toThrow(TooManyRoutesError);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it("names the budget in the error", () => {
+    const d = stacked(5);
+    try {
+      buildFlowGraph(d.nodes, d.edges, d.features);
+      throw new Error("expected a throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TooManyRoutesError);
+      expect((e as TooManyRoutesError).budget).toBe(2_000);
+      expect((e as Error).message).toBe("More than 2000 route steps");
+    }
+  });
+
+  it("still builds 4 stacked layers of 4, with 1,706 steps", () => {
+    const d = stacked(4);
+    expect(steps(buildFlowGraph(d.nodes, d.edges, d.features))).toBe(1_706);
+  });
+
+  // Every place that makes a route step is counted: a design builds with its own step count
+  // as the budget, and throws with one less. A step made but not counted would let the
+  // second build through.
+  it("counts every step exactly", () => {
+    const designs: [string, { nodes: SimNode[]; edges: Edge[]; features: FeatureBlock[] }, Brief | null][] = [
+      ...challenges.flatMap((c) => c.fixtures.map((f) => [`${c.brief.id}/${f.name}`, buildDesign(c.brief, f), c.brief] as [string, ReturnType<typeof buildDesign>, Brief])),
+      ...(["loadDemo", "loadFanInDemo"] as const).map((load): [string, ReturnType<typeof buildDesign>, null] => {
+        useSimulatorStore.getState()[load]();
+        const s = useSimulatorStore.getState();
+        return [load, { nodes: s.nodes, edges: s.edges, features: s.features, nfr: s.nfr }, null];
+      }),
+      ...(["random", "app"] as const).flatMap((shape) =>
+        Array.from({ length: 50 }, (_, i): [string, ReturnType<typeof buildDesign>, null] => {
+          const d = generateDesign({ seed: i + 1, shape });
+          return [d.description, d, null];
+        }),
+      ),
+    ];
+    let checked = 0;
+    for (const [name, d, brief] of designs) {
+      const loads = featureLoads(d.features, brief);
+      const n = steps(buildFlowGraph(d.nodes, d.edges, d.features, loads, 1_000_000));
+      if (n === 0) continue;
+      expect(() => buildFlowGraph(d.nodes, d.edges, d.features, loads, n), name).not.toThrow();
+      expect(() => buildFlowGraph(d.nodes, d.edges, d.features, loads, n - 1), name).toThrow(TooManyRoutesError);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(150);
+  }, 30_000);
 });

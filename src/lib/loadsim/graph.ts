@@ -2,8 +2,22 @@ import type { Edge } from "@xyflow/react";
 import { isClientKind, isComputeKind } from "@/lib/catalog";
 import { PROTOCOL_META, getEdgeData } from "@/lib/edges";
 import type { DatabaseConfig, FeatureBlock } from "@/lib/types";
-import { CAPACITY } from "./capacities";
+import { CAPACITY, ROUTE_BUDGET } from "./capacities";
 import type { FeatureLoads, FlowClass, FlowGraph, NotSimulated, Op, PathStep, SimNode } from "./types";
+
+/** A design with more route steps than the load model can simulate in time (SPEC-loadsim-route-scale.md). */
+export class TooManyRoutesError extends Error {
+  constructor(readonly budget: number) {
+    super(`More than ${budget} route steps`);
+    this.name = "TooManyRoutesError";
+  }
+}
+
+/**
+ * Ways tried per route step allowed before building stops, for paths that dead-end without
+ * making steps (e.g. stacked load balancers in front of compute that doesn't run the feature).
+ */
+const VISITS_PER_STEP = 20;
 
 type Link = { to: string; edgeId: string };
 
@@ -141,7 +155,24 @@ const KIND_WORDS: Partial<Record<string, string>> = {
  * `apiMs`), so an external API they call is no longer listed as not simulated, and how
  * long slow work takes (`slowMs`).
  */
-export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: FeatureBlock[], loads?: FeatureLoads): FlowGraph {
+export function buildFlowGraph(
+  nodes: SimNode[],
+  edges: Edge[],
+  features: FeatureBlock[],
+  loads?: FeatureLoads,
+  budget: number = ROUTE_BUDGET,
+): FlowGraph {
+  // Every route step made is counted, and every way tried, so a design whose paths
+  // multiply is refused after about `budget` steps of work (SPEC-loadsim-route-scale.md).
+  let made = 0;
+  let visits = 0;
+  // Never below the default's, so a test that lowers `budget` to count steps exactly isn't
+  // stopped by dead ends first.
+  const maxVisits = Math.max(budget, ROUTE_BUDGET) * VISITS_PER_STEP;
+  const step = <S extends PathStep>(s: S): S => {
+    if (++made > budget) throw new TooManyRoutesError(budget);
+    return s;
+  };
   /**
    * How long a feature's slow work takes: the brief's `slowMs` where it sets one, else
    * `backgroundWorkMs` (SPEC-brief-load-rollout.md). Whether there is slow work at all
@@ -176,12 +207,12 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
   function jobFrom(queueId: string, edgeId: string, feature: FeatureBlock, seen: Set<string>): PathStep {
     const inner = new Set(seen).add(queueId);
     const workers = consumers(queueId).filter((l) => !inner.has(l.to));
-    return {
+    return step({
       nodeId: queueId,
       edgeId,
       job: true,
       next: evenly(workers.map((l) => workerStep(l.to, l.edgeId, feature, inner))),
-    };
+    });
   }
 
   function workerStep(workerId: string, edgeId: string, feature: FeatureBlock, seen: Set<string>): PathStep {
@@ -193,10 +224,10 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
       next = stages.map((l) => jobFrom(l.to, l.edgeId, feature, inner));
     } else if (feature.resources.storageGb > 0) {
       const dbs = out.filter((l) => kind(l.to) === "database");
-      next = dbs.map((l) => ({ nodeId: l.to, edgeId: l.edgeId, job: true, op: "write" as const, next: [] }));
+      next = dbs.map((l) => step({ nodeId: l.to, edgeId: l.edgeId, job: true, op: "write" as const, next: [] }));
       if (dbs.length === 0 && out.length === 0) resultsNowhere.add(workerId);
     }
-    return { nodeId: workerId, edgeId, job: true, slowMs: 0, next: evenly(next) };
+    return step({ nodeId: workerId, edgeId, job: true, slowMs: 0, next: evenly(next) });
   }
 
   /** Each worker's equal share of the slow work, over the most stages on any branch. */
@@ -227,11 +258,11 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
       noDatabase.set(feature.name, (noDatabase.get(feature.name) ?? new Set()).add(computeId));
     }
     const dbSteps = (share: number) =>
-      dbs.map((l) => ({ fraction: share / dbs.length, step: { nodeId: l.to, edgeId: l.edgeId, next: [] } }));
+      dbs.map((l) => ({ fraction: share / dbs.length, step: step({ nodeId: l.to, edgeId: l.edgeId, next: [] }) }));
     if (op === "write" || caches.length === 0) return dbSteps(1);
     // Cache aside: a miss goes on to the database, along the compute node's own edge to it.
     const miss = 1 - CAPACITY.cache.hitRatio;
-    return evenly(caches.map((l) => ({ nodeId: l.to, edgeId: l.edgeId, next: dbSteps(miss) })));
+    return evenly(caches.map((l) => step({ nodeId: l.to, edgeId: l.edgeId, next: dbSteps(miss) })));
   }
 
   /** The path on from a node towards compute that runs the feature, or null if none. */
@@ -243,6 +274,7 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
     op: Op,
     seen: Set<string>,
   ): PathStep | null {
+    if (++visits > maxVisits) throw new TooManyRoutesError(budget);
     if (seen.has(nodeId)) return null;
     const k = kind(nodeId);
     if (isComputeKind(k)) {
@@ -254,20 +286,20 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
       for (const l of apis) {
         apiCallers.set(l.to, (apiCallers.get(l.to) ?? new Set()).add(feature.id));
       }
-      return {
+      return step({
         nodeId,
         edgeId,
         next: dataSteps(nodeId, feature, op),
         ...(inline ? { inlineSlowMs: slowTimeOf(feature) } : {}),
         ...(apis.length > 0 ? { callsApi: true } : {}),
-      };
+      });
     }
     if (!PASS_THROUGH.has(k)) return null;
     const inner = new Set(seen).add(nodeId);
     const next = links(nodeId)
       .map((l) => routeFrom(l.to, l.edgeId, hosts, feature, op, inner))
       .filter((s): s is PathStep => s !== null);
-    return next.length > 0 ? { nodeId, edgeId, next: evenly(next) } : null;
+    return next.length > 0 ? step({ nodeId, edgeId, next: evenly(next) }) : null;
   }
 
   const roles = clientRoles(nodes, edges);
@@ -301,7 +333,7 @@ export function buildFlowGraph(nodes: SimNode[], edges: Edge[], features: Featur
             ...base,
             outcome: "routed",
             reason: null,
-            root: { nodeId: client.id, edgeId: null, next: evenly(next) },
+            root: step({ nodeId: client.id, edgeId: null, next: evenly(next) }),
           });
         }
       }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFlowGraph } from "@/lib/loadsim/graph";
+import { buildFlowGraph, TooManyRoutesError } from "@/lib/loadsim/graph";
 import { featureLoads } from "@/lib/loadsim/scenario";
 import type { FlowGraph, PathStep } from "@/lib/loadsim/types";
 import { generateDesign } from "@/test/gen-designs";
@@ -9,9 +9,9 @@ import { generateDesign } from "@/test/gen-designs";
 //
 // The flow graph holds one tree of steps per class of requests, with a branch for every way
 // on. Stacked layers of load balancers multiply the branches, so the steps grow with the
-// number of paths (4× per layer of 4), not with nodes and edges, and the model's time grows
-// with them (CAPABILITY-MAP-stress.md: 36 s at 6 layers). If `loadsim-route-scale` changes
-// how routes are held, it updates `routeSteps` in the same change.
+// number of paths (4× per layer of 4), not with nodes and edges. Since loadsim-route-scale
+// (SPEC-loadsim-route-scale.md), building stops past a budget of 2,000 steps, so a design
+// that would take the model seconds or minutes is refused instead.
 
 /** Every step under every class's root. */
 function routeSteps(graph: FlowGraph): number {
@@ -19,19 +19,25 @@ function routeSteps(graph: FlowGraph): number {
   return graph.classes.reduce((n, c) => n + (c.root ? count(c.root) : 0), 0);
 }
 
+const stacked = (layers: number) => generateDesign({ shape: "stacked", layers, width: 4 });
+
 function stackedSteps(layers: number): number {
-  const d = generateDesign({ shape: "stacked", layers, width: 4 });
+  const d = stacked(layers);
   return routeSteps(buildFlowGraph(d.nodes, d.edges, d.features, featureLoads(d.features, null)));
 }
 
 describe("load model routes through stacked load balancers", () => {
-  // Guards the count itself: a helper that undercounted could make the pin below pass.
-  it("today: 26, 106 and 426 steps for 1, 2 and 3 layers of 4", () => {
-    expect([1, 2, 3].map(stackedSteps)).toEqual([26, 106, 426]);
+  // Guards the count itself, so the budget tests below measure what they say.
+  it("26, 106, 426 and 1,706 steps for 1 to 4 layers of 4", () => {
+    expect([1, 2, 3, 4].map(stackedSteps)).toEqual([26, 106, 426, 1_706]);
   });
 
-  it.fails("[loadsim-route-scale] route steps grow with nodes, not paths", () => {
-    // From 4 to 5 layers the design grows from 19 to 23 nodes (1.2×). Today the steps grow 4×.
-    expect(stackedSteps(5) / stackedSteps(4)).toBeLessThanOrEqual(1.5);
+  it.each([5, 7, 12])("%i layers are refused while building, within 100 ms", (layers) => {
+    const d = stacked(layers);
+    const start = performance.now();
+    expect(() => buildFlowGraph(d.nodes, d.edges, d.features, featureLoads(d.features, null))).toThrow(
+      TooManyRoutesError,
+    );
+    expect(performance.now() - start).toBeLessThan(100);
   });
 });

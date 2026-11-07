@@ -23,6 +23,19 @@ specifying the harness, and you approved it with the harness spec.
   - The 16 pins are ordinary tests, so the default suite has 1 expected failure.
   - Both probes are byte-identical to `main`.
   - Still to do: `loadsim-route-scale` and `engine-path-scale`.
+- **`loadsim-route-scale`** (branch `fix/loadsim-route-scale`, not merged yet):
+  [SPEC-loadsim-route-scale.md](SPEC-loadsim-route-scale.md) and
+  [tasks/loadsim-route-scale/](tasks/loadsim-route-scale/).
+  - Building stops past 2,000 route steps, or 40,000 ways tried, and `/simulate` shows a
+    message instead of freezing.
+  - Everything within the budget is byte-identical.
+  - The default suite has no expected failures. The ladder has 3, all for
+    `engine-path-scale`, the last module.
+  - **Approach:** a route budget of 2,000 steps, not merging routes. Real designs top out
+    near 260 steps, and merging would touch 79 of 88 fixtures' numbers. This answers open
+    question 1.
+  - **Order:** the change doesn't touch how routes are simulated, so it no longer needs to
+    land before `loadsim-delivery`. This answers open question 2.
 
 ## Goal
 

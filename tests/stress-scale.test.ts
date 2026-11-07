@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildFlowGraph } from "@/lib/loadsim/graph";
+import { buildFlowGraph, TooManyRoutesError } from "@/lib/loadsim/graph";
 import { simulateLoad } from "@/lib/loadsim/model";
 import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import type { FlowGraph, PathStep } from "@/lib/loadsim/types";
@@ -22,23 +22,22 @@ import { generateDesign, type GenerateOptions } from "@/test/gen-designs";
 // process, so killing the child stops it rather than leaving a fork spinning.
 
 type Case = { name: string; design: GenerateOptions; engineMs: number; loadMs: number };
-type Result = { engineMs?: number; loadMs?: number; routeSteps?: number };
+/** `refused`: the load model refused the design as having too many routes (SPEC-loadsim-route-scale.md). */
+type Result = { engineMs?: number; loadMs?: number; routeSteps?: number; refused?: boolean };
 
 /**
  * Cases over budget for a known reason, by name, with the module that fixes them. From the
- * first run (2026-11-06, SPEC-stress-harness.md Results):
- * - random 200 nodes: the engine never returned for seeds 1 and 2 (killed at the limit) and
- *   took 1,525 ms for seed 3. Its latency estimate walks every path (`simulation.ts:183`).
- * - stacked 5–7 × 4: the load model took 3.3 s, 24.4 s and over the limit, with 6,826,
- *   27,306 and 109,226 route steps (4× per layer).
+ * first run (2026-11-06, SPEC-stress-harness.md Results): for random 200 nodes, the engine
+ * never returned for seeds 1 and 2 (killed at the limit) and took 1,525 ms for seed 3. Its
+ * latency estimate walks every path (`simulation.ts:183`).
+ *
+ * Stacked 5–7 × 4 were pinned to loadsim-route-scale (3.3 s, 24.4 s and over the limit);
+ * the load model now refuses them in milliseconds, which counts as within budget.
  */
 const PINNED: Record<string, string> = {
   "random 200 nodes, seed 1": "engine-path-scale",
   "random 200 nodes, seed 2": "engine-path-scale",
   "random 200 nodes, seed 3": "engine-path-scale",
-  "stacked 5 × 4": "loadsim-route-scale",
-  "stacked 6 × 4": "loadsim-route-scale",
-  "stacked 7 × 4": "loadsim-route-scale",
 };
 
 const FILE = "tests/stress-scale.test.ts";
@@ -85,11 +84,17 @@ describe.runIf(childCase)("one ladder case (child)", () => {
     const engineMs = performance.now() - start;
     write({ engineMs });
     const loads = featureLoads(d.features, null);
-    const steps = routeSteps(buildFlowGraph(d.nodes, d.edges, d.features, loads));
+    // Counted with a budget far above every ladder design (7 × 4 is 109,226), for the table.
+    const steps = routeSteps(buildFlowGraph(d.nodes, d.edges, d.features, loads, 1_000_000));
     write({ engineMs, routeSteps: steps });
     start = performance.now();
-    simulateLoad({ nodes: d.nodes, edges: d.edges, features: d.features, scenario: defaultScenario(null), loads });
-    write({ engineMs, routeSteps: steps, loadMs: performance.now() - start });
+    try {
+      simulateLoad({ nodes: d.nodes, edges: d.edges, features: d.features, scenario: defaultScenario(null), loads });
+      write({ engineMs, routeSteps: steps, loadMs: performance.now() - start });
+    } catch (e) {
+      if (!(e instanceof TooManyRoutesError)) throw e;
+      write({ engineMs, routeSteps: steps, loadMs: performance.now() - start, refused: true });
+    }
   }, 0);
 });
 
@@ -124,7 +129,8 @@ describe.runIf(parent)("size ladder", () => {
       const r = runChild(c);
       const line =
         `${c.name}: engine ${show(r.engineMs)} (budget ${c.engineMs}), ` +
-        `load model ${show(r.loadMs)} (budget ${c.loadMs}), route steps ${r.routeSteps ?? "—"}` +
+        `load model ${show(r.loadMs)}${r.refused ? " (refused: too many routes)" : ""} (budget ${c.loadMs}), ` +
+        `route steps ${r.routeSteps ?? "—"}` +
         (r.killed ? ", killed at the time limit" : "");
       console.log(line);
       expect(r.engineMs, line).toBeDefined();

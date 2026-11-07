@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { design, fixtureDesign, requirement } from "@/test/loadsim-designs";
+import { buildDesign } from "@/lib/challenges/design";
+import { generateDesign } from "@/test/gen-designs";
+import { challenges, design, fixtureDesign, requirement } from "@/test/loadsim-designs";
 import { missingForLoad } from "./readiness";
 
 describe("missingForLoad", () => {
@@ -47,5 +49,35 @@ describe("missingForLoad", () => {
     const d = fixtureDesign("link-shortener", "good");
     const unplaced = d.features.map((f) => ({ ...f, placedOnNodeId: null }));
     expect(missingForLoad(d.nodes, d.edges, unplaced)).toEqual(["Place at least one feature on compute."]);
+  });
+
+  // SPEC-loadsim-route-scale.md
+  describe("too many routes", () => {
+    const TOO_MANY =
+      "This design has more than 2,000 ways for a request to travel through it, too many to simulate. " +
+      "That usually means load balancers stacked in layers: one load balancer in front of each group of servers is enough.";
+    const stacked = (layers: number) => generateDesign({ shape: "stacked", layers, width: 4 });
+
+    it("says so for 5 stacked layers of load balancers", () => {
+      const d = stacked(5);
+      expect(missingForLoad(d.nodes, d.edges, d.features)).toEqual([TOO_MANY]);
+    });
+
+    it("is quiet for 4 stacked layers, and for every fixture", () => {
+      const d = stacked(4);
+      expect(missingForLoad(d.nodes, d.edges, d.features)).toEqual([]);
+      for (const c of challenges) {
+        for (const f of c.fixtures) {
+          const built = buildDesign(c.brief, f);
+          expect(missingForLoad(built.nodes, built.edges, built.features), `${c.brief.id}/${f.name}`).not.toContain(TOO_MANY);
+        }
+      }
+    });
+
+    it("waits until nothing else is missing", () => {
+      const d = stacked(5);
+      const unplaced = d.features.map((f) => ({ ...f, placedOnNodeId: null }));
+      expect(missingForLoad(d.nodes, d.edges, unplaced)).toEqual(["Place at least one feature on compute."]);
+    });
   });
 });

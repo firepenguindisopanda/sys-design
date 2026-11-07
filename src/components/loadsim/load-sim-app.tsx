@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Brief } from "@/lib/challenges/types";
 import { loadHandoff } from "@/lib/loadsim/handoff";
+import { missingForLoad } from "@/lib/loadsim/readiness";
 import { simulateLoad } from "@/lib/loadsim/model";
 import { toggleOutage, type Outage } from "@/lib/loadsim/outages";
 import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
@@ -39,7 +40,16 @@ export function LoadSimApp({ briefs }: { briefs: Brief[] }) {
     setState(next);
   }, [briefs]);
 
-  if (state.status !== "ready") return <LoadSimView state={state} />;
+  // A design that isn't ready (including one with too many routes, which would freeze the
+  // tab) never reaches the model; the view says what's missing (SPEC-loadsim-route-scale.md).
+  const ready = useMemo(
+    () =>
+      state.status === "ready" &&
+      missingForLoad(state.design.nodes, state.design.edges, state.design.features).length === 0,
+    [state],
+  );
+
+  if (state.status !== "ready" || !ready) return <LoadSimView state={state} />;
   return <ReadyPage key={state.design.brief?.id ?? "sandbox"} state={state} design={state.design} />;
 }
 
