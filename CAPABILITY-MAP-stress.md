@@ -1,0 +1,101 @@
+# Capability Map: stress and edge-case testing
+
+Status: **approved** (2026-11-06). Built so far:
+- **`stress-harness`** (branch `test/stress-harness`, not merged yet):
+  [SPEC-stress-harness.md](SPEC-stress-harness.md) and
+  [tasks/stress-harness/](tasks/stress-harness/).
+  - Every invariant holds on 2,588 designs.
+  - 17 expected failures in the default suite and 6 in the `STRESS=1` ladder pin the known
+    bugs to `config-bounds`, `loadsim-route-scale` and `engine-path-scale`.
+  - The stress files add about 13 s to `npm test`.
+  - No new finding; the spec's Results lists what each fix module inherits.
+
+`engine-path-scale` was added on 2026-11-06, after the map's first approval. It came out of
+specifying the harness, and you approved it with the harness spec.
+
+**Next in the build order:** `config-bounds`, `loadsim-route-scale` and
+`engine-path-scale`, in any order. Each module's spec turns its pins into ordinary tests.
+
+## Goal
+
+Find out how the simulator behaves with designs that are large, unusual or malformed, and
+fix what breaks. The app has no backend, so "stress" here means the browser's own work: the
+engine behind Run simulation, the load model behind `/simulate`, the design-file import, and
+the canvas. Every check runs in vitest and works the same on each run (seeded generators, no
+randomness between runs), except the last module, which runs in a real browser.
+
+## What the probes found (2026-11-06)
+
+Throwaway vitest probes against `main` at `c2b2baf`, deleted afterwards:
+
+| Input | Engine (Run simulation) | Load model (`/simulate`) |
+|---|---|---|
+| Imported `replicas: 0` or `-1` on the link shortener's database | Imports; fails availability only | Imports; serves all 100,000 requests through a database with no copies |
+| `replicas: 1.5` | Imports | Serves **103,175 of 100,000** requests |
+| `replicas: .nan` | Imports; every NFR check fails with its generic message | Runs normally |
+| `replicas: .inf` | Imports; passes availability | **Crashes the worker out of memory** |
+| `replicas: 200` | 3 ms | 375 ms (about 5× the 2-replica design) |
+| Stacked load balancers, fully connected layer to layer (4 per layer) | 3 → 10 ms at any depth | 3 layers 0.1 s, 4: 0.9 s, 5: 5.9 s, 6 (27 nodes): **36 s**, 7: over 75 s |
+| A YAML "alias bomb" | Refused in 4 ms by the `yaml` library's alias limit | — |
+| Random designs (any kinds, about 2 edges per node, 3 features) | 25–100 nodes: 1–50 ms. **200 nodes: never returned** (killed after 180 s) | 25–100 nodes: 20–95 ms; not reached at 200 |
+| All 86 fixtures and 300 random 2–13 node designs, every invariant below | All hold | All hold, with outages too |
+
+- **Why config breaks.** `checkConfigShape` (`src/lib/challenges/validate.ts:113`) checks
+  only `typeof`, while the node inspector limits replicas to 1–8. An empty number field in
+  the inspector also gives 0 (`Number("")`, `node-inspector.tsx:143`).
+- **Why the load model slows down.** `routeFrom` (`src/lib/loadsim/graph.ts:240`) follows
+  every path through load balancers, CDNs and static hosting, so the time grows with the
+  number of paths, not the number of nodes.
+- **Why the engine hangs (found while specifying the harness).** `estimatePathLatency`
+  (`src/lib/simulation.ts:183`) finds the longest chain of hops by walking every simple
+  path from each client. WebSocket and WebRTC edges add a reverse hop, so a dense design
+  has a huge number of paths. Run simulation would freeze the editor tab the same way.
+- **The bad design sticks.** It is saved in the tab's session storage on the way to
+  `/simulate`, so reloading the page would hit the `.inf` crash again. This hasn't been
+  checked in a browser yet.
+- **Counts aren't whole numbers.** Served counts come back as fractions, e.g.
+  `100000.0000000067`, so the invariants need a small tolerance.
+
+## Decisions (2026-11-06)
+
+| Question | Decision |
+|---|---|
+| Test or fix the bugs found | Both. The harness comes first, with each known bug pinned as an expected failure that names the module that fixes it. Each fix then turns its expected failures into passes. |
+| Browser stress runs | A later module, specced only after the vitest modules land |
+| Where tests live | `tests/stress-*.test.ts`; generators in `src/test/`, beside `loadsim-designs.ts` |
+
+## Modules
+
+| Module id | Responsibility | Depends on |
+|---|---|---|
+| `stress-harness` | A seeded generator of designs (any size, random kinds, cycles, self-loops, two-way pairs, unconnected parts, out-of-range config). Invariants checked on every generated design and every fixture, for both the engine and the load model: no throw, every number finite, served + failed = sent, utilisation ≥ 0, same input gives the same output, and export → import gives the same results. A size ladder with a time budget per size. Hand-written import edge cases. Known bugs are pinned with `it.fails`. Tests only: no product code changes. | — |
+| `config-bounds` | One set of limits for each numeric node config field (whole number or not, minimum, maximum), shared by the design-file validator, the store and the inspector. An out-of-range imported file is refused with the file-and-path message. An empty or invalid inspector field leaves the value unchanged. Turns the harness's config `it.fails` into passes. | `stress-harness` |
+| `loadsim-route-scale` | The load model's time grows with nodes and edges, not paths, so a design of 50 or more nodes simulates within the harness's budget. Every current load-model number stays the same: `tests/loadsim-unchanged-baseline.json`, the graph snapshots, and every brief's calibration. The spec chooses how (open question 1). | `stress-harness` |
+| `engine-path-scale` | The engine's latency estimate takes time that grows with nodes and edges, not paths, so Run simulation on a 200-node design answers within the harness's budget. Both demos, every fixture's expectations and every good design's probe numbers stay the same. | `stress-harness` |
+| `browser-stress` | Playwright on a production build: a 200-node design imported, dragged and checked; `/simulate` at 1,000,000 requests; frame rate, long tasks and memory measured; the first-click-on-Run flake reproduced or ruled out; reloading `/simulate` with a bad saved design. | `config-bounds`, `loadsim-route-scale`, `engine-path-scale` |
+
+**Build order:** `stress-harness` → `config-bounds`, `loadsim-route-scale`,
+`engine-path-scale` (independent of each other, any order) → `browser-stress`.
+
+Each module gets its own `SPEC-<module id>.md` and `tasks/<module id>/`, and runs on its own
+branch, as before.
+
+## Open questions
+
+1. **How `loadsim-route-scale` fixes the slowdown.** Either merge flows where paths meet
+   (keeps every number, but changes how the model holds routes), or put a cap on routes with
+   a clear message ("too many routes to simulate"). A cap is cheaper but leaves a limit
+   students can hit. To be settled in that module's spec, after reading `model.ts`'s use of
+   the route tree.
+2. **Order against `loadsim-delivery`.** That module, next in the load page's map, also
+   changes `graph.ts` and `model.ts`. Should `loadsim-route-scale` land before it, to avoid
+   building delivery on the slow routing?
+3. **Files exported before `config-bounds`.** An exported file with out-of-range values
+   would now be refused on import. No such files are known (the inspector never allowed
+   them), so the proposal is to refuse them with the usual message and add no migration.
+4. **How `engine-path-scale` fixes the hang.** The longest simple path in a graph with
+   cycles has no fast exact answer. One option is to collapse each cycle into one step and
+   take the longest path over what's left. That is fast, and it gives the same answer
+   whenever the request paths have no cycles; how many fixtures have cycles hasn't been
+   checked. The other option is to cap the search and say so. This would be settled in that
+   module's spec, with the probe run before and after.
