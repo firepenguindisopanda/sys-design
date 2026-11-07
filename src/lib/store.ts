@@ -11,6 +11,7 @@ import {
 } from "@xyflow/react";
 import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
+import { clampPatch, isPlainObject } from "./config-limits";
 import { createStyledEdge, styleEdgeForProtocol } from "./edges";
 import { evaluateRules } from "./challenges/rules";
 import { defaultProtocol, freeSpot } from "./placement";
@@ -515,13 +516,17 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     set({
       nodes: get().nodes.map((n) => {
         if (n.id !== id) return n;
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            config: { ...n.data.config, ...configPatch } as DesignNodeData["config"],
-          },
-        };
+        // Numbers are clamped to the shared limits, and NaN or Infinity is dropped so the
+        // field keeps its value (SPEC-config-bounds.md). Nested objects (compute capacity)
+        // merge field by field, so a dropped field isn't lost.
+        const patch = clampPatch(n.data.componentKind, configPatch);
+        const config: Record<string, unknown> = { ...n.data.config };
+        for (const [key, value] of Object.entries(patch)) {
+          const old = config[key];
+          config[key] =
+            isPlainObject(value) && isPlainObject(old) ? { ...old, ...value } : value;
+        }
+        return { ...n, data: { ...n.data, config: config as DesignNodeData["config"] } };
       }),
     }),
 

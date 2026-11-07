@@ -411,6 +411,24 @@ describe("validateDesignFile", () => {
     expect(fileError({ ...sandboxFile(), extra: 1 })).toBe(`${DESIGN_FILE}: extra: unknown field`);
   });
 
+  // SPEC-config-bounds.md
+  it("refuses a config value outside its limit, at the field's path", () => {
+    const raw = { challenge: "link-shortener", design: rawFixture().design };
+    raw.design.nodes[1].config.capacity.vcpus = 0;
+    expect(fileError(raw)).toBe(
+      `${DESIGN_FILE}: design.nodes[1].config.capacity.vcpus: expected a number from 0.5 to 64`,
+    );
+    const inf = { challenge: "link-shortener", design: rawFixture().design };
+    inf.design.nodes[3].config.replicas = Infinity;
+    expect(fileError(inf)).toBe(`${DESIGN_FILE}: design.nodes[3].config.replicas: expected a whole number from 1 to 8`);
+  });
+
+  it("refuses an edge from a node to itself", () => {
+    const raw = { challenge: "link-shortener", design: rawFixture().design };
+    raw.design.edges.push("api -> api : http");
+    expect(fileError(raw)).toBe(`${DESIGN_FILE}: design.edges[3]: an edge can't connect "api" to itself`);
+  });
+
   it("checks placements against the file's own requirement ids", () => {
     const raw = sandboxFile();
     raw.design.placements = { redirect: "api" };

@@ -1,7 +1,9 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
+import { limitFor, parseConfigInput } from "@/lib/config-limits";
 import { useSimulatorStore } from "@/lib/store";
+import type { ComponentKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +15,54 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
+
+/**
+ * A number field held to the shared config limits (SPEC-config-bounds.md). While focused it
+ * keeps what the student types and saves only in-range values; on leaving, an out-of-range
+ * number snaps to the nearest limit and empty or non-numeric text shows the saved value
+ * again. Unfocused it shows the saved value, so an import or reset shows up at once.
+ */
+function ConfigNumberField({
+  id,
+  kind,
+  path,
+  value,
+  step,
+  onCommit,
+}: {
+  id: string;
+  kind: ComponentKind;
+  path: string;
+  value: number;
+  step?: number;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const limit = limitFor(kind, path);
+  return (
+    <Input
+      id={id}
+      type="number"
+      min={limit?.min}
+      max={limit?.max}
+      step={step}
+      value={draft ?? String(value)}
+      onFocus={() => setDraft(String(value))}
+      onChange={(e) => {
+        const text = e.target.value;
+        setDraft(text);
+        const n = parseConfigInput(kind, path, text);
+        if (n !== null && n === Number(text)) onCommit(n);
+      }}
+      onBlur={() => {
+        const n = draft === null ? null : parseConfigInput(kind, path, draft);
+        if (n !== null && n !== value) onCommit(n);
+        setDraft(null);
+      }}
+      className="h-8 text-xs"
+    />
+  );
+}
 
 /** The selected node's fields. `InspectorCard` owns the frame and the title. */
 export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
@@ -67,21 +117,14 @@ export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
                 <Label htmlFor={`${id}-${key}`} className="text-[10px]">
                   {label}
                 </Label>
-                <Input
+                <ConfigNumberField
                   id={`${id}-${key}`}
-                  type="number"
-                  min={0}
+                  kind={cfg.kind}
+                  path={`capacity.${key}`}
                   step={key === "vcpus" ? 0.5 : 1}
                   value={cfg.capacity[key]}
-                  onChange={(e) =>
-                    updateNodeConfig(node.id, {
-                      capacity: {
-                        ...cfg.capacity,
-                        [key]: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="h-8 text-xs"
+                  // The store merges capacity field by field, so only this one is sent.
+                  onCommit={(n) => updateNodeConfig(node.id, { capacity: { [key]: n } })}
                 />
               </div>
             ))}
@@ -133,30 +176,22 @@ export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label htmlFor={`${id}-replicas`} className="text-[10px]">Replicas</Label>
-              <Input
+              <ConfigNumberField
                 id={`${id}-replicas`}
-                type="number"
-                min={1}
-                max={8}
+                kind="database"
+                path="replicas"
                 value={cfg.replicas}
-                onChange={(e) =>
-                  updateNodeConfig(node.id, { replicas: Number(e.target.value) })
-                }
-                className="h-8 text-xs"
+                onCommit={(n) => updateNodeConfig(node.id, { replicas: n })}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor={`${id}-shards`} className="text-[10px]">Shards</Label>
-              <Input
+              <ConfigNumberField
                 id={`${id}-shards`}
-                type="number"
-                min={1}
-                max={16}
+                kind="database"
+                path="shards"
                 value={cfg.shards}
-                onChange={(e) =>
-                  updateNodeConfig(node.id, { shards: Number(e.target.value) })
-                }
-                className="h-8 text-xs"
+                onCommit={(n) => updateNodeConfig(node.id, { shards: n })}
               />
             </div>
           </div>
@@ -184,16 +219,13 @@ export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
           </div>
           <div className="space-y-1">
             <Label htmlFor={`${id}-memory-gb`} className="text-[10px]">Memory GB</Label>
-            <Input
+            <ConfigNumberField
               id={`${id}-memory-gb`}
-              type="number"
-              min={0.5}
+              kind="cache"
+              path="memoryGb"
               step={0.5}
               value={cfg.memoryGb}
-              onChange={(e) =>
-                updateNodeConfig(node.id, { memoryGb: Number(e.target.value) })
-              }
-              className="h-8 text-xs"
+              onCommit={(n) => updateNodeConfig(node.id, { memoryGb: n })}
             />
           </div>
         </div>
@@ -202,15 +234,12 @@ export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
       {cfg.kind === "object_storage" && (
         <div className="space-y-1">
           <Label htmlFor={`${id}-storage-gb`} className="text-[10px]">Storage GB</Label>
-          <Input
+          <ConfigNumberField
             id={`${id}-storage-gb`}
-            type="number"
-            min={1}
+            kind="object_storage"
+            path="storageGb"
             value={cfg.storageGb}
-            onChange={(e) =>
-              updateNodeConfig(node.id, { storageGb: Number(e.target.value) })
-            }
-            className="h-8 text-xs"
+            onCommit={(n) => updateNodeConfig(node.id, { storageGb: n })}
           />
         </div>
       )}
@@ -238,16 +267,12 @@ export function NodeInspector({ onDeleted }: { onDeleted?: () => void }) {
       {cfg.kind === "task_worker" && (
         <div className="space-y-1">
           <Label htmlFor={`${id}-concurrency`} className="text-[10px]">Concurrency</Label>
-          <Input
+          <ConfigNumberField
             id={`${id}-concurrency`}
-            type="number"
-            min={1}
-            max={64}
+            kind="task_worker"
+            path="concurrency"
             value={cfg.concurrency}
-            onChange={(e) =>
-              updateNodeConfig(node.id, { concurrency: Number(e.target.value) })
-            }
-            className="h-8 text-xs"
+            onCommit={(n) => updateNodeConfig(node.id, { concurrency: n })}
           />
         </div>
       )}

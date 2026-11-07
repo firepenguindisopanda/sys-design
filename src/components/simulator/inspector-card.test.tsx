@@ -43,3 +43,38 @@ describe("InspectorCard", () => {
     expect(card()).toBe("");
   });
 });
+
+// SPEC-config-bounds.md: the number fields take their limits from CONFIG_LIMITS.
+describe("number fields show the shared limits", () => {
+  beforeEach(() => store().loadDemo());
+
+  /** The <input> whose id ends with `suffix`, as rendered. */
+  const input = (html: string, suffix: string) => {
+    const match = new RegExp(`<input[^>]*id="[^"]*-${suffix}"[^>]*>`).exec(html);
+    if (!match) throw new Error(`no input ending ${suffix}`);
+    return match[0];
+  };
+
+  it("database replicas and shards", () => {
+    useSimulatorStore.setState({ selectedNodeId: node("database").id, selectedEdgeId: null });
+    const html = card();
+    expect(input(html, "replicas")).toMatch(/min="1"/);
+    expect(input(html, "replicas")).toMatch(/max="8"/);
+    expect(input(html, "shards")).toMatch(/max="16"/);
+  });
+
+  it("compute vCPUs", () => {
+    useSimulatorStore.setState({ selectedNodeId: node("paas").id, selectedEdgeId: null });
+    const vcpus = input(card(), "vcpus");
+    expect(vcpus).toMatch(/min="0.5"/);
+    expect(vcpus).toMatch(/max="64"/);
+    expect(vcpus).toMatch(/step="0.5"/);
+  });
+
+  it("cache memory", () => {
+    useSimulatorStore.setState({ selectedNodeId: node("cache").id, selectedEdgeId: null });
+    const memory = input(card(), "memory-gb");
+    expect(memory).toMatch(/min="0.5"/);
+    expect(memory).toMatch(/max="256"/);
+  });
+});

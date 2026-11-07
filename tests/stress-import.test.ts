@@ -142,11 +142,11 @@ describe("accepted, and unchanged by the change", () => {
 });
 
 describe("recorded first, then pinned as they behave", () => {
-  // The canvas refuses a self-loop, but import accepts one; nothing breaks.
-  it("a self-loop is accepted and keeps every invariant", () => {
-    const d = loaded(withEdge("api-1 -> api-1: http"));
-    expect(d.edges.some((e) => e.source === "api-1" && e.target === "api-1")).toBe(true);
-    expect(brokenInvariants(d, d.brief)).toEqual([]);
+  // Recorded as accepted; since config-bounds, import refuses it as the canvas does.
+  it("a self-loop is refused at its path", () => {
+    expect(refusal(withEdge("api-1 -> api-1: http"))).toBe(
+      `${NAME}: design.edges[3]: an edge can't connect "api-1" to itself`,
+    );
   });
 
   // Export only refuses two connections in the same direction.
@@ -168,8 +168,9 @@ function storageWith(text: string, briefId: string): HandoffStorage {
   return { getItem: (key) => (key === HANDOFF_KEY ? stored : null), setItem: () => {} };
 }
 
-describe("out-of-range config (pinned for config-bounds)", () => {
-  // Import only, never the engine or the load model: `.inf` replicas crash the model's worker.
+describe("out-of-range config is refused (SPEC-config-bounds.md)", () => {
+  // Import only, never the engine or the load model: before config-bounds, `.inf` replicas
+  // were accepted and crashed the model's worker.
   const db = (config: string) => fileWith("config: { replicas: 2 }", `config: { ${config} }`);
   const worker = (concurrency: string) => withNode(`{ id: worker, kind: task_worker, config: { concurrency: ${concurrency} } }`);
   const vcpus = (value: string) =>
@@ -185,31 +186,23 @@ describe("out-of-range config (pinned for config-bounds)", () => {
     ["compute capacity.vcpus: -1", vcpus("-1"), "design.nodes[3].config.capacity.vcpus"],
   ];
 
-  // Guards the pins below: each file is accepted today, so each pin fails for the reason it
-  // names, not because of a typo in the case. config-bounds turns these around.
-  it.each(cases)("today, %s is accepted", (_, text) => {
-    expect(importText(text)).toHaveProperty("loaded");
-  });
-
   it("the same files with in-range values are accepted", () => {
     expect(importText(db("replicas: 3, shards: 2"))).toHaveProperty("loaded");
     expect(importText(worker("8"))).toHaveProperty("loaded");
     expect(importText(vcpus("2"))).toHaveProperty("loaded");
   });
 
-  it.fails.each(cases)("[config-bounds] refuses %s", (_, text, path) => {
+  it.each(cases)("refuses %s", (_, text, path) => {
     const message = refusal(text);
-    expect(message.startsWith(`${NAME}: ${path}`), message).toBe(true);
+    expect(message.startsWith(`${NAME}: ${path}: expected a `), message).toBe(true);
   });
 
-  it("today, a saved /simulate design with replicas: .inf loads", () => {
-    expect(loadHandoff(storageWith(db("replicas: .inf"), "link-shortener"), briefs)).toHaveProperty("loaded");
-  });
-
-  // Today it loads, and the page's run crashes; the design stays in session storage, so a
-  // reload crashes again (CAPABILITY-MAP-stress.md).
-  it.fails("[config-bounds] a saved /simulate design with replicas: .inf gives an error, not a design", () => {
-    expect(loadHandoff(storageWith(db("replicas: .inf"), "link-shortener"), briefs)).toHaveProperty("error");
+  // Before config-bounds it loaded and the page's run crashed; the design stays in session
+  // storage, so every reload crashed again (CAPABILITY-MAP-stress.md).
+  it("a saved /simulate design with replicas: .inf gives an error, not a design", () => {
+    expect(loadHandoff(storageWith(db("replicas: .inf"), "link-shortener"), briefs)).toEqual({
+      error: "link-shortener-design.yaml: design.nodes[6].config.replicas: expected a whole number from 1 to 8",
+    });
   });
 });
 

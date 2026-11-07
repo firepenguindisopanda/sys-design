@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isClientKind, isComputeKind } from "@/lib/catalog";
 import { exportDesignFile } from "@/lib/challenges/design-file";
+import { limitFor } from "@/lib/config-limits";
+import type { ComponentKind } from "@/lib/types";
 import { CONFIG_ENUMS, CONFIG_RANGES, generateDesign, type GeneratedDesign } from "./gen-designs";
 
 // SPEC-stress-harness.md, Task 1: the generator itself. Every stress test trusts these
@@ -60,6 +62,20 @@ describe("every config value is in range", () => {
       }
     }
   }, SLOW);
+});
+
+// SPEC-config-bounds.md: generated designs stay inside the product's limits, so every one
+// would also import. The ranges stay narrower, to keep generated designs typical.
+it("every generator range lies within the product's limits", () => {
+  for (const [kind, fields] of Object.entries(CONFIG_RANGES)) {
+    for (const [path, range] of Object.entries(fields)) {
+      const limit = limitFor(kind as ComponentKind, path);
+      expect(limit, `${kind} ${path} has no limit`).not.toBeNull();
+      expect(range.min, `${kind} ${path} min`).toBeGreaterThanOrEqual(limit!.min);
+      expect(range.max, `${kind} ${path} max`).toBeLessThanOrEqual(limit!.max);
+      if (limit!.whole) expect(Number.isInteger(range.step), `${kind} ${path} step`).toBe(true);
+    }
+  }
 });
 
 describe("edges and placements", () => {

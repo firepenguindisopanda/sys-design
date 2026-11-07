@@ -745,3 +745,38 @@ describe("isFreshStart", () => {
     expect(fresh().isFreshStart()).toBe(false);
   });
 });
+
+// SPEC-config-bounds.md: the store keeps config within the shared limits, however it's set.
+describe("updateNodeConfig keeps config within its limits", () => {
+  beforeEach(() => store().loadDemo());
+
+  const node = (kind: string) => store().nodes.find((n) => n.data.componentKind === kind)!;
+  const config = (kind: string) => node(kind).data.config as unknown as Record<string, unknown>;
+
+  it("clamps an out-of-range number to the nearest limit", () => {
+    store().updateNodeConfig(node("database").id, { replicas: 20 });
+    expect(config("database").replicas).toBe(8);
+    store().updateNodeConfig(node("database").id, { shards: 0 });
+    expect(config("database").shards).toBe(1);
+  });
+
+  it("clamps a nested capacity field and keeps the others", () => {
+    const before = config("paas").capacity as Record<string, number>;
+    store().updateNodeConfig(node("paas").id, { capacity: { ...before, vcpus: 0 } });
+    expect(config("paas").capacity).toEqual({ ...before, vcpus: 0.5 });
+  });
+
+  it("keeps the old value for NaN or Infinity, nested fields included", () => {
+    const replicas = config("database").replicas;
+    store().updateNodeConfig(node("database").id, { replicas: NaN });
+    expect(config("database").replicas).toBe(replicas);
+    const before = config("paas").capacity as Record<string, number>;
+    store().updateNodeConfig(node("paas").id, { capacity: { ...before, vcpus: Infinity } });
+    expect(config("paas").capacity).toEqual(before);
+  });
+
+  it("leaves fields with no limit alone", () => {
+    store().updateNodeConfig(node("database").id, { engine: "document" });
+    expect(config("database").engine).toBe("document");
+  });
+});

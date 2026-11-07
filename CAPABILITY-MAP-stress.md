@@ -15,6 +15,14 @@ specifying the harness, and you approved it with the harness spec.
 
 **Next in the build order:** `config-bounds`, `loadsim-route-scale` and
 `engine-path-scale`, in any order. Each module's spec turns its pins into ordinary tests.
+- **`config-bounds`** (branch `fix/config-bounds`, not merged yet):
+  [SPEC-config-bounds.md](SPEC-config-bounds.md) and
+  [tasks/config-bounds/](tasks/config-bounds/).
+  - One table of limits is shared by import, the store and the inspector, and import
+    refuses self-loops.
+  - The 16 pins are ordinary tests, so the default suite has 1 expected failure.
+  - Both probes are byte-identical to `main`.
+  - Still to do: `loadsim-route-scale` and `engine-path-scale`.
 
 ## Goal
 

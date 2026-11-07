@@ -1,4 +1,5 @@
 import { COMPONENT_CATALOG, isComputeKind } from "@/lib/catalog";
+import { configProblem, numericConfigFields } from "@/lib/config-limits";
 import { PROTOCOL_META } from "@/lib/edges";
 import type { ComponentKind, EdgeProtocol, NonFunctionalRequirements } from "@/lib/types";
 import type {
@@ -368,6 +369,11 @@ function readDesign(r: Reader, raw: unknown, frIds: string[], path: string): Com
         const v = (no.config as Obj)[field];
         if (v !== undefined) r.oneOf(v, r.at(cp, field), allowed, field);
       }
+      // One set of limits for import, the store and the inspector (SPEC-config-bounds.md).
+      for (const [field, value] of numericConfigFields(no.config as Obj)) {
+        const problem = configProblem(kind, field, value);
+        if (problem) r.fail(field.split(".").reduce((at, key) => r.at(at, key), cp), problem);
+      }
     }
     return {
       id: r.slug(no.id, r.at(p, "id")),
@@ -395,6 +401,8 @@ function readDesign(r: Reader, raw: unknown, frIds: string[], path: string): Com
     const [, source, target, protocol] = m;
     if (!byId.has(source)) r.fail(p, `unknown node "${source}"`);
     if (!byId.has(target)) r.fail(p, `unknown node "${target}"`);
+    // The canvas refuses these too (SPEC-config-bounds.md).
+    if (source === target) r.fail(p, `an edge can't connect "${source}" to itself`);
     return {
       id: `${source}->${target}`,
       source,
