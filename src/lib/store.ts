@@ -8,12 +8,14 @@ import {
   type EdgeChange,
   type Node,
   type NodeChange,
+  type XYPosition,
 } from "@xyflow/react";
 import { create } from "zustand";
 import { COMPONENT_CATALOG, DEFAULT_CAPACITIES } from "./catalog";
 import { clampPatch, isPlainObject } from "./config-limits";
 import { createStyledEdge, styleEdgeForProtocol } from "./edges";
 import { evaluateRules } from "./challenges/rules";
+import { layoutByRole } from "./layout";
 import { defaultProtocol, freeSpot } from "./placement";
 import type { LoadedDesign } from "./challenges/design-file";
 import type { Brief, RuleResult } from "./challenges/types";
@@ -71,6 +73,15 @@ type SimulatorState = {
   advanceHint: (ruleId: string) => void;
   /** Raised whenever the whole design is replaced, so the canvas re-fits the view */
   layoutVersion: number;
+  /**
+   * The positions a Tidy layout replaced, while Undo tidy can still put them back: until the
+   * design changes in any way its fingerprint sees (SPEC-auto-layout.md)
+   */
+  tidyUndo: TidyUndo | null;
+  /** Lay the design out in columns by role; returns how many columns, 0 on an empty canvas */
+  tidyLayout: () => number;
+  /** Put every node back where it was before the last Tidy layout */
+  undoTidy: () => void;
   /** Centre of the visible canvas in flow coordinates; null until the canvas reports it */
   viewCentre: { x: number; y: number } | null;
   setViewCentre: (centre: { x: number; y: number } | null) => void;
@@ -445,6 +456,9 @@ function unplaceMissing(features: FeatureBlock[], nodes: SimNode[]): FeatureBloc
 /** The design every page load starts with, kept to recognise an untouched editor. */
 const startSeed = withBaseline(demoSeed());
 
+/** Where each node was before a Tidy layout, and the design's canvas fingerprint after it. */
+export type TidyUndo = { before: Record<string, XYPosition>; after: string };
+
 export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   ...startSeed,
   challenge: null,
@@ -452,6 +466,41 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
   hintSteps: {},
   pendingReplace: null,
   layoutVersion: 0,
+  tidyUndo: null,
+
+  tidyLayout: () => {
+    const { nodes, edges } = get();
+    if (nodes.length === 0) return 0;
+    const positions = layoutByRole(nodes, edges);
+    const tidied = nodes.map((n) => ({ ...n, position: positions.get(n.id)! }));
+
+// Undo tidy lasts until the design changes: a move, an edit, a connection, a deletion. The
+// canvas fingerprint sees all of those and ignores selection and measured sizes, so
+// clicking a node keeps the undo. It's only computed while an undo is possible, and the
+// first change clears it, so a drag pays for it once.
+useSimulatorStore.subscribe((s) => {
+  if (s.tidyUndo && fingerprint(s).canvas !== s.tidyUndo.after) useSimulatorStore.setState({ tidyUndo: null });
+});
+    set({
+      nodes: tidied,
+      tidyUndo: {
+        before: Object.fromEntries(nodes.map((n) => [n.id, n.position])),
+        after: fingerprint({ ...get(), nodes: tidied }).canvas,
+      },
+      layoutVersion: get().layoutVersion + 1,
+    });
+    return new Set([...positions.values()].map((p) => p.x)).size;
+  },
+
+  undoTidy: () => {
+    const undo = get().tidyUndo;
+    if (!undo || fingerprint(get()).canvas !== undo.after) return set({ tidyUndo: null });
+    set({
+      nodes: get().nodes.map((n) => ({ ...n, position: undo.before[n.id] ?? n.position })),
+      tidyUndo: null,
+      layoutVersion: get().layoutVersion + 1,
+    });
+  },
   viewCentre: null,
 
   setViewCentre: (centre) => set({ viewCentre: centre }),
@@ -687,6 +736,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
       hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
+      tidyUndo: null,
     }),
 
   loadFanInDemo: () =>
@@ -696,6 +746,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
       hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
+      tidyUndo: null,
     }),
 
   clearCanvas: () =>
@@ -708,10 +759,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       verification: null,
       verifiedFingerprint: null,
       ruleResults: null,
+      tidyUndo: null,
     }),
 
   startChallenge: (brief) =>
-    set({ ...withBaseline(challengeSeed(brief)), layoutVersion: get().layoutVersion + 1 }),
+    set({ ...withBaseline(challengeSeed(brief)), layoutVersion: get().layoutVersion + 1, tidyUndo: null }),
 
   leaveChallenge: () =>
     set({
@@ -720,6 +772,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       ruleResults: null,
       hintSteps: {},
       layoutVersion: get().layoutVersion + 1,
+      tidyUndo: null,
     }),
 
   loadDesign: ({ brief, nodes, edges, features, functionalReqs, nfr }) =>
@@ -733,6 +786,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
       selectedNodeId: null,
       selectedEdgeId: null,
       layoutVersion: get().layoutVersion + 1,
+      tidyUndo: null,
     }),
 
   revealNextHint: () => {

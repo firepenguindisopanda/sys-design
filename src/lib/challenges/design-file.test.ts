@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { layoutByRole } from "@/lib/layout";
 import { runVerification } from "@/lib/simulation";
-import { useSimulatorStore } from "@/lib/store";
+import { useSimulatorStore, type SimNode } from "@/lib/store";
+import { generateDesign } from "@/test/gen-designs";
 import { buildDesign } from "./design";
 import { exportDesignFile, importDesignFile, type DesignState, type LoadedDesign } from "./design-file";
 import { loadChallenges } from "./load";
@@ -170,19 +172,62 @@ describe("sandbox round trip: background work, polling, files and writes", () =>
   });
 });
 
+const withoutPosition = (nodes: SimNode[]) => nodes.map((n) => ({ ...n, position: null }));
+const positionsOf = (nodes: SimNode[]) => Object.fromEntries(nodes.map((n) => [n.id, n.position]));
+
 describe("importing fixture files", () => {
   it.each(all.map((x) => [`${x.brief.id}/${x.fixture.name}`, x] as const))(
-    "%s imports into its own challenge as buildDesign builds it",
+    "%s imports into its own challenge as buildDesign builds it, laid out by role",
     (_, { brief, fixture }) => {
       const text = readFileSync(path.join(ROOT, brief.id, "fixtures", `${fixture.name}.yaml`), "utf8");
       const loaded = importOrThrow(text, brief.id);
       expect(loaded.brief).toBe(brief);
       const built = buildDesign(brief, fixture);
-      expect(loaded.nodes).toEqual(built.nodes);
+      expect(withoutPosition(loaded.nodes)).toEqual(withoutPosition(built.nodes));
       expect(loaded.edges).toEqual(built.edges);
       expect(loaded.features).toEqual(built.features);
+      // No fixture saves positions, so each is laid out (SPEC-auto-layout.md).
+      expect(fixture.design.nodes.every((n) => n.position === null)).toBe(true);
+      expect(positionsOf(loaded.nodes)).toEqual(Object.fromEntries(layoutByRole(built.nodes, built.edges)));
     },
   );
+});
+
+describe("laying out files without positions (SPEC-auto-layout.md)", () => {
+  const chatText = readFileSync(path.join(ROOT, "chat-app", "fixtures", "good.yaml"), "utf8");
+
+  it("puts the chat app's clients first and its database last, not on the grid", () => {
+    const { nodes } = importOrThrow(chatText, "chat-app");
+    const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
+    expect(x("phone")).toBe(x("laptop"));
+    expect(x("phone")).toBeLessThan(x("lb"));
+    expect(x("lb")).toBeLessThan(x("chat-1"));
+    expect(x("chat-1")).toBe(x("chat-2"));
+    expect(x("db")).toBeGreaterThan(x("bus"));
+  });
+
+  it("keeps saved positions exactly", () => {
+    useSimulatorStore.getState().loadDemo();
+    const s = useSimulatorStore.getState();
+    const { text } = exportOrThrow({ ...s, challenge: null });
+    // In file order: export renames ids like `static_hosting-5` to `static-hosting-5`.
+    expect(importOrThrow(text).nodes.map((n) => n.position)).toEqual(s.nodes.map((n) => n.position));
+  });
+
+  it("keeps today's behaviour when only some nodes have positions", () => {
+    const text = chatText.replace("{ id: phone, kind: mobile, label: Student phone }", "{ id: phone, kind: mobile, label: Student phone, at: [ 5, 7 ] }");
+    expect(text).not.toBe(chatText);
+    const { nodes } = importOrThrow(text, "chat-app");
+    expect(nodes[0].position).toEqual({ x: 5, y: 7 });
+    // The rest on the grid, by their place in the file.
+    expect(nodes[1].position).toEqual({ x: 220, y: 0 });
+    expect(nodes[4].position).toEqual({ x: 0, y: 140 });
+  });
+
+  it("leaves generated designs on the grid: they're built, not imported", () => {
+    const d = generateDesign({ seed: 1, shape: "app", nodes: 12 });
+    d.nodes.forEach((n, i) => expect(n.position).toEqual({ x: (i % 4) * 220, y: Math.floor(i / 4) * 140 }));
+  });
 });
 
 describe("import errors", () => {

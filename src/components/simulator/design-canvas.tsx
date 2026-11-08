@@ -27,7 +27,7 @@ import { animateRealtime } from "@/lib/edges";
 import { DEFAULT_NODE_SIZE, LIBRARY_DRAG_TYPE } from "@/lib/placement";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Eraser, Sparkles } from "lucide-react";
+import { Columns3, Eraser, Sparkles, Undo2 } from "lucide-react";
 import type { Brief } from "@/lib/challenges/types";
 import type { ComponentKind } from "@/lib/types";
 
@@ -238,6 +238,58 @@ function FlowCanvas() {
   );
 }
 
+const LAYOUT_ANNOUNCER_ID = "layout-announcement";
+
+/**
+ * Tidy layout lays the design out in columns by role; until the design next changes, the
+ * same place offers Undo tidy (SPEC-auto-layout.md). The store decides when the undo goes.
+ */
+function TidyLayoutButton() {
+  const empty = useSimulatorStore((s) => s.nodes.length === 0);
+  const canUndo = useSimulatorStore((s) => s.tidyUndo !== null);
+  const tidyLayout = useSimulatorStore((s) => s.tidyLayout);
+  const undoTidy = useSimulatorStore((s) => s.undoTidy);
+  const [said, setSaid] = useState("");
+
+  return (
+    <>
+      {canUndo ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          aria-controls={LAYOUT_ANNOUNCER_ID}
+          className="h-7 gap-1.5 text-xs text-slate-600"
+          onClick={() => {
+            undoTidy();
+            setSaid("Layout undone.");
+          }}
+        >
+          <Undo2 className="h-3.5 w-3.5" />
+          Undo tidy
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={empty}
+          aria-controls={LAYOUT_ANNOUNCER_ID}
+          className="h-7 gap-1.5 text-xs text-slate-600"
+          onClick={() => setSaid(`Laid out in ${tidyLayout()} columns.`)}
+        >
+          <Columns3 className="h-3.5 w-3.5" />
+          Tidy layout
+        </Button>
+      )}
+      {/* Rendered empty from the start so screen readers notice the text arriving. */}
+      <span id={LAYOUT_ANNOUNCER_ID} aria-live="polite" className="sr-only">
+        {said}
+      </span>
+    </>
+  );
+}
+
 export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
   const inChallenge = useSimulatorStore((s) => s.challenge !== null);
   const loadDemo = useSimulatorStore((s) => s.loadDemo);
@@ -315,6 +367,7 @@ export function DesignCanvas({ briefs }: { briefs: Brief[] }) {
               <Eraser className="h-3.5 w-3.5" />
               Clear
             </Button>
+            <TidyLayoutButton />
           </div>
           <DesignIo briefs={briefs} />
           <SimulateLoadButton />

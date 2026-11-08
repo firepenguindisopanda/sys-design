@@ -1,5 +1,6 @@
 import type { Edge } from "@xyflow/react";
 import { Document, isMap, isSeq, parse } from "yaml";
+import { layoutByRole } from "@/lib/layout";
 import type { SimNode } from "@/lib/store";
 import type { FeatureBlock, FunctionalRequirement, NonFunctionalRequirements } from "@/lib/types";
 import { buildCompactDesign, compactDesign, optionalWorkload, type BuiltDesign } from "./design";
@@ -115,6 +116,18 @@ export function exportDesignFile(state: DesignState): { text: string; fileName: 
   return "error" in check ? check : { text, fileName };
 }
 
+/**
+ * A file with no saved positions, such as a challenge fixture, is laid out in columns by
+ * role instead of on the build's grid (SPEC-auto-layout.md). Any saved position means the
+ * student arranged it: the file is kept as it is. Only imports do this, not
+ * `buildCompactDesign`, which the stress tests' generator and fixture runs also use.
+ */
+function laidOut(design: CompactDesign, nodes: SimNode[], edges: Edge[]): SimNode[] {
+  if (!design.nodes.every((n) => n.position === null)) return nodes;
+  const positions = layoutByRole(nodes, edges);
+  return nodes.map((n) => ({ ...n, position: positions.get(n.id)! }));
+}
+
 /** Read a design file (or a fixture) and build it, or say what's wrong with it. */
 export function importDesignFile(
   text: string,
@@ -130,9 +143,11 @@ export function importDesignFile(
   }
   try {
     const file = validateDesignFile(raw, briefs, currentBriefId, fileName);
+    const built = buildCompactDesign(file.functionalRequirements, file.nfr, file.design);
     return {
       loaded: {
-        ...buildCompactDesign(file.functionalRequirements, file.nfr, file.design),
+        ...built,
+        nodes: laidOut(file.design, built.nodes, built.edges),
         brief: file.brief,
         functionalReqs: file.functionalRequirements.map((fr) => ({
           id: `freq-${fr.id}`,

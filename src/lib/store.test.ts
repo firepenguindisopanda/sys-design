@@ -6,6 +6,7 @@ import { exportDesignFile, importDesignFile } from "./challenges/design-file";
 import { loadChallenges } from "./challenges/load";
 import { runFixture } from "./challenges/run";
 import { getEdgeData } from "./edges";
+import { layoutByRole } from "./layout";
 import { useSimulatorStore } from "./store";
 
 const store = () => useSimulatorStore.getState();
@@ -778,5 +779,74 @@ describe("updateNodeConfig keeps config within its limits", () => {
   it("leaves fields with no limit alone", () => {
     store().updateNodeConfig(node("database").id, { engine: "document" });
     expect(config("database").engine).toBe("document");
+  });
+});
+
+describe("Tidy layout and Undo tidy (SPEC-auto-layout.md)", () => {
+  beforeEach(() => store().loadDemo());
+  const positions = () => Object.fromEntries(store().nodes.map((n) => [n.id, n.position]));
+
+  it("moves every node to its role column and re-fits the view", () => {
+    const version = store().layoutVersion;
+    const expected = Object.fromEntries(layoutByRole(store().nodes, store().edges));
+    expect(store().tidyLayout()).toBe(new Set(Object.values(expected).map((p) => p.x)).size);
+    expect(positions()).toEqual(expected);
+    expect(store().layoutVersion).toBe(version + 1);
+    expect(store().tidyUndo).not.toBeNull();
+  });
+
+  it("puts every node back exactly on Undo tidy, and re-fits the view", () => {
+    const before = positions();
+    store().tidyLayout();
+    const version = store().layoutVersion;
+    store().undoTidy();
+    expect(positions()).toEqual(before);
+    expect(store().layoutVersion).toBe(version + 1);
+    expect(store().tidyUndo).toBeNull();
+  });
+
+  it("counts a tidy as unsaved work, and Undo tidy as none", () => {
+    store().tidyLayout();
+    expect(store().hasUnsavedWork()).toBe(true);
+    store().undoTidy();
+    expect(store().hasUnsavedWork()).toBe(false);
+  });
+
+  it.each<[string, () => void]>([
+    ["selecting a node", () => store().selectNode(store().nodes[0].id)],
+    ["selecting an edge", () => store().selectEdge(store().edges[0].id)],
+    [
+      "React Flow measuring a node",
+      () => store().onNodesChange([{ type: "dimensions", id: store().nodes[0].id, dimensions: { width: 180, height: 64 } }]),
+    ],
+  ])("keeps Undo tidy after %s", (_, change) => {
+    store().tidyLayout();
+    change();
+    expect(store().tidyUndo).not.toBeNull();
+  });
+
+  it.each<[string, () => void]>([
+    ["moving a node", () => store().onNodesChange([{ type: "position", id: store().nodes[0].id, position: { x: 1, y: 2 } }])],
+    ["changing a config field", () => store().updateNodeConfig(store().nodes.find((n) => n.data.componentKind === "database")!.id, { replicas: 3 })],
+    ["renaming a node", () => store().updateNodeData(store().nodes[0].id, { label: "Phone" })],
+    ["connecting two nodes", () => store().onConnect({ source: store().nodes[0].id, target: store().nodes[8].id, sourceHandle: null, targetHandle: null })],
+    ["deleting a node", () => store().deleteNode(store().nodes[0].id)],
+    ["adding a node", () => store().addComponent("vm")],
+    ["loading the demo", () => store().loadDemo()],
+    ["loading the fan-in demo", () => store().loadFanInDemo()],
+    ["starting a challenge", () => store().startChallenge(brief)],
+    ["clearing the canvas", () => store().clearCanvas()],
+  ])("drops Undo tidy after %s", (_, change) => {
+    store().tidyLayout();
+    change();
+    expect(store().tidyUndo).toBeNull();
+  });
+
+  it("does nothing on an empty canvas", () => {
+    store().clearCanvas();
+    const version = store().layoutVersion;
+    expect(store().tidyLayout()).toBe(0);
+    expect(store().tidyUndo).toBeNull();
+    expect(store().layoutVersion).toBe(version);
   });
 });
