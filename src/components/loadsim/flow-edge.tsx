@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef } from "react";
 import { getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import type { EdgeFrame, LoadRun } from "@/lib/loadsim/types";
 import { usePlayback } from "./playback";
 import { useReducedMotion, useSim } from "./sim-context";
 
@@ -82,14 +83,21 @@ export function FlowEdgeBody({
   );
 }
 
+/** What an edge draws at one step: its volume and failed share, zero outside the run. */
+export function edgeAtStep(run: LoadRun, step: number, id: string): EdgeFrame {
+  return run.frames[step]?.edges[id] ?? { volume: 0, failedShare: 0 };
+}
+
 /** A connection on the simulation canvas: thickness and dots follow the current frame. */
 function FlowEdgeComponent(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd } = props;
   const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const { run, maxRate, animator, activeEdges } = useSim();
   const reducedMotion = useReducedMotion();
-  const step = usePlayback((s) => s.step);
-  const edge = run.frames[step]?.edges[id];
+  // One primitive per number drawn (SPEC-canvas-render-scale.md, fix 5): the step moves every
+  // frame, but an edge re-renders only when its own volume or failed share does.
+  const volume = usePlayback((s) => edgeAtStep(run, s.step, id).volume);
+  const failedShare = usePlayback((s) => edgeAtStep(run, s.step, id).failedShare);
   const pathRef = useRef<SVGPathElement>(null);
   const dotsRef = useRef<SVGGElement>(null);
 
@@ -104,8 +112,8 @@ function FlowEdgeComponent(props: EdgeProps) {
       path={path}
       labelX={labelX}
       labelY={labelY}
-      ratePerSecond={(edge?.volume ?? 0) / run.dtSeconds}
-      failedShare={edge?.failedShare ?? 0}
+      ratePerSecond={volume / run.dtSeconds}
+      failedShare={failedShare}
       maxRate={maxRate}
       reducedMotion={reducedMotion}
       active={activeEdges.has(id)}

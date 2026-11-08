@@ -24,3 +24,9 @@ export function edgeAriaLabel(edge: Edge, nodes: SimNode[]): string {
   const protocol = PROTOCOL_META[getEdgeData(edge).protocol].shortLabel;
   return `${protocol} from ${name(edge.source)} to ${name(edge.target)}`;
 }
+
+/** `edgeAriaLabel` for many edges: the caller builds the id to label map once. */
+export function edgeAriaLabelFrom(edge: Edge, labels: ReadonlyMap<string, string>): string {
+  const protocol = PROTOCOL_META[getEdgeData(edge).protocol].shortLabel;
+  return `${protocol} from ${labels.get(edge.source) ?? edge.source} to ${labels.get(edge.target) ?? edge.target}`;
+}

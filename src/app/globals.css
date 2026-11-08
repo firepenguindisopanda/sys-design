@@ -156,4 +156,28 @@
   .sesim-handle {
     transition: none;
   }
+  /* Dashes stay, motion stops, in any design (SPEC-canvas-render-scale.md). */
+  .react-flow .react-flow__edge.animated path {
+    animation: none;
+  }
+}
+
+/*
+ * Past 20 realtime edges the canvas marks them `still` (src/lib/edges.ts animateRealtime):
+ * xyflow's `dashdraw` animation repainted every frame and capped a 200-node design at
+ * 21 fps. The stroke-dasharray from xyflow's `.react-flow__edge.animated path` is kept.
+ * Three classes beat xyflow's two whatever the stylesheet order. SPEC-canvas-render-scale.md.
+ */
+.react-flow__edge.animated.still path {
+  animation: none;
+}
+
+/*
+ * While the editor's view pans or zooms (design-canvas.tsx sets data-moving), the edges get
+ * their own compositor layer, so the browser moves them instead of repainting every long
+ * path each frame (measured pan 31 to 53 fps on random 200). Never at rest: a standing layer
+ * changes how the text and fine lines around it are drawn. SPEC-canvas-render-scale.md, fix 2.
+ */
+.react-flow[data-moving] .react-flow__edges {
+  will-change: transform;
 }

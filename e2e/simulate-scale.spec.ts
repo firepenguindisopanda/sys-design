@@ -19,12 +19,16 @@ import {
 // SPEC-browser-stress.md, scenario 2: /simulate at its largest scenario, 1,000,000 requests.
 // Budgets set 2026-11-07, after three runs (tasks/browser-stress/todo.md, Task 3).
 
-/** A pin's target: the demo plays at 60 fps; app 200 manages 31–41. */
+/**
+ * The frame rate every case keeps during playback. App 200 managed 31–42 until
+ * canvas-render-scale (2026-11-08) had each edge and node re-render only when what it shows
+ * changes, instead of on every step: now 60, as the demo.
+ */
 const SMOOTH_FPS = 50;
 
 const BUDGET = { openMs: 5_000, requestsMs: 5_000, requestsTaskMs: 2_000, medianFrameMs: 50, toggleMs: 5_000 };
 
-type Case = { name: string; open: (page: Page) => Promise<void>; owner?: string };
+type Case = { name: string; open: (page: Page) => Promise<void> };
 
 const CASES: Case[] = [
   {
@@ -34,11 +38,8 @@ const CASES: Case[] = [
       await expect(page.locator(".react-flow__node").first()).toBeVisible();
     },
   },
-  // Pinned: playback runs at 31–40 fps (median frame 17–33 ms between runs) against the
-  // demo's 60, with under 3× headroom against the budget.
   {
     name: "app 200 nodes, seed 1",
-    owner: "canvas-render-scale",
     open: (page) => importDesign(page, designFile("app-200-seed-1.yaml", designText(APP_200)), 200),
   },
 ];
@@ -143,17 +144,8 @@ for (const c of CASES) {
     withinBudget("longest task at 1,000,000 requests", m.requestsTasks.longestMs, BUDGET.requestsTaskMs);
     withinBudget("switch off", m.offMs, BUDGET.toggleMs);
     withinBudget("bring back", m.backMs, BUDGET.toggleMs);
-    // A pinned case's frame rate is checked in its own test below.
-    if (!c.owner) withinBudget("playback median frame", m.playFrames.medianMs, BUDGET.medianFrameMs);
+    withinBudget("playback median frame", m.playFrames.medianMs, BUDGET.medianFrameMs);
+    if (BUDGETS_ON) smooth("playback", m.playFrames, SMOOTH_FPS);
     expect(errors).toEqual([]);
   });
-
-  if (c.owner) {
-    test(`[${c.owner}] simulate: ${c.name}, smooth playback`, async ({ page }) => {
-      test.skip(!BUDGETS_ON, "measuring only");
-      test.fail();
-      const m = await measureSimulate(page, c);
-      smooth("playback", m.playFrames, SMOOTH_FPS);
-    });
-  }
 }

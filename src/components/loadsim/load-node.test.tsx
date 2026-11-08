@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { simulateLoad } from "@/lib/loadsim/model";
 import { defaultScenario, featureLoads } from "@/lib/loadsim/scenario";
 import { design, fixtureDesign, requirement, runDesign } from "@/test/loadsim-designs";
-import { LoadNodeBody, gaugeBand, nodeStatus, nodeStatusAt } from "./load-node";
+import type { LoadRun } from "@/lib/loadsim/types";
+import { LoadNodeBody, gaugeBand, nodeGaugeAtStep, nodeStatus, nodeStatusAt } from "./load-node";
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
 
@@ -183,5 +184,36 @@ describe("LoadNodeBody", () => {
   it("has no gauge for a client", () => {
     const html = renderToStaticMarkup(<LoadNodeBody label="Phone" kind="mobile" utilisation={0} status="Sending 83 req/s" />);
     expect(html).not.toContain("data-band");
+  });
+});
+
+describe("nodeGaugeAtStep and the status selector (SPEC-canvas-render-scale.md fix 5)", () => {
+  const node = (utilisation: number, off?: "routed") => ({ utilisation, arrivals: 5, ...(off ? { off } : {}) });
+  const run = {
+    dtSeconds: 1,
+    workerSlots: {},
+    summary: { outages: [] },
+    frames: [
+      { nodes: { n1: node(0.5) }, edges: {} },
+      { nodes: { n1: node(0.5) }, edges: {} },
+      { nodes: { n1: node(0.9) }, edges: {} },
+      { nodes: { n1: node(0.9, "routed") }, edges: {} },
+    ],
+  } as unknown as LoadRun;
+  const status = (step: number) => nodeStatusAt(run, "n1", "database", step, 0, false);
+
+  it("returns the frame's utilisation and whether it is off, and zero/false outside the run", () => {
+    expect(nodeGaugeAtStep(run, 2, "n1")).toEqual({ utilisation: 0.9, off: false });
+    expect(nodeGaugeAtStep(run, 3, "n1")).toEqual({ utilisation: 0.9, off: true });
+    expect(nodeGaugeAtStep(run, 9, "n1")).toEqual({ utilisation: 0, off: false });
+  });
+
+  it("gives equal primitives across a step that changes nothing shown, and different ones when it does", () => {
+    expect(nodeGaugeAtStep(run, 0, "n1").utilisation).toBe(nodeGaugeAtStep(run, 1, "n1").utilisation);
+    expect(nodeGaugeAtStep(run, 0, "n1").off).toBe(nodeGaugeAtStep(run, 1, "n1").off);
+    expect(status(0)).toBe(status(1));
+    expect(nodeGaugeAtStep(run, 1, "n1").utilisation).not.toBe(nodeGaugeAtStep(run, 2, "n1").utilisation);
+    expect(status(1)).not.toBe(status(2));
+    expect(nodeGaugeAtStep(run, 2, "n1").off).not.toBe(nodeGaugeAtStep(run, 3, "n1").off);
   });
 });

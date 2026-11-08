@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Power } from "lucide-react";
 import { isClientKind } from "@/lib/catalog";
@@ -103,7 +103,7 @@ export function nodeStatusAt(
   });
 }
 
-export function LoadNodeBody({
+export const LoadNodeBody = memo(function LoadNodeBody({
   label,
   kind,
   utilisation,
@@ -182,6 +182,12 @@ export function LoadNodeBody({
       )}
     </div>
   );
+});
+
+/** The two frame values a node shows besides its status text: gauge level, and switched off. */
+export function nodeGaugeAtStep(run: LoadRun, step: number, id: string): { utilisation: number; off: boolean } {
+  const frame = run.frames[step]?.nodes[id];
+  return { utilisation: frame?.utilisation ?? 0, off: frame?.off !== undefined };
 }
 
 const hidden = { opacity: 0, pointerEvents: "none" as const };
@@ -192,20 +198,25 @@ type LoadNodeData = { label: string; kind: string };
 function LoadNodeComponent({ id, data }: NodeProps) {
   const { label, kind } = data as LoadNodeData;
   const { run, failedSoFar, notSimulated, toggle } = useSim();
-  const step = usePlayback((s) => s.step);
-  const frame = run.frames[step]?.nodes[id];
-  const status = nodeStatusAt(run, id, kind, step, failedSoFar[id]?.[step] ?? 0, notSimulated.has(id));
-  const off = frame?.off !== undefined;
+  // Select only what the node shows (SPEC-canvas-render-scale.md, fix 5): primitives, so the
+  // node re-renders when its gauge, off state or status text changes, not on every step.
+  const utilisation = usePlayback((s) => nodeGaugeAtStep(run, s.step, id).utilisation);
+  const off = usePlayback((s) => nodeGaugeAtStep(run, s.step, id).off);
+  const status = usePlayback((s) =>
+    nodeStatusAt(run, id, kind, s.step, failedSoFar[id]?.[s.step] ?? 0, notSimulated.has(id)),
+  );
+  // Stable per node, so the memoised body can skip when only the step moved.
+  const onToggle = useCallback(() => toggle?.(id), [toggle, id]);
   return (
     <>
       <Handle type="target" position={Position.Left} style={hidden} isConnectable={false} />
       <LoadNodeBody
         label={label}
         kind={kind}
-        utilisation={frame?.utilisation ?? 0}
+        utilisation={utilisation}
         status={status}
         off={off}
-        onToggle={toggle ? () => toggle(id) : undefined}
+        onToggle={toggle ? onToggle : undefined}
       />
       <Handle type="source" position={Position.Right} style={hidden} isConnectable={false} />
     </>

@@ -213,13 +213,13 @@ export async function reachableNode(page: Page): Promise<{ id: string; x: number
   return found;
 }
 
-// --- Pins ---------------------------------------------------------------------------
+// --- Frame rates ----------------------------------------------------------------------
 
 /**
- * A pinned check (SPEC-browser-stress.md, "Problems found"): the frame rate a pinned case
- * must reach before its pin comes off. A pinned case sits near its frame budget, so
- * checking that budget would pass on some runs and fail on others; a target taken from a
- * case that already runs well fails every time until the owner module gets there.
+ * A frame-rate target. It began as the check for pinned cases (SPEC-browser-stress.md,
+ * "Problems found"), whose frames sat at their 50 ms budget. Since canvas-render-scale
+ * brought those cases up (2026-11-08), every case is held to its spec's target: the
+ * median-frame budget alone would let a case fall back to 20 fps unnoticed.
  */
 export function smooth(what: string, frames: FrameStats, targetFps: number): void {
   expect(frames.fps, `${what}: ${frames.fps.toFixed(0)} fps against ${targetFps}`).toBeGreaterThanOrEqual(targetFps);

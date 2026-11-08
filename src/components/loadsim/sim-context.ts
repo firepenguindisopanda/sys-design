@@ -30,15 +30,29 @@ export function useSim(): SimContextValue {
 
 const REDUCED = "(prefers-reduced-motion: reduce)";
 
+// Every FlowEdge reads this on every render, so keep one query object instead of
+// calling matchMedia each time (SPEC-canvas-render-scale.md, fix 4). Made lazily:
+// this module is imported on the server, where there is no window.
+let reducedQuery: MediaQueryList | null = null;
+
+function getReducedQuery(): MediaQueryList | null {
+  if (typeof window === "undefined") return null;
+  reducedQuery ??= window.matchMedia(REDUCED);
+  return reducedQuery;
+}
+
+export function subscribeReducedMotion(onChange: () => void): () => void {
+  const query = getReducedQuery();
+  if (!query) return () => {};
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+export function reducedMotionSnapshot(): boolean {
+  return getReducedQuery()?.matches ?? false;
+}
+
 /** True when the viewer asked for less motion; false on the server. */
 export function useReducedMotion(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = window.matchMedia(REDUCED);
-      query.addEventListener("change", onChange);
-      return () => query.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia(REDUCED).matches,
-    () => false,
-  );
+  return useSyncExternalStore(subscribeReducedMotion, reducedMotionSnapshot, () => false);
 }

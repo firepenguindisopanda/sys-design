@@ -1,8 +1,7 @@
 # Capability Map: stress and edge-case testing
 
-Status: **all five modules built** (2026-11-07); `browser-stress` is on its branch,
-awaiting your review before it merges. One module is left: `canvas-render-scale`, which
-`browser-stress` added for the frame rates it pinned. The built ones:
+Status: **all six modules built** (2026-11-08); `canvas-render-scale` is on its branch,
+awaiting your review before it merges. The built ones:
 
 | Module | Commit | What it does |
 |---|---|---|
@@ -10,15 +9,16 @@ awaiting your review before it merges. One module is left: `canvas-render-scale`
 | `config-bounds` | `ed03bcf` | One table of limits for node config, shared by import, the store and the inspector. Import refuses out-of-range values and self-loops, and the saved `/simulate` design no longer crashes the page on reload. [Spec](SPEC-config-bounds.md), [tasks](tasks/config-bounds/). |
 | `loadsim-route-scale` | `e396546` | The load model refuses designs past 2,000 route steps, or 40,000 ways tried, and `/simulate` shows a message instead of freezing. This was chosen over merging routes, which would have touched 79 of 88 fixtures (open question 1), and it no longer needs to land before `loadsim-delivery` (open question 2). [Spec](SPEC-loadsim-route-scale.md), [tasks](tasks/loadsim-route-scale/). |
 | `engine-path-scale` | `136ff73` | The engine keeps its exact latency walk, but past 100,000 steps it uses a linear estimate and the latency check says so. This was chosen over the linear version alone, which differs on 32% of generated designs with cycles (open question 4). [Spec](SPEC-engine-path-scale.md), [tasks](tasks/engine-path-scale/). |
-| `browser-stress` | `test/browser-stress`, not yet merged | Playwright on a production build in installed Chrome, `npm run test:browser`: 200-node designs on the canvas, `/simulate` at 1,000,000 requests, memory over ten cycles, the first click on Run, and bad saved designs. It found and fixed a real bug: a click on Run before React hydrated was lost (0 of 20 with late scripts, 20 of 20 after). Two frame-rate checks are pinned to `canvas-render-scale`. [Spec](SPEC-browser-stress.md), [tasks](tasks/browser-stress/). |
+| `browser-stress` | `a35fe11` | Playwright on a production build in installed Chrome, `npm run test:browser`: 200-node designs on the canvas, `/simulate` at 1,000,000 requests, memory over ten cycles, the first click on Run, and bad saved designs. It found and fixed a real bug: a click on Run before React hydrated was lost (0 of 20 with late scripts, 20 of 20 after). Two frame-rate checks are pinned to `canvas-render-scale`. [Spec](SPEC-browser-stress.md), [tasks](tasks/browser-stress/). |
+| `canvas-render-scale` | `perf/canvas-render-scale`, not yet merged | Smooth frames on large designs. Realtime dashes stop moving past 20 connections and under reduced motion, the edges get their own layer only while the view moves, a drag re-renders only what changed, and playback re-renders only edges and nodes whose values change. Random 200: idle 21 to 60 fps, pan and zoom about 20 to 52–57, drag 20–22 to 35–38 (its target agreed at 20, for busy machines). App 200 playback 35–42 to 60. Both pins are ordinary checks. [Spec](SPEC-canvas-render-scale.md), [tasks](tasks/canvas-render-scale/). |
 
 **Where things stand:**
 - **Pins:** the default suite and the `STRESS=1` size ladder have no expected failures
   left. The ladder gives 29 passed in 44 s.
 - **Numbers:** every module kept the engine and load-model probes byte-identical to `main`.
-- **Browser:** `npm run test:browser` gives 20 passed in about 3.3 minutes, three runs in
-  a row. The two `[canvas-render-scale]` pins count as expected failures.
-- **Next:** spec `canvas-render-scale`, whose only dependency is `browser-stress`.
+- **Browser:** `npm run test:browser` gives 22 passed in 3.1–3.7 minutes, three runs in a
+  row, with no expected failures left.
+- **Next:** nothing on this map. Every module is built.
 
 `engine-path-scale` was added on 2026-11-06, after the map was first approved. It came out
 of specifying the harness, and you approved it with the harness spec.

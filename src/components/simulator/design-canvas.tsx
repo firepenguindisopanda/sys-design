@@ -18,11 +18,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChallengePicker } from "./challenge-picker";
 import { DesignIo } from "./design-io";
 import { DesignNode } from "./design-node";
-import { edgeAriaLabel, nodeAriaLabel } from "./flow-labels";
+import { canvasElements, createElementCache, type ElementCache } from "./canvas-elements";
 import { PendingProtocolPicker } from "./edge-inspector";
 import { InspectorCard } from "./inspector-card";
 import { SimulateLoadButton } from "./simulate-load-button";
 import { COMPONENT_CATALOG } from "@/lib/catalog";
+import { animateRealtime } from "@/lib/edges";
 import { DEFAULT_NODE_SIZE, LIBRARY_DRAG_TYPE } from "@/lib/placement";
 import { useSimulatorStore, type SimNode } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -87,25 +88,15 @@ function FlowCanvas() {
   // Screen-reader names are added here only, never written to the store.
   // The store's selection also marks the node, as for edges, so a node added from the
   // library shows its selected border and handles like a clicked one.
-  const namedNodes = useMemo(
-    () =>
-      nodes.map((n) => ({
-        ...n,
-        ariaLabel: nodeAriaLabel(n),
-        selected: n.id === selectedNodeId,
-      })),
-    [nodes, selectedNodeId],
+  // Elements whose inputs didn't change keep their object, so a drag re-renders only the
+  // moved node (SPEC-canvas-render-scale.md, fix 3). Past MAX_ANIMATED_EDGES realtime
+  // edges they are marked `still`: dashed, not moving (fix 1).
+  const cache = useRef<ElementCache>(createElementCache());
+  const still = useMemo(() => !animateRealtime(edges), [edges]);
+  const { nodes: namedNodes, edges: styledEdges } = useMemo(
+    () => canvasElements(cache.current, nodes, edges, selectedNodeId, selectedEdgeId, still),
+    [nodes, edges, selectedNodeId, selectedEdgeId, still],
   );
-
-  const styledEdges: Edge[] = edges.map((e) => ({
-    ...e,
-    ariaLabel: edgeAriaLabel(e, nodes),
-    selected: e.id === selectedEdgeId,
-    style: {
-      stroke: e.id === selectedEdgeId ? "#0f766e" : "#64748b",
-      strokeWidth: e.id === selectedEdgeId ? 2.5 : 1.5,
-    },
-  }));
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: SimNode) => selectNode(node.id),
@@ -139,6 +130,18 @@ function FlowCanvas() {
     if (width === 0 || height === 0) return;
     setViewCentre(screenToFlowPosition({ x: left + width / 2, y: top + height / 2 }));
   }, [screenToFlowPosition, setViewCentre]);
+
+  // While the view pans or zooms, globals.css gives the edges their own layer, so the browser
+  // moves them without repainting every path (SPEC-canvas-render-scale.md, fix 2). Only while
+  // moving: a standing layer changes how the text and fine lines around it are drawn. A data
+  // attribute, not a class, so React's className never overwrites it mid-move.
+  const onMoveStart = useCallback(() => {
+    if (flowRef.current) flowRef.current.dataset.moving = "";
+  }, []);
+  const onMoveEnd = useCallback(() => {
+    delete flowRef.current?.dataset.moving;
+    reportCentre();
+  }, [reportCentre]);
 
   useEffect(() => {
     const el = flowRef.current;
@@ -190,7 +193,8 @@ function FlowCanvas() {
       onConnectStart={onConnectStart}
       onConnectEnd={onConnectEnd}
       onInit={reportCentre}
-      onMoveEnd={reportCentre}
+      onMoveStart={onMoveStart}
+      onMoveEnd={onMoveEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onNodeClick={onNodeClick}

@@ -24,18 +24,31 @@ import {
 // SPEC-browser-stress.md, scenario 1: a 200-node design on the canvas. Budgets set
 // 2026-11-07, after three runs (tasks/browser-stress/todo.md, Task 2).
 
-/** A pin's target: app 200 drags at 40 fps and pans and zooms at 52–60; random 200 manages 22–25. */
+/**
+ * The frame rate every case keeps while dragging, panning and zooming. Random 200 managed
+ * 20–25 until canvas-render-scale (2026-11-08) stopped its 197 dashes moving, gave the edges
+ * a layer while the view moves, and re-rendered only what a drag changes: now 35–38 on drag
+ * and 52–57 on pan and zoom on a quiet machine. App 200 runs at 40–49 on drag, 48–54 on pan
+ * and 60 on zoom.
+ */
 const SMOOTH_FPS = 35;
 
 const BUDGET = { importMs: 5_000, importTaskMs: 2_000, runMs: 2_000, medianFrameMs: 50, worstDragFrameMs: 500 };
 
-type Case = { name: string; design: GenerateOptions; estimated: boolean; owner?: string };
+type Case = {
+  name: string;
+  design: GenerateOptions;
+  estimated: boolean;
+  /** A lower drag target than `SMOOTH_FPS`, where agreed */
+  dragFps?: number;
+};
 
 const CASES: Case[] = [
-  // Pinned: dragging, panning and zooming run at a median frame of 50 ms (22–25 fps), with
-  // no headroom against the budget, while app 200 runs at 40–60 fps. It has 395 edges
-  // against app 200's 344, yet each frame takes three times as long.
-  { name: "random 200 nodes, seed 1", design: RANDOM_200, estimated: true, owner: "canvas-render-scale" },
+  // 395 edges, 197 of them realtime: past 20 they keep their dashes but stand still.
+  // Its drag runs at 35–38 fps on a quiet machine but 25–27 on a busy one, so its drag
+  // target is 20, agreed 2026-11-08 (SPEC-canvas-render-scale.md, Results). That still
+  // catches the moving dashes coming back, which held drag at 16–17.
+  { name: "random 200 nodes, seed 1", design: RANDOM_200, estimated: true, dragFps: 20 },
   { name: "app 200 nodes, seed 1", design: APP_200, estimated: false },
 ];
 
@@ -100,23 +113,14 @@ for (const c of CASES) {
     withinBudget("longest task while importing", m.importTasks.longestMs, BUDGET.importTaskMs);
     withinBudget("run", m.runMs, BUDGET.runMs);
     withinBudget("drag worst frame", m.dragFrames.worstMs, BUDGET.worstDragFrameMs);
-    // A pinned case's frame rate is checked in its own test below.
-    if (!c.owner) {
-      withinBudget("drag median frame", m.dragFrames.medianMs, BUDGET.medianFrameMs);
-      withinBudget("pan median frame", m.panFrames.medianMs, BUDGET.medianFrameMs);
-      withinBudget("zoom median frame", m.zoomFrames.medianMs, BUDGET.medianFrameMs);
+    withinBudget("drag median frame", m.dragFrames.medianMs, BUDGET.medianFrameMs);
+    withinBudget("pan median frame", m.panFrames.medianMs, BUDGET.medianFrameMs);
+    withinBudget("zoom median frame", m.zoomFrames.medianMs, BUDGET.medianFrameMs);
+    if (BUDGETS_ON) {
+      smooth("drag", m.dragFrames, c.dragFps ?? SMOOTH_FPS);
+      smooth("pan", m.panFrames, SMOOTH_FPS);
+      smooth("zoom", m.zoomFrames, SMOOTH_FPS);
     }
     expect(errors).toEqual([]);
   });
-
-  if (c.owner) {
-    test(`[${c.owner}] canvas: ${c.name}, smooth frames`, async ({ page }) => {
-      test.skip(!BUDGETS_ON, "measuring only");
-      test.fail();
-      const m = await measureCanvas(page, c);
-      smooth("drag", m.dragFrames, SMOOTH_FPS);
-      smooth("pan", m.panFrames, SMOOTH_FPS);
-      smooth("zoom", m.zoomFrames, SMOOTH_FPS);
-    });
-  }
 }

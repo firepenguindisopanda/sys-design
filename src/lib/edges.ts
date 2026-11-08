@@ -113,3 +113,17 @@ export function createStyledEdge(
     `e-${partial.source}-${partial.target}-${protocol}-${Math.random().toString(36).slice(2, 7)}`;
   return styleEdgeForProtocol({ ...partial, id }, protocol, customLabel);
 }
+
+/**
+ * SPEC-canvas-render-scale.md: past this many realtime (animated) edges the canvas keeps
+ * their dashes but stops the motion, which repainted every frame and capped a 200-node
+ * design at 21 fps.
+ */
+export const MAX_ANIMATED_EDGES = 20;
+
+/** Whether the canvas should let realtime edges move. The store's `animated` is untouched. */
+export function animateRealtime(edges: readonly Edge[]): boolean {
+  let n = 0;
+  for (const e of edges) if (e.animated === true && ++n > MAX_ANIMATED_EDGES) return false;
+  return true;
+}
