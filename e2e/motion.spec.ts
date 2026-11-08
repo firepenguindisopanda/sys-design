@@ -71,7 +71,7 @@ test("motion: a 200-node design keeps its dashes and stands still", async ({ pag
 const edgesLayer = (page: Page) =>
   page.evaluate(() => getComputedStyle(document.querySelector(".react-flow__edges")!).willChange);
 
-test("motion: the edges get their own layer only while the view moves", async ({ page }) => {
+test("motion: the edges get their own layer only while the view is dragged", async ({ page }) => {
   // A standing layer changes how the text and fine lines around it are drawn, so the canvas
   // at rest must look as it always did; the layer is only for the move (fix 2).
   const errors = collectErrors(page);
@@ -86,5 +86,28 @@ test("motion: the edges get their own layer only while the view moves", async ({
   expect(await edgesLayer(page), "while panning").toBe("transform");
   await page.mouse.up();
   await expect.poll(() => edgesLayer(page), { message: "after the pan" }).toBe("auto");
+
+  // Not for the wheel: switching the layer on and off around every wheel gesture repainted
+  // all the edges each time, and zooming fell to 26–33 fps (manual testing, 2026-11-08).
+  const seen = await page.evaluate(async () => {
+    const edges = document.querySelector(".react-flow__edges")!;
+    const values = new Set<string>();
+    let watching = true;
+    const watch = () => {
+      values.add(getComputedStyle(edges).willChange);
+      if (watching) requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+    const pane = document.querySelector(".react-flow__pane")!.getBoundingClientRect();
+    const at = { clientX: pane.left + pane.width / 2, clientY: pane.top + pane.height / 2, bubbles: true };
+    for (let i = 0; i < 4; i++) {
+      document.querySelector(".react-flow__pane")!.dispatchEvent(new WheelEvent("wheel", { ...at, deltaY: -100 }));
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    watching = false;
+    return [...values];
+  });
+  expect(seen, "will-change on the edges while wheel-zooming").toEqual(["auto"]);
   expect(errors).toEqual([]);
 });

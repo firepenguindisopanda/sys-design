@@ -173,10 +173,11 @@
 }
 
 /*
- * While the editor's view pans or zooms (design-canvas.tsx sets data-moving), the edges get
- * their own compositor layer, so the browser moves them instead of repainting every long
- * path each frame (measured pan 31 to 53 fps on random 200). Never at rest: a standing layer
- * changes how the text and fine lines around it are drawn. SPEC-canvas-render-scale.md, fix 2.
+ * While the editor's view is dragged (design-canvas.tsx sets data-moving; not for the wheel),
+ * the edges get their own compositor layer, so the browser moves them instead of repainting
+ * every long path each frame (measured pan 31 to 53 fps on random 200). Never at rest: a
+ * standing layer changes how the text and fine lines around it are drawn.
+ * SPEC-canvas-render-scale.md, fix 2.
  */
 .react-flow[data-moving] .react-flow__edges {
   will-change: transform;

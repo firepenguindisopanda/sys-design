@@ -134,7 +134,10 @@ function Ready({
         </main>
         <aside
           aria-label="Scenario and results"
-          className="w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-white/90"
+          // relative: screen-reader-only text in the results is absolutely positioned, and
+          // without a positioned ancestor it escapes this scroll box and makes the page
+          // scroll (954 px past a 630 px window with a 200-node design).
+          className="relative w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-white/90"
         >
           {panel}
         </aside>

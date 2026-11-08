@@ -131,12 +131,14 @@ function FlowCanvas() {
     setViewCentre(screenToFlowPosition({ x: left + width / 2, y: top + height / 2 }));
   }, [screenToFlowPosition, setViewCentre]);
 
-  // While the view pans or zooms, globals.css gives the edges their own layer, so the browser
-  // moves them without repainting every path (SPEC-canvas-render-scale.md, fix 2). Only while
-  // moving: a standing layer changes how the text and fine lines around it are drawn. A data
-  // attribute, not a class, so React's className never overwrites it mid-move.
-  const onMoveStart = useCallback(() => {
-    if (flowRef.current) flowRef.current.dataset.moving = "";
+  // While the view is dragged, globals.css gives the edges their own layer, so the browser
+  // moves them without repainting every path (SPEC-canvas-render-scale.md, fix 2). Only
+  // while dragging: a standing layer changes how the text and fine lines around it are
+  // drawn. Not for the wheel: each wheel gesture switched the layer on and off, and every
+  // switch repainted all the edges, so zooming random 200 fell to 26–33 fps (manual
+  // testing, 2026-11-08). A data attribute, so React's className never overwrites it.
+  const onMoveStart = useCallback((event: MouseEvent | TouchEvent | null) => {
+    if (flowRef.current && event && event.type !== "wheel") flowRef.current.dataset.moving = "";
   }, []);
   const onMoveEnd = useCallback(() => {
     delete flowRef.current?.dataset.moving;
