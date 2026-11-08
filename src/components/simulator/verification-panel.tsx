@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { EARLY_CLICK_ATTRIBUTE, takeEarlyClick } from "@/lib/early-click";
 import { hintsUsed, stageRules } from "@/lib/hints";
 import { countResults, orderResults, summarizeCounts, type ResultRow } from "@/lib/results";
 import { useSimulatorStore } from "@/lib/store";
@@ -23,6 +24,8 @@ function statusLabel(status: CheckStatus) {
 }
 
 const RESULTS_ID = "verification-results";
+/** Run simulation's name for clicks made before React took over the page. */
+const EARLY_CLICK_RUN = "run";
 const HINT_ANNOUNCER_ID = "hint-announcement";
 
 const STATUS_SPOKEN: Record<CheckStatus, string> = {
@@ -74,6 +77,11 @@ export function VerificationPanel() {
     // the rule's row so it isn't lost. "Why?" keeps its button (its text changes).
     if (steps[id] !== 2) focusRowRef.current = `result-rule-${id}`;
   }
+
+  // A click on Run simulation before React took over the page (src/lib/early-click.ts).
+  useEffect(() => {
+    if (takeEarlyClick(EARLY_CLICK_RUN)) run();
+  }, [run]);
 
   useEffect(() => {
     if (!focusRowRef.current) return;
@@ -147,6 +155,7 @@ export function VerificationPanel() {
           <Button
             type="button"
             size="sm"
+            {...{ [EARLY_CLICK_ATTRIBUTE]: EARLY_CLICK_RUN }}
             onClick={run}
             className="h-8 gap-1.5 bg-teal-700 hover:bg-teal-800"
           >

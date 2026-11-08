@@ -28,6 +28,10 @@ describe("VerificationPanel", () => {
     expect(html).not.toContain("<li");
   });
 
+  it("marks Run simulation so a click before hydration is remembered", () => {
+    expect(render()).toMatch(/<button[^>]*data-early-click="run"[^>]*>(?:(?!<\/button>)[\s\S])*Run simulation<\/button>/);
+  });
+
   it("puts failures and warnings first and hides the passes after a run", () => {
     store().runVerification();
     const { verification, ruleResults } = store();
