@@ -270,10 +270,19 @@ const demoSeed = (): Pick<
         { id: "e-cdn-static", source: cdn.id, target: staticNode.id },
         "http",
       ),
+      // Clients reach the API through the load balancer, not through the static site: a
+      // static site only serves files, and passing requests on made it a hop (a warning).
       createStyledEdge(
-        { id: "e-static-lb", source: staticNode.id, target: lb.id },
+        {
+          id: "e-desktop-lb",
+          source: desktop.id,
+          target: lb.id,
+          sourceHandle: "s-right-0",
+          targetHandle: "t-left-2",
+        },
         "http",
       ),
+      createStyledEdge({ id: "e-cdn-lb", source: cdn.id, target: lb.id }, "http"),
       createStyledEdge({ id: "e-lb-paas", source: lb.id, target: paas.id }, "http"),
       createStyledEdge(
         {

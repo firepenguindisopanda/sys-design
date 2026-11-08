@@ -33,6 +33,8 @@ describe("VerificationPanel", () => {
   });
 
   it("puts failures and warnings first and hides the passes after a run", () => {
+    // The fan-in demo has failures, warnings and passes; the BeUWI demo passes everything.
+    store().loadFanInDemo();
     store().runVerification();
     const { verification, ruleResults } = store();
     const rows = orderResults(verification!.checks, ruleResults);

@@ -24,11 +24,13 @@ function verifyDemo(load: "loadDemo" | "loadFanInDemo") {
 }
 
 describe("demo designs", () => {
+  // Re-recorded 2026-11-08, when the demo stopped routing API calls through Static Hosting
+  // (it warned "Static Hosting used as hop"): clients now reach the load balancer directly.
   it("BeUWI demo", () => {
     expect(verifyDemo("loadDemo")).toEqual({
-      overall: "warn",
-      estimates: [96, 860, 99.8, 190],
-      nonPass: ["warn topo-intermediate-static_hosting-<n>"],
+      overall: "pass",
+      estimates: [68, 860, 99.8, 190],
+      nonPass: [],
     });
   });
 

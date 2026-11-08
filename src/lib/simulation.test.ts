@@ -845,7 +845,9 @@ describe("latency check on very tangled designs", () => {
       actual: "30 ms",
       detail: PASS_DETAIL,
     });
-    for (const [load, actual] of [["loadDemo", "96 ms"], ["loadFanInDemo", "20 ms"]] as const) {
+    // The BeUWI demo was 96 ms until 2026-11-08, when its clients stopped reaching the API
+    // through Static Hosting.
+    for (const [load, actual] of [["loadDemo", "68 ms"], ["loadFanInDemo", "20 ms"]] as const) {
       useSimulatorStore.getState()[load]();
       const s = useSimulatorStore.getState();
       expect(latencyOf(runVerification(s.nodes, s.edges, s.features, s.nfr)), load).toEqual({
